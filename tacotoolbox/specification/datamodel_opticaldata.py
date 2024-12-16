@@ -1,7 +1,7 @@
 from typing import List, Optional
 
 import pydantic
-from tacotoolbox.specification.utils_opticaldata import get_sensor_bands
+from tacotoolbox.specification.datamodel_opticaldata_utils import get_sensor_bands
 from typing_extensions import Self
 
 soportedsensor = [

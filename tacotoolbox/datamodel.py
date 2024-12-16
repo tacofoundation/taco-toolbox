@@ -1,11 +1,10 @@
-import pathlib
-from typing import List, Optional, Union
+from typing import List, Optional
 
 import pydantic
 import tacotoolbox.specification
 
 
-class TACOCollection(pydantic.BaseModel):
+class Collection(pydantic.BaseModel):
     id: str
     dataset_version: str
     description: str
