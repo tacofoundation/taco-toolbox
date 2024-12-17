@@ -4,4 +4,4 @@ from tacotoolbox import edit
 import pytortilla as tortilla
 
 __all__ = ["datamodel", "create", "tortilla", "edit", "tortilla2taco", "taco2tortilla"]
-__version__ = "0.3.2"
+__version__ = "0.3.3"
