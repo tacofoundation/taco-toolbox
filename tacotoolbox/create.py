@@ -78,7 +78,7 @@ def tortilla2taco(
     tortilla: Union[str, pathlib.Path],
     collection: Collection    
 ) -> Union[pathlib.Path, List[pathlib.Path]]:
-    """Convert a Tortilla file 🫓 to a TACO file 🌮.
+    """Convert a Tortilla 🫓 to a TACO 🌮.
 
     Args:
         tortilla (Union[str, pathlib.Path]): The path to 
