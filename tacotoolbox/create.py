@@ -1,10 +1,12 @@
-import os
 import mmap
+import os
 import pathlib
-import pytortilla
-from tacotoolbox.datamodel import Collection
-from typing import Union, List
 import random
+from typing import List, Union
+
+import pytortilla
+
+from tacotoolbox.datamodel import Collection
 
 
 def create(
@@ -51,7 +53,7 @@ def create(
             is returned.
     """
 
-    # 1. Create Tortilla files    
+    # 1. Create Tortilla files
     tortillas = pytortilla.create(
         samples=samples,
         output=output,
@@ -59,31 +61,30 @@ def create(
         chunk_size=chunk_size,
         chunk_size_iter=chunk_size_iter,
         tortilla_message=taco_message,
-        quiet=quiet
+        quiet=quiet,
     )
 
     # 2. Convert the tortillas in TACOs
     if isinstance(tortillas, list):
         tacos = []
         for tortilla in tortillas:
-            taco = tortilla2taco(tortilla, collection)            
+            taco = tortilla2taco(tortilla, collection)
             tacos.append(taco)
     else:
         tacos = tortilla2taco(tortillas, collection)
-    
+
     return tacos
 
 
 def tortilla2taco(
-    tortilla: Union[str, pathlib.Path],
-    collection: Collection    
+    tortilla: Union[str, pathlib.Path], collection: Collection
 ) -> Union[pathlib.Path, List[pathlib.Path]]:
     """Convert a Tortilla 🫓 to a TACO 🌮.
 
     Args:
-        tortilla (Union[str, pathlib.Path]): The path to 
+        tortilla (Union[str, pathlib.Path]): The path to
             the Tortilla file.
-        collection (tacotoolbox.datamodel.Collection): The global metadata 
+        collection (tacotoolbox.datamodel.Collection): The global metadata
             of the TACO file.
     """
     # Check if the Tortilla file exists
@@ -93,10 +94,10 @@ def tortilla2taco(
 
     # Get the length of the Tortilla file
     tortilla_size: int = tortilla.stat().st_size
-    tortilla_size_b: bytes = tortilla_size.to_bytes(8, byteorder="little")        
+    tortilla_size_b: bytes = tortilla_size.to_bytes(8, byteorder="little")
 
     # Convert the TACOcollection to a dictionary
-    metadata_bytes: bytes = collection.model_dump_json().encode()    
+    metadata_bytes: bytes = collection.model_dump_json().encode()
     metadata_size: int = len(metadata_bytes)
     metadata_size_b: bytes = metadata_size.to_bytes(8, byteorder="little")
 
@@ -105,7 +106,7 @@ def tortilla2taco(
         # Upgrade the Magic Number (MB)
         # The day I first piloted my own EVA in Tokyo-3.
         file.write(b"WX")
-                
+
         # Skip the Tortilla header
         file.seek(26)
 
@@ -130,7 +131,7 @@ def taco2tortilla(
     """Convert a TACO file 🌮 to a Tortilla file 🫓.
 
     Args:
-        taco (Union[str, pathlib.Path]): The path to 
+        taco (Union[str, pathlib.Path]): The path to
             the TACO file.
     """
     # Check if the taco file exists
@@ -142,11 +143,11 @@ def taco2tortilla(
     with open(taco, "r+b") as file:
         with mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_WRITE) as mm:
             # Set the Magic Number (MB)
-            # Don't forget 3.oct.11        
+            # Don't forget 3.oct.11
             mm[0:2] = b"#y"
 
             # Clean the CO
-            CO_int = int.from_bytes(mm[26:34], byteorder="little") 
+            CO_int = int.from_bytes(mm[26:34], byteorder="little")
             mm[26:34] = b"\x00" * 8
 
             # Clean the CL

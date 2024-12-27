@@ -1,6 +1,7 @@
 from typing import List, Optional
 
 import pydantic
+
 from tacotoolbox.specification.datamodel_contacts import Contact
 
 

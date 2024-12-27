@@ -1,15 +1,16 @@
-from typing import Union
-import pathlib
 import mmap
+import pathlib
+from typing import Union
+
 import pandas as pd
-import tacotoolbox.datamodel
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+import tacotoolbox.datamodel
+
 
 def edit_collection(
-    taco: Union[str, pathlib.Path],
-    collection: tacotoolbox.datamodel.Collection    
+    taco: Union[str, pathlib.Path], collection: tacotoolbox.datamodel.Collection
 ) -> pathlib.Path:
     """Edit the Collection of a TACO file 🌮.
 
@@ -18,9 +19,9 @@ def edit_collection(
     Args:
         taco (Union[str, pathlib.Path]): The path to
             the TACO file.
-        collection (tacotoolbox.datamodel.Collection): The new 
+        collection (tacotoolbox.datamodel.Collection): The new
             collection of the TACO file.
-            
+
     Returns:
         pathlib.Path: Path to the updated TACO file.
     """
@@ -28,7 +29,7 @@ def edit_collection(
     taco = pathlib.Path(taco)
     if not taco.exists():
         raise FileNotFoundError(f"The TACO file 🌮 '{taco}' does not exist.")
-    
+
     # Convert the Collection to a dictionary
     metadata_bytes: bytes = collection.model_dump_json().encode()
     metadata_size: int = len(metadata_bytes)
@@ -53,7 +54,7 @@ def edit_collection(
 
             # Truncate the file if the new metadata is smaller or larger
             mm.resize(metadata_offset + metadata_size)
-            
+
             # Overwrite the metadata
             mm.write(metadata_bytes)
 
@@ -62,20 +63,19 @@ def edit_collection(
 
 
 def edit_footer(
-    taco: Union[str, pathlib.Path],
-    dataframe: pd.DataFrame
+    taco: Union[str, pathlib.Path], dataframe: pd.DataFrame
 ) -> pathlib.Path:
     """Edit the Footer of a TACO file 🌮.
 
     Sometimes you may want to add a new field or modify an existing one.
-    
+
 
     Args:
         taco (Union[str, pathlib.Path]): The path to
             the TACO file.
-        dataframe (tacotoolbox.datamodel.Collection): The new 
+        dataframe (tacotoolbox.datamodel.Collection): The new
             dataframe of the TACO file.
-            
+
     Returns:
         pathlib.Path: Path to the updated TACO file.
     """
@@ -84,13 +84,15 @@ def edit_footer(
     taco = pathlib.Path(taco)
     if not taco.exists():
         raise FileNotFoundError(f"The TACO file 🌮 '{taco}' does not exist.")
-    
-    # Drop the internal:* fields    
+
+    # Drop the internal:* fields
     dataframe.drop(
         columns=[
-            col for col in dataframe.columns if (col.startswith("internal:") or col == "geometry")
+            col
+            for col in dataframe.columns
+            if (col.startswith("internal:") or col == "geometry")
         ],
-        inplace=True
+        inplace=True,
     )
 
     # Get the position of the collection
@@ -106,11 +108,11 @@ def edit_footer(
         # return a blob of the in-memory Parquet file as bytes
         # This is the FOOTER metadata
         FOOTER: bytes = sink.getvalue().to_pybytes()
-    
-    # Define the new FOOTER length
-    newFL: bytes = len(FOOTER).to_bytes(8, "little")    
 
-    if tortilla_or_taco(taco) == "🫓":        
+    # Define the new FOOTER length
+    newFL: bytes = len(FOOTER).to_bytes(8, "little")
+
+    if tortilla_or_taco(taco) == "🫓":
         with open(taco, "r+b") as file:
             with mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_WRITE) as mm:
                 # Modify the FL
@@ -127,15 +129,15 @@ def edit_footer(
     elif tortilla_or_taco(taco) == "🌮":
         with open(taco, "r+b") as file:
             with mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_WRITE) as mm:
-                
+
                 # Load FOOTER and COLLECTION offsets
                 FO: int = int.from_bytes(mm[2:10], "little")
                 CO = int.from_bytes(mm[26:34], byteorder="little")
                 CL = int.from_bytes(mm[34:42], byteorder="little")
 
                 # Load the COLLECTION bytes
-                COLLECTION: bytes = mm[CO:CO+CL]
-                
+                COLLECTION: bytes = mm[CO : CO + CL]
+
                 # Upgrade the FOOTER length
                 mm[10:18] = newFL
 
@@ -146,20 +148,20 @@ def edit_footer(
                 mm.resize(FO + len(FOOTER) + len(COLLECTION))
 
                 # Write the FOOTER
-                mm[FO:(FO+len(FOOTER))] = FOOTER
+                mm[FO : (FO + len(FOOTER))] = FOOTER
 
                 # Write the COLLECTION
-                mm[(FO+len(FOOTER)):] = COLLECTION
-        
+                mm[(FO + len(FOOTER)) :] = COLLECTION
+
         print(f"Footer updated successfully! 🌮")
     else:
         raise ValueError("Invalid file type: must be a TACO 🌮 or a Tortilla 🫓")
-    
+
     return taco
 
 
 def tortilla_or_taco(taco: Union[str, pathlib.Path]) -> str:
-    """ This function checks if a file is a Tortilla or a TACO.
+    """This function checks if a file is a Tortilla or a TACO.
 
     Args:
         taco (Union[str, pathlib.Path]): The path to the file.

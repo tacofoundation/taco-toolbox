@@ -1,8 +1,10 @@
 from typing import List, Optional
 
 import pydantic
-from tacotoolbox.specification.datamodel_opticaldata_utils import get_sensor_bands
 from typing_extensions import Self
+
+from tacotoolbox.specification.datamodel_opticaldata_utils import \
+    get_sensor_bands
 
 soportedsensor = [
     "landsat1mss",
