@@ -1,5 +1,6 @@
 import ee
 
+
 def create_single_product(name, path, reducer, band=None, collection_type="Image", unmask_value=0):
     """Create a single territorial product."""
     if collection_type == "ImageCollection":
@@ -78,7 +79,7 @@ def get_territorial_products():
         create_single_product(
             "temperature",
             "projects/ee-csaybar-real/assets/temperature",
-            ee.Reducer.mean(),            
+            ee.Reducer.mean(),
         )
     )
 
@@ -99,7 +100,7 @@ def get_territorial_products():
             "human_modification",
             "projects/sat-io/open-datasets/GHM/HM_1990_2020_OVERALL_300M",
             ee.Reducer.mean(),
-            band="constant",            
+            band="constant",
             collection_type="ImageCollection",
         )
     )

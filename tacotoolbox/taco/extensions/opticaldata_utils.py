@@ -1,11 +1,8 @@
-from typing import Union
-
-
-def landsat1mss_bands(bands: Union[str, list] = "all") -> dict:
+def landsat1mss_bands(bands: str | list = "all") -> dict:
     """Gets the bands of the Landsat 1 - MSS sensor.
 
     Args:
-        bands (Union[str, list], optional): The bands to be added.
+        bands (str | list, optional): The bands to be added.
             If "all", all bands are added. Defaults to "all".
 
     Returns:
@@ -49,11 +46,11 @@ def landsat1mss_bands(bands: Union[str, list] = "all") -> dict:
     return landsat1_mss_bands
 
 
-def landsat2mss_bands(bands: Union[str, list] = "all") -> dict:
+def landsat2mss_bands(bands: str | list = "all") -> dict:
     """Gets the bands of the Landsat 2 - MSS sensor.
 
     Args:
-        bands (Union[str, list], optional): The bands to be added.
+        bands (str | list, optional): The bands to be added.
             If "all", all bands are added. Defaults to "all".
     Returns:
         dict: The bands of the Landsat 2 - MSS sensor.
@@ -96,11 +93,11 @@ def landsat2mss_bands(bands: Union[str, list] = "all") -> dict:
     return landsat2_mss_bands
 
 
-def landsat3mss_bands(bands: Union[str, list] = "all") -> dict:
+def landsat3mss_bands(bands: str | list = "all") -> dict:
     """Gets the bands of the Landsat 3 - MSS sensor.
 
     Args:
-        bands (Union[str, list], optional): The bands to be added.
+        bands (str | list, optional): The bands to be added.
             If "all", all bands are added. Defaults to "all".
     Returns:
         dict: The bands of the Landsat 3 - MSS sensor.
@@ -143,12 +140,12 @@ def landsat3mss_bands(bands: Union[str, list] = "all") -> dict:
     return landsat3_mss_bands
 
 
-def landsat4mss_bands(bands: Union[str, list] = "all") -> dict:
+def landsat4mss_bands(bands: str | list = "all") -> dict:
     """Gets the bands of the Landsat 4 - MSS sensor.
 
     Args:
 
-        bands (Union[str, list], optional): The bands to be added.
+        bands (str | list, optional): The bands to be added.
             If "all", all bands are added. Defaults to "all".
     Returns:
         dict: The bands of the Landsat 4 - MSS sensor.
@@ -191,11 +188,11 @@ def landsat4mss_bands(bands: Union[str, list] = "all") -> dict:
     return landsat4_mss_bands
 
 
-def landsat4tm_bands(bands: Union[str, list] = "all") -> dict:
+def landsat4tm_bands(bands: str | list = "all") -> dict:
     """Gets the bands of the Landsat 4 - TM sensor.
 
     Args:
-        bands (Union[str, list], optional): The bands to be added.
+        bands (str | list, optional): The bands to be added.
             If "all", all bands are added. Defaults to "all".
 
     Returns:
@@ -260,12 +257,12 @@ def landsat4tm_bands(bands: Union[str, list] = "all") -> dict:
     return landsat4_tm_bands
 
 
-def landsat5mss_bands(bands: Union[str, list] = "all") -> dict:
+def landsat5mss_bands(bands: str | list = "all") -> dict:
     """Gets the bands of the Landsat 5 - MSS sensor.
 
     Args:
 
-        bands (Union[str, list], optional): The bands to be added.
+        bands (str | list, optional): The bands to be added.
             If "all", all bands are added. Defaults to "all".
 
     Returns:
@@ -309,12 +306,12 @@ def landsat5mss_bands(bands: Union[str, list] = "all") -> dict:
     return landsat5_mss_bands
 
 
-def landsat5tm_bands(bands: Union[str, list] = "all") -> dict:
+def landsat5tm_bands(bands: str | list = "all") -> dict:
     """Gets the bands of the Landsat 5 - TM sensor.
 
     Args:
 
-        bands (Union[str, list], optional): The bands to be added.
+        bands (str | list, optional): The bands to be added.
             If "all", all bands are added. Defaults to "all".
 
     Returns:
@@ -379,12 +376,12 @@ def landsat5tm_bands(bands: Union[str, list] = "all") -> dict:
     return landsat5_tm_bands
 
 
-def landsat7etm_bands(bands: Union[str, list] = "all") -> dict:
+def landsat7etm_bands(bands: str | list = "all") -> dict:
     """Gets the bands of the Landsat 7 - ETM+ sensor.
 
     Args:
 
-        bands (Union[str, list], optional): The bands to be added.
+        bands (str | list, optional): The bands to be added.
             If "all", all bands are added. Defaults to "all".
 
     Returns:
@@ -456,11 +453,11 @@ def landsat7etm_bands(bands: Union[str, list] = "all") -> dict:
     return landsat7_bands
 
 
-def landsat8oli_bands(bands: Union[str, list] = "all") -> dict:
+def landsat8oli_bands(bands: str | list = "all") -> dict:
     """Gets the bands of the Landsat 8 - OLI sensor.
 
     Args:
-        bands (Union[str, list], optional): The bands to be added.
+        bands (str | list, optional): The bands to be added.
             If "all", all bands are added. Defaults to "all".
 
     Returns:
@@ -553,11 +550,11 @@ def landsat8oli_bands(bands: Union[str, list] = "all") -> dict:
     return landsat8_bands
 
 
-def landsat9oli_bands(bands: Union[str, list] = "all") -> dict:
+def landsat9oli_bands(bands: str | list = "all") -> dict:
     """Gets the bands of the Landsat 9 - OLI sensor.
 
     Args:
-        bands (Union[str, list], optional): The bands to be added.
+        bands (str | list, optional): The bands to be added.
             If "all", all bands are added. Defaults to "all".
 
     Returns:
@@ -650,11 +647,11 @@ def landsat9oli_bands(bands: Union[str, list] = "all") -> dict:
     return landsat9_bands
 
 
-def sentinel2msi_bands(bands: Union[str, list] = "all") -> dict:
+def sentinel2msi_bands(bands: str | list = "all") -> dict:
     """Gets the bands of the Sentinel 2 sensor.
 
     Args:
-        bands (Union[str, list], optional): The bands to be added.
+        bands (str | list, optional): The bands to be added.
             If "all", all bands are added. Defaults to "all".
 
     Returns:
@@ -760,11 +757,11 @@ def sentinel2msi_bands(bands: Union[str, list] = "all") -> dict:
     return sentinel2_bands
 
 
-def eo1ali_bands(bands: Union[str, list] = "all") -> dict:
+def eo1ali_bands(bands: str | list = "all") -> dict:
     """Gets the bands of the EO1 - ALI sensor.
 
     Args:
-        bands (Union[str, list], optional): The bands to be added.
+        bands (str | list, optional): The bands to be added.
             If "all", all bands are added. Defaults to "all".
 
     Returns:
@@ -852,7 +849,7 @@ def aster_bands(bands: str = "all") -> dict:
     """Gets the bands of the ASTER sensor.
 
     Args:
-        bands (Union[str, list], optional): The bands to be added.
+        bands (str | list, optional): The bands to be added.
             If "all", all bands are added. Defaults to "all".
 
     Returns:
@@ -977,7 +974,7 @@ def modis_bands(bands: str = "all") -> dict:
     """Gets the bands of the MODIS sensor.
 
     Args:
-        bands (Union[str, list], optional): The bands to be added.
+        bands (str | list, optional): The bands to be added.
             If "all", all bands are added. Defaults to "all".
 
     Returns:
@@ -1245,43 +1242,39 @@ def modis_bands(bands: str = "all") -> dict:
     return modis_bands
 
 
-def get_sensor_bands(sensor: str, bands: Union[str, list] = "all") -> dict:
+def get_sensor_bands(sensor: str, bands: str | list = "all") -> dict:
     """Gets the bands of a specific sensor.
 
     Args:
         sensor (str): The sensor to get the bands from.
-        bands (Union[str, list], optional): The bands to be added.
+        bands (str | list, optional): The bands to be added.
             If "all", all bands are added. Defaults to "all".
 
     Returns:
         dict: The bands of the sensor.
     """
 
-    if sensor.lower() == "landsat1mss":
-        return landsat1mss_bands(bands)
-    elif sensor.lower() == "landsat2mss":
-        return landsat2mss_bands(bands)
-    elif sensor.lower() == "landsat3mss":
-        return landsat3mss_bands(bands)
-    elif sensor.lower() == "landsat4mss":
-        return landsat4mss_bands(bands)
-    elif sensor.lower() == "landsat5mss":
-        return landsat5mss_bands(bands)
-    elif sensor.lower() == "landsat4tm":
-        return landsat4tm_bands(bands)
-    elif sensor.lower() == "landsat5tm":
-        return landsat5tm_bands(bands)
-    elif sensor.lower() == "landsat7etm":
-        return landsat7etm_bands(bands)
-    elif sensor.lower() == "landsat8oli":
-        return landsat8oli_bands(bands)
-    elif sensor.lower() == "landsat9oli":
-        return landsat9oli_bands(bands)
-    elif sensor.lower() == "sentinel2msi":
-        return sentinel2msi_bands(bands)
-    elif sensor.lower() == "eo1ali":
-        return eo1ali_bands(bands)
-    elif sensor.lower() == "aster":
-        return aster_bands(bands)
-    elif sensor.lower() == "modis":
-        return modis_bands(bands)
+    # Mapping of sensors to their corresponding band functions
+    sensor_functions = {
+        "landsat1mss": landsat1mss_bands,
+        "landsat2mss": landsat2mss_bands,
+        "landsat3mss": landsat3mss_bands,
+        "landsat4mss": landsat4mss_bands,
+        "landsat5mss": landsat5mss_bands,
+        "landsat4tm": landsat4tm_bands,
+        "landsat5tm": landsat5tm_bands,
+        "landsat7etm": landsat7etm_bands,
+        "landsat8oli": landsat8oli_bands,
+        "landsat9oli": landsat9oli_bands,
+        "sentinel2msi": sentinel2msi_bands,
+        "eo1ali": eo1ali_bands,
+        "aster": aster_bands,
+        "modis": modis_bands,
+    }
+
+    sensor_lower = sensor.lower()
+
+    if sensor_lower not in sensor_functions:
+        raise ValueError(f"Unsupported sensor: {sensor}")
+
+    return sensor_functions[sensor_lower](bands)

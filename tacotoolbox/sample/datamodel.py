@@ -1,5 +1,4 @@
 import functools
-import polars as pl
 import pathlib
 import re
 import tempfile
@@ -7,6 +6,7 @@ import uuid
 from abc import ABC, abstractmethod
 from typing import Any, Literal
 
+import polars as pl
 import pydantic
 
 # Dependencies
@@ -21,78 +21,85 @@ VALID_KEY_PATTERN = re.compile(r"^[a-zA-Z0-9_]+(?:[:][\w]+)?$")
 # Core fields that cannot be overwritten by extensions
 PROTECTED_CORE_FIELDS = {"id", "type", "path"}
 
+
 class SampleExtension(ABC, pydantic.BaseModel):
     """Abstract base class for Sample extensions that compute metadata."""
-    
+
     return_none: bool = pydantic.Field(False, description="If True, return None values while preserving schema")
-    
+
     @abstractmethod
     def get_schema(self) -> dict[str, pl.DataType]:
         """Return the expected schema for this extension."""
         pass
-    
+
     @abstractmethod
-    def _compute(self, sample: 'Sample') -> pl.DataFrame:
+    def _compute(self, sample: "Sample") -> pl.DataFrame:
         """Actual computation logic - only called when return_none=False."""
         pass
-    
-    def __call__(self, sample: 'Sample') -> pl.DataFrame:
+
+    def __call__(self, sample: "Sample") -> pl.DataFrame:
         """
         Process Sample and return computed metadata.
-        
+
         Args:
             sample: Input Sample object
-                
+
         Returns:
             pl.DataFrame: Single-row DataFrame with computed metadata
         """
         # Check return_none FIRST for performance
         if self.return_none:
             schema = self.get_schema()
-            none_data = {col_name: [None] for col_name in schema.keys()}
+            none_data = {col_name: [None] for col_name in schema}
             return pl.DataFrame(none_data, schema=schema)
-        
+
         # Only do actual computation if needed
         return self._compute(sample)
 
 
 def requires_gdal(min_version="3.11"):
     """Decorator to ensure GDAL is available with minimum version."""
+
     def decorator(func):
         # Cache the check result to make subsequent calls fast
         _gdal_checked = False
         _gdal_module = None
-        
+
+        def _raise_gdal_version_error(current_version, min_version):
+            """Raise ImportError for GDAL version mismatch."""
+            raise ImportError(f"GDAL {min_version}+ required. Current: {current_version}")
+
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             nonlocal _gdal_checked, _gdal_module
-            
+
             if not _gdal_checked:
                 try:
                     from osgeo import gdal
+
                     _gdal_module = gdal
-                    
+
                     # Simple version comparison using tuple comparison
-                    current = tuple(map(int, gdal.__version__.split('.')[:2]))
-                    required = tuple(map(int, min_version.split('.')[:2]))
-                    
+                    current = tuple(map(int, gdal.__version__.split(".")[:2]))
+                    required = tuple(map(int, min_version.split(".")[:2]))
+
                     if current < required:
-                        raise ImportError(
-                            f"GDAL {min_version}+ required. Current: {gdal.__version__}"
-                        )
-                        
+                        _raise_gdal_version_error(gdal.__version__, min_version)
+
                 except ImportError as e:
                     if "GDAL" not in str(e):
                         raise ImportError(
                             f"GDAL {min_version}+ required for TACOTIFF validation. "
                             f"Install: conda install gdal>={min_version}"
-                        )
+                        ) from e
                     raise
-                
+
                 _gdal_checked = True
-            
+
             return func(*args, **kwargs)
+
         return wrapper
+
     return decorator
 
 
@@ -173,8 +180,8 @@ class Sample(pydantic.BaseModel):
     - OTHER: Other file-based formats (e.g., TIFF, NetCDF, HDF5, PDF, CSV)
 
     Bytes Support:
-    When passing bytes as path, temporary files are created in the system temp 
-    directory. For large datasets with many samples, the temp directory may fill 
+    When passing bytes as path, temporary files are created in the system temp
+    directory. For large datasets with many samples, the temp directory may fill
     up quickly. Use temp_dir parameter to specify a directory with adequate space.
 
     Example:
@@ -204,32 +211,29 @@ class Sample(pydantic.BaseModel):
 
     model_config = pydantic.ConfigDict(
         arbitrary_types_allowed=True,  # Support Tortilla dataclass
-        extra="allow"  # Allow dynamic fields from extensions
+        extra="allow",  # Allow dynamic fields from extensions
     )
 
     def __init__(self, temp_dir: pathlib.Path | None = None, **data):
         """Initialize Sample with optional temp_dir that doesn't get stored."""
         # Handle temp_dir for bytes conversion without storing it
-        if 'path' in data and isinstance(data['path'], bytes):
-            if temp_dir is None:
-                temp_dir = pathlib.Path(tempfile.gettempdir())
-            else:
-                temp_dir = pathlib.Path(temp_dir)
-            
+        if "path" in data and isinstance(data["path"], bytes):
+            temp_dir = pathlib.Path(tempfile.gettempdir()) if temp_dir is None else pathlib.Path(temp_dir)
+
             # Create temp directory if it doesn't exist
             temp_dir.mkdir(parents=True, exist_ok=True)
-            
+
             # Generate UUID-based filename
             temp_filename = uuid.uuid4().hex
             temp_path = temp_dir / temp_filename
-            
+
             # Write bytes to temp file
-            with open(temp_path, 'wb') as f:
-                f.write(data['path'])
-            
+            with open(temp_path, "wb") as f:
+                f.write(data["path"])
+
             # Replace bytes with path
-            data['path'] = temp_path.absolute()
-        
+            data["path"] = temp_path.absolute()
+
         super().__init__(**data)
 
     @pydantic.field_validator("path")
@@ -249,13 +253,11 @@ class Sample(pydantic.BaseModel):
     def global_validation(self):
         """Cross-field validation ensuring path type matches asset type."""
         # TORTILLA type must have Tortilla path
-        if self.type == "TORTILLA":
-            if not isinstance(self.path, Tortilla):
-                raise ValueError("TORTILLA type must have a Tortilla instance as path")
+        if self.type == "TORTILLA" and not isinstance(self.path, Tortilla):
+            raise ValueError("TORTILLA type must have a Tortilla instance as path")
 
         # TACOTIFF specific validations
         if self.type == "TACOTIFF":
-
             TacotiffValidator().validate(self.path)
 
         return self
@@ -272,63 +274,68 @@ class Sample(pydantic.BaseModel):
             Sample: Self for method chaining
         """
         # Check if this is a computational SampleExtension
-        if hasattr(extension, '__call__') and hasattr(extension, 'model_dump'):
-            computed_metadata = extension(self)
-            if isinstance(computed_metadata, pl.DataFrame):
-                # Convert single-row DataFrame to dict
-                if len(computed_metadata) != 1:
-                    raise ValueError("SampleExtension must return single-row DataFrame")
-                
-                # Capture schemas before converting to dict
-                for col_name, dtype in computed_metadata.schema.items():
-                    self._extension_schemas[col_name] = dtype
-                
-                metadata_dict = computed_metadata.to_dicts()[0]
-                for key, value in metadata_dict.items():
-                    self._validate_key(key)
-                    if key in PROTECTED_CORE_FIELDS:
-                        raise ValueError(f"Cannot override core field: {key}")
-                    setattr(self, key, value)
-
+        if callable(extension) and hasattr(extension, "model_dump"):
+            self._handle_sample_extension(extension)
         elif isinstance(extension, pl.DataFrame):
-            # Direct DataFrame extension
-            if len(extension) != 1:
-                raise ValueError("DataFrame extension must have exactly one row")
-            
-            # Capture schemas before converting to dict
-            for col_name, dtype in extension.schema.items():
-                self._extension_schemas[col_name] = dtype
-            
-            metadata_dict = extension.to_dicts()[0]
-            for key, value in metadata_dict.items():
-                self._validate_key(key)
-                if key in PROTECTED_CORE_FIELDS:
-                    raise ValueError(f"Cannot override core field: {key}")
-                setattr(self, key, value)
-                                
+            self._handle_dataframe_extension(extension)
         elif isinstance(extension, dict):
-            # Dictionary extension - assume default polars inference for types
-            for key, value in extension.items():
-                self._validate_key(key)
-                if key in PROTECTED_CORE_FIELDS:
-                    raise ValueError(f"Cannot override core field: {key}")
-                setattr(self, key, value)
-                
+            self._handle_dict_extension(extension)
         else:
-            # Pydantic model extension - assume default polars inference for types
-            namespace = name if name else extension.__class__.__name__.lower()
-            if hasattr(extension, "model_dump"):
-                extension_data = extension.model_dump()
-                for key, value in extension_data.items():
-                    namespaced_key = f"{namespace}:{key}"
-                    self._validate_key(namespaced_key)
-                    if namespaced_key in PROTECTED_CORE_FIELDS:
-                        raise ValueError(f"Cannot override core field: {namespaced_key}")
-                    setattr(self, namespaced_key, value)
-            else:
-                raise ValueError(f"Extension must be pydantic model or dict, got: {type(extension)}")
-        
+            self._handle_pydantic_extension(extension, name)
+
         return None
+
+    def _handle_sample_extension(self, extension) -> None:
+        """Handle SampleExtension (callable with model_dump)."""
+        computed_metadata = extension(self)
+        if isinstance(computed_metadata, pl.DataFrame):
+            # Convert single-row DataFrame to dict
+            if len(computed_metadata) != 1:
+                raise ValueError("SampleExtension must return single-row DataFrame")
+
+            # Capture schemas before converting to dict
+            for col_name, dtype in computed_metadata.schema.items():
+                self._extension_schemas[col_name] = dtype
+
+            metadata_dict = computed_metadata.to_dicts()[0]
+            self._add_metadata_fields(metadata_dict)
+
+    def _handle_dataframe_extension(self, extension: pl.DataFrame) -> None:
+        """Handle direct DataFrame extension."""
+        if len(extension) != 1:
+            raise ValueError("DataFrame extension must have exactly one row")
+
+        # Capture schemas before converting to dict
+        for col_name, dtype in extension.schema.items():
+            self._extension_schemas[col_name] = dtype
+
+        metadata_dict = extension.to_dicts()[0]
+        self._add_metadata_fields(metadata_dict)
+
+    def _handle_dict_extension(self, extension: dict) -> None:
+        """Handle dictionary extension."""
+        self._add_metadata_fields(extension)
+
+    def _handle_pydantic_extension(self, extension, name: str | None) -> None:
+        """Handle Pydantic model extension."""
+        namespace = name if name else extension.__class__.__name__.lower()
+        if hasattr(extension, "model_dump"):
+            extension_data = extension.model_dump()
+            namespaced_data = {}
+            for key, value in extension_data.items():
+                namespaced_key = f"{namespace}:{key}"
+                namespaced_data[namespaced_key] = value
+            self._add_metadata_fields(namespaced_data)
+        else:
+            raise ValueError(f"Extension must be pydantic model or dict, got: {type(extension)}")
+
+    def _add_metadata_fields(self, metadata_dict: dict) -> None:
+        """Add metadata fields to the sample with validation."""
+        for key, value in metadata_dict.items():
+            self._validate_key(key)
+            if key in PROTECTED_CORE_FIELDS:
+                raise ValueError(f"Cannot override core field: {key}")
+            setattr(self, key, value)
 
     def _validate_key(self, key: str) -> None:
         """Validate key format."""
@@ -349,25 +356,23 @@ class Sample(pydantic.BaseModel):
             pl.DataFrame: Single-row DataFrame with complete sample metadata
         """
         data = self.model_dump()
-        
+
         # Handle path serialization
         if isinstance(self.path, pathlib.Path):
             data["path"] = self.path.as_posix()
         elif isinstance(self.path, Tortilla):
             data["path"] = None
-        
+
         # Create initial DataFrame
         df = pl.DataFrame([data])
-        
+
         # Apply saved schemas
         cast_exprs = []
         for col_name, dtype in self._extension_schemas.items():
             if col_name in df.columns:
                 cast_exprs.append(pl.col(col_name).cast(dtype))
-        
+
         if cast_exprs:
             df = df.with_columns(cast_exprs)
-        
+
         return df
-
-

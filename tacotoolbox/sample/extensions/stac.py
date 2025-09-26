@@ -1,13 +1,12 @@
 import datetime
 from typing import TypeAlias
-import polars as pl
 
+import polars as pl
 import pydantic
 from pyproj import CRS, Transformer
 from shapely.geometry import Point
 from shapely.wkb import dumps as wkb_dumps
 
-# Import the ABC interface  
 from tacotoolbox.sample.datamodel import SampleExtension
 
 ShapeND: TypeAlias = tuple[int, ...]
@@ -59,7 +58,7 @@ def raster_centroid(
 
 class STAC(SampleExtension):
     """
-    Minimal SpatioTemporal Asset Catalog (STAC)–style metadata for samples
+    Minimal SpatioTemporal Asset Catalog (STAC)-style metadata for samples
 
     Fields
     ------
@@ -148,7 +147,7 @@ class STAC(SampleExtension):
             "stac:geotransform": pl.List(pl.Float64),
             "stac:time_start": pl.Int64,
             "stac:centroid": pl.Binary,
-            "stac:time_end": pl.Int64
+            "stac:time_end": pl.Int64,
         }
 
     def _compute(self, sample) -> pl.DataFrame:
@@ -160,64 +159,7 @@ class STAC(SampleExtension):
                 "stac:geotransform": [list(self.geotransform)],
                 "stac:time_start": [self.time_start],
                 "stac:centroid": [self.centroid],
-                "stac:time_end": [self.time_end]
+                "stac:time_end": [self.time_end],
             },
-            schema=self.get_schema()
+            schema=self.get_schema(),
         )
-
-
-if __name__ == "__main__":
-    import pathlib
-    import tempfile
-    import numpy as np
-    from osgeo import gdal    
-    from tacotoolbox.sample.datamodel import Sample
-    
-    # Demo STAC extension usage
-    stac_example = STAC(
-        crs="EPSG:4326",
-        tensor_shape=(50, 50),
-        geotransform=(0, 0.01, 0, 0, 0, -0.01),
-        time_start=datetime.datetime.now(),
-    )
-    
-    # Create a small GeoTIFF with random values
-    temp_file = tempfile.NamedTemporaryFile(suffix='.tif', delete=False)
-    temp_file.close()
-    
-    # Create 3-band GeoTIFF (50x50 pixels)
-    driver = gdal.GetDriverByName('GTiff')
-    dataset = driver.Create(temp_file.name, 50, 50, 3, gdal.GDT_UInt16)
-    
-    # Fill bands with random values
-    band1_data = np.random.randint(0, 1000, (50, 50), dtype=np.uint16)
-    band2_data = np.random.randint(500, 1500, (50, 50), dtype=np.uint16)  
-    band3_data = np.random.randint(0, 2000, (50, 50), dtype=np.uint16)
-    
-    dataset.GetRasterBand(1).WriteArray(band1_data)
-    dataset.GetRasterBand(2).WriteArray(band2_data)
-    dataset.GetRasterBand(3).WriteArray(band3_data)
-    dataset.FlushCache()
-    dataset = None
-    
-    # Create Sample
-    sample = Sample(id="test_sample", path=pathlib.Path(temp_file.name), type="OTHER")
-    
-    # Apply extension
-    result = stac_example(sample)
-    print("STAC DataFrame:")
-    print(result)
-    print("\nSchema:")
-    print(result.schema)
-
-    # Extend sample with STAC metadata
-    sample.extend_with(stac_example)
-    
-    print("\nSample metadata after extension:")
-    sample_df = sample.export_metadata()
-    print(sample_df)
-    print("\nFinal schema:")
-    print(sample_df.schema)
-
-    # Cleanup
-    pathlib.Path(temp_file.name).unlink()

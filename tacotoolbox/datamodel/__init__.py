@@ -1,12 +1,6 @@
+from tacotoolbox.datamodel import sample, taco, tortilla
 from tacotoolbox.sample.datamodel import Sample
-from tacotoolbox.tortilla.datamodel import Tortilla  
 from tacotoolbox.taco.datamodel import Taco
+from tacotoolbox.tortilla.datamodel import Tortilla
 
-
-from tacotoolbox.datamodel import sample
-from tacotoolbox.datamodel import tortilla
-from tacotoolbox.datamodel import taco
-
-
-
-__all__ = ['Sample', 'sample', 'Tortilla', 'tortilla', 'Taco', 'taco']
+__all__ = ["Sample", "Taco", "Tortilla", "sample", "taco", "tortilla"]

@@ -1,2 +1,2 @@
 from tacotoolbox.tortilla.extensions.majortom import MajorTOM
-from tacotoolbox.tortilla.extensions.territorial import Territorial, TERRITORIAL_PRODUCTS
+from tacotoolbox.tortilla.extensions.territorial import TERRITORIAL_PRODUCTS, Territorial
