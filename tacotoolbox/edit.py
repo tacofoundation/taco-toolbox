@@ -1,109 +1,177 @@
 import json
 import pathlib
+import shutil
 import tempfile
 import uuid
+import zipfile
 from contextlib import suppress
+from typing import Any
 
-from tacotoolbox.create import MetadataManager
-from tacotoolbox.taco.datamodel import Taco
+import tacozip
+
+from tacotoolbox._writers.zip_writer import ZipOffsetReader
 
 
 class TacoEditError(Exception):
-    """Custom exception for TACO edit operations."""
-
-    pass
+    """Raised when TACO edit operations fail."""
 
 
-def edit_collection(taco_path: str | pathlib.Path, new_collection_data: dict) -> None:
+def edit_collection(
+    taco_path: str | pathlib.Path,
+    collection_data: dict[str, Any],
+    temp_dir: pathlib.Path | None = None,
+) -> None:
     """
-    Edit the COLLECTION.json file in an existing TACO archive.
+    Edit COLLECTION.json in an existing TACO ZIP archive.
+
+    Only for ZIP format (.tacozip). For folder containers, edit the JSON file directly.
+
+    IMPORTANT: The field "taco:pit_schema" is automatically generated and protected.
+    It CANNOT be modified. Attempting to include it in collection_data will raise an error.
+    The original schema is always preserved automatically.
 
     Args:
-        taco_path: Path to the TACO file to edit
-        new_collection_data: Dictionary containing new TACO collection metadata
+        taco_path: Path to .tacozip file
+        collection_data: New COLLECTION.json content
+            Must include required TACO fields (id, dataset_version, etc.)
+            MUST NOT include "taco:pit_schema" (raises error)
+        temp_dir: Optional custom temporary directory
 
     Raises:
-        TacoEditError: If validation fails or operation encounters errors
+        TacoEditError: If operation fails or if collection_data contains "taco:pit_schema"
 
-    Example:
+    Examples:
+        # Correct usage
         >>> new_data = {
         ...     "id": "my_dataset",
         ...     "dataset_version": "2.0.0",
-        ...     "description": "Updated description",
-        ...     # ... other required TACO fields
+        ...     "description": "Updated",
+        ...     "licenses": ["CC-BY-4.0"],
+        ...     "extent": {...},
+        ...     "providers": [...],
+        ...     "tasks": ["classification"],
         ... }
-        >>> edit_collection("my_dataset.taco", new_data)
+        >>> edit_collection("dataset.tacozip", new_data)
+
+        # Load and modify pattern (recommended)
+        >>> from tacotoolbox import Taco
+        >>> taco = Taco.load("dataset.tacozip")
+        >>> data = taco.model_dump()
+        >>> data.pop("tortilla")  # Remove tortilla
+        >>> data.pop("taco:pit_schema", None)  # Remove protected field
+        >>> data["description"] = "Updated"
+        >>> edit_collection("dataset.tacozip", data)
     """
     taco_path = pathlib.Path(taco_path)
 
-    # Step 1: Validate new collection data is a valid TACO
-    try:
-        # Add dummy tortilla for validation since COLLECTION.json doesn't include tortilla
-        validation_data = new_collection_data.copy()
-        if "tortilla" not in validation_data:
-            # Create minimal dummy tortilla for validation
-            from tacotoolbox.tortilla.datamodel import Tortilla
+    # Validate it's a valid ZIP file
+    _validate_zip_path(taco_path)
 
-            validation_data["tortilla"] = Tortilla(samples=[])
-
-        # Validate using Pydantic model
-        validated_taco = Taco.model_validate(validation_data)
-
-        # Remove tortilla from the data that will be saved (COLLECTION.json shouldn't include it)
-        collection_data = validated_taco.model_dump()
-        collection_data.pop("tortilla", None)
-
-    except Exception as e:
-        raise TacoEditError(f"Invalid TACO collection data: {e}") from e
-
-    # Step 2: Create temporary JSON file
-    temp_dir = pathlib.Path(tempfile.gettempdir())
-    temp_json_path = temp_dir / f"collection_{uuid.uuid4().hex}.json"
-
-    try:
-        # Write new collection data to temporary file
-        with open(temp_json_path, "w", encoding="utf-8") as f:
-            json.dump(collection_data, f, indent=4, ensure_ascii=False)
-
-        # Step 3: Replace COLLECTION.json in TACO archive
-        import tacozip
-
-        result = tacozip.replace_file(
-            zip_path=str(taco_path),
-            file_name="COLLECTION.json",
-            new_src_path=str(temp_json_path),
+    # REJECT if user tries to modify protected schema
+    if "taco:pit_schema" in collection_data:
+        raise TacoEditError(
+            "Cannot modify 'taco:pit_schema' field.\n"
+            "This field is auto-generated from metadata and cannot be edited.\n"
+            "Remove 'taco:pit_schema' from your collection_data.\n"
+            "The original schema will be preserved automatically."
         )
 
-        if result != 0:
-            raise TacoEditError(
-                f"Failed to replace COLLECTION.json in TACO file (error code: {result})"
-            )
+    # Validate required fields
+    _validate_collection_data(collection_data)
 
-        # Step 4: Update TACO_HEADER with new COLLECTION.json position
-        try:
-            # Get current metadata offsets (first part of header)
-            metadata_offsets, metadata_lengths = MetadataManager.get_parquet_offsets(
-                taco_path
-            )
+    # Read original schema to preserve it
+    original_schema = _read_original_pit_schema(taco_path)
 
-            # Get new COLLECTION.json position
-            collection_offset, collection_length = (
-                MetadataManager.get_collection_json_offset(taco_path)
-            )
+    # Build final data: user's data + original schema
+    final_data = collection_data.copy()
+    if original_schema is not None:
+        final_data["taco:pit_schema"] = original_schema
 
-            # Reconstruct header entries: metadata + collection
-            all_entries = [
-                *zip(metadata_offsets, metadata_lengths),
-                (collection_offset, collection_length),
-            ]
+    # Setup temp directory
+    base_temp = temp_dir or pathlib.Path(tempfile.gettempdir())
+    temp_subdir = base_temp / f"taco_edit_{uuid.uuid4().hex}"
 
-            # Update header
-            tacozip.update_header(zip_path=str(taco_path), entries=all_entries)
+    try:
+        temp_subdir.mkdir(parents=True, exist_ok=True)
 
-        except Exception as e:
-            raise TacoEditError(f"Failed to update TACO header: {e}") from e
+        # Write new COLLECTION.json
+        temp_json = temp_subdir / "collection.json"
+        with open(temp_json, "w", encoding="utf-8") as f:
+            json.dump(final_data, f, indent=4, ensure_ascii=False)
 
+        # Remove old COLLECTION.json
+        tacozip.trim_from(zip_path=str(taco_path), target="COLLECTION.json")
+
+        # Append new COLLECTION.json
+        tacozip.append_files(
+            zip_path=str(taco_path), entries=[(str(temp_json), "COLLECTION.json")]
+        )
+
+        # Update TACO_HEADER
+        _update_taco_header(taco_path)
+
+    except TacoEditError:
+        raise
+    except Exception as e:
+        raise TacoEditError(f"Failed to edit collection: {e}") from e
     finally:
-        # Step 5: Cleanup temporary file
         with suppress(Exception):
-            temp_json_path.unlink()
+            shutil.rmtree(temp_subdir)
+
+
+def _validate_zip_path(path: pathlib.Path) -> None:
+    """Validate that path is a valid ZIP file."""
+    if not path.exists():
+        raise TacoEditError(f"File does not exist: {path}")
+
+    if path.is_dir():
+        raise TacoEditError(
+            f"edit_collection() is only for ZIP files (.tacozip).\n"
+            f"Path is a directory: {path}\n"
+            f"For folder containers, edit COLLECTION.json directly."
+        )
+
+    if not path.is_file():
+        raise TacoEditError(f"Path must be a file: {path}")
+
+
+def _validate_collection_data(data: dict[str, Any]) -> None:
+    """Validate collection data has required TACO fields."""
+    required_fields = ["id", "dataset_version"]
+
+    missing = [f for f in required_fields if f not in data]
+    if missing:
+        raise TacoEditError(
+            f"Collection data missing required fields: {missing}\n"
+            f"Required: {required_fields}"
+        )
+
+
+def _read_original_pit_schema(taco_path: pathlib.Path) -> dict[str, Any] | None:
+    """
+    Read taco:pit_schema from existing COLLECTION.json.
+
+    Args:
+        taco_path: Path to .tacozip file
+
+    Returns:
+        Original PIT schema or None if not present
+    """
+    try:
+        with zipfile.ZipFile(taco_path, "r") as zf:
+            with zf.open("COLLECTION.json") as f:
+                collection = json.load(f)
+                return collection.get("taco:pit_schema")
+    except Exception:
+        return None
+
+
+def _update_taco_header(taco_path: pathlib.Path) -> None:
+    """Update TACO_HEADER with new offsets."""
+    try:
+        metadata_offsets = ZipOffsetReader.get_metadata_offsets(taco_path)
+        collection_offset = ZipOffsetReader.get_collection_offset(taco_path)
+        all_entries = [*metadata_offsets, collection_offset]
+        tacozip.update_header(zip_path=str(taco_path), entries=all_entries)
+    except Exception as e:
+        raise TacoEditError(f"Failed to update TACO_HEADER: {e}") from e

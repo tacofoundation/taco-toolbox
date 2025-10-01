@@ -1,14 +1,19 @@
 import math
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import TYPE_CHECKING, Any, cast
 
 import polars as pl
 import pydantic
 from pydantic import Field
+from shapely.geometry import Point
 from shapely.wkb import loads as wkb_loads
 
 from tacotoolbox.tortilla.datamodel import TortillaExtension
 from tacotoolbox.tortilla.extensions import territorial_products, territorial_utils
+
+if TYPE_CHECKING:
+    from tacotoolbox.tortilla.datamodel import Tortilla
 
 TERRITORIAL_PRODUCTS: list[str] = [
     "elevation",
@@ -62,7 +67,7 @@ def _import_tqdm():
         tuple: (tqdm_class, is_available)
     """
     try:
-        from tqdm.auto import tqdm
+        from tqdm.auto import tqdm  # type: ignore[import-untyped]
     except ImportError:
         # Fallback: dummy tqdm that does nothing
         class DummyTqdm:
@@ -170,7 +175,7 @@ class Territorial(TortillaExtension):
     def get_schema(self) -> dict[str, pl.DataType]:
         """Return the expected schema for this extension."""
         active_products = self._get_active_products()
-        schema = {}
+        schema: dict[str, pl.DataType] = {}
 
         for product in active_products:
             var_name = product["name"]
@@ -178,9 +183,9 @@ class Territorial(TortillaExtension):
 
             # Admin variables are strings, others are numeric
             if var_name.startswith("admin"):
-                schema[column_name] = pl.Utf8
+                schema[column_name] = cast(pl.DataType, pl.Utf8)
             else:
-                schema[column_name] = pl.Float32
+                schema[column_name] = cast(pl.DataType, pl.Float32)
 
         return schema
 
@@ -211,15 +216,15 @@ class Territorial(TortillaExtension):
         """
         points = []
         for i, row in enumerate(df.iter_rows(named=True)):
-            # Convert WKB binary to shapely geometry and extract coordinates
-            geom = wkb_loads(row["stac:centroid"])
+            # Convert WKB binary to shapely Point geometry
+            geom = cast(Point, wkb_loads(row["stac:centroid"]))
             points.append((i, float(geom.x), float(geom.y)))
 
         # Sort spatially using Morton (Z-order) key for better EE cache locality
         points.sort(key=lambda t: territorial_utils.morton_key(t[1], t[2], bits=24))
         return points
 
-    def _group_products_by_reducer(self, products: list[dict]) -> dict:
+    def _group_products_by_reducer(self, products: list[dict]) -> dict[Any, list[dict]]:
         """
         Group products by their Earth Engine reducer type.
 
@@ -230,7 +235,7 @@ class Territorial(TortillaExtension):
             Dict mapping ee.Reducer objects to lists of products that use that reducer.
             This allows processing all products with the same reducer in a single EE call.
         """
-        groups = {}
+        groups: dict[Any, list[dict]] = {}
         for product in products:
             reducer = product["reducer"]
             if reducer not in groups:
@@ -239,7 +244,7 @@ class Territorial(TortillaExtension):
         return groups
 
     def _reduce_chunk(
-        self, chunk: list[tuple[int, float, float]], reducer_groups: dict, ee
+        self, chunk: list[tuple[int, float, float]], reducer_groups: dict[Any, list[dict]], ee
     ) -> list[dict]:
         """
         Process a chunk of coordinate points with Earth Engine.
@@ -286,7 +291,7 @@ class Territorial(TortillaExtension):
         return merged
 
     def _reduce_chunk_with_retry(
-        self, chunk: list[tuple[int, float, float]], reducer_groups: dict, ee
+        self, chunk: list[tuple[int, float, float]], reducer_groups: dict[Any, list[dict]], ee
     ) -> list[dict]:
         """
         Reduce chunk with exponential backoff retry logic.
@@ -310,6 +315,9 @@ class Territorial(TortillaExtension):
                     raise
                 # Exponential backoff: 2^attempt * base_delay seconds
                 time.sleep(self.retry_base_delay * (2**attempt))
+        
+        # This should never be reached due to the raise above, but mypy needs it
+        raise RuntimeError("Retry logic failed unexpectedly")
 
     def _process_admin_variables(
         self, df_data: pl.DataFrame, admin_vars: list[str]
@@ -367,7 +375,7 @@ class Territorial(TortillaExtension):
         return df_data
 
     def _build_result_dataframe(
-        self, entries: dict, products: list[dict]
+        self, entries: dict[str, list[str | float | None]], products: list[dict]
     ) -> pl.DataFrame:
         """
         Build final result DataFrame with proper schema and column naming.
@@ -381,7 +389,7 @@ class Territorial(TortillaExtension):
             Admin variables get Utf8 type, numeric variables get Float32.
         """
         result_data = {}
-        schema = {}
+        schema: dict[str, pl.DataType] = {}
 
         for product in products:
             var_name = product["name"]
@@ -390,9 +398,9 @@ class Territorial(TortillaExtension):
 
             # Set appropriate schema
             if var_name.startswith("admin"):
-                schema[column_name] = pl.Utf8
+                schema[column_name] = cast(pl.DataType, pl.Utf8)
             else:
-                schema[column_name] = pl.Float32
+                schema[column_name] = cast(pl.DataType, pl.Float32)
 
         return pl.DataFrame(result_data, schema=schema)
 
@@ -437,9 +445,11 @@ class Territorial(TortillaExtension):
         # Step 2: Extract and spatially sort coordinate points
         points = self._extract_points(df)
 
-        # Step 3: Initialize result storage
+        # Step 3: Initialize result storage with proper type hints
         n = len(df)
-        entries = {product["name"]: [None] * n for product in active_products}
+        entries: dict[str, list[str | float | None]] = {
+            product["name"]: [None] * n for product in active_products
+        }
 
         # Step 4: Group products by reducer type for efficient processing
         reducer_groups = self._group_products_by_reducer(active_products)

@@ -1,5 +1,6 @@
 import math
 from collections.abc import Iterable
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 import polars as pl
@@ -9,6 +10,9 @@ from shapely.wkb import loads as wkb_loads
 
 # Import the ABC interface
 from tacotoolbox.tortilla.datamodel import TortillaExtension
+
+if TYPE_CHECKING:
+    from tacotoolbox.tortilla.datamodel import Tortilla
 
 
 class MajorTOM(TortillaExtension):
@@ -64,7 +68,7 @@ class MajorTOM(TortillaExtension):
     #                              BUILD GRID
     # ======================================================================
     @pydantic.model_validator(mode="after")
-    def _build(self):
+    def _build(self) -> "MajorTOM":
         """Compute latitudinal rings and per-row longitude subdivisions."""
         # --- 1) Latitudinal rings (south→north), ~dist_km spacing pole→pole
         # Match the original Grid class exactly
@@ -73,7 +77,7 @@ class MajorTOM(TortillaExtension):
 
         # Create latitudes exactly like the original Grid class
         lats_all = np.linspace(-90, 90, num_divisions_in_hemisphere + 1)[:-1]
-        lats_all = np.mod(lats_all, 180) - 90
+        lats_all = np.mod(lats_all, 180) - 90 # type: ignore[assignment]
         lats_all = np.sort(lats_all)
 
         # Legacy equator row: side="left" (first index where lat >= 0)
@@ -106,7 +110,7 @@ class MajorTOM(TortillaExtension):
             # Full longitudes for the row: [-180, 180), step = 360/n_cols
             # Match the original Grid class exactly
             lons_full = np.linspace(-180.0, 180.0, n_cols + 1)[:-1]
-            lons_full = np.mod(lons_full, 360) - 180
+            lons_full = np.mod(lons_full, 360) - 180 # type: ignore[assignment]
             lons_full = np.sort(lons_full)
 
             # Legacy column labels built against ZERO at exact 0°, if present
@@ -175,7 +179,9 @@ class MajorTOM(TortillaExtension):
 
         return self._format_output(rows, cols, row_idx, col_idx, return_idx)
 
-    def _validate_and_normalize_coords(self, lats, lons):
+    def _validate_and_normalize_coords(
+        self, lats: Iterable[float] | float, lons: Iterable[float] | float
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Validate and normalize coordinate inputs."""
         lats_arr = np.atleast_1d(np.asarray(lats, dtype=np.float64))
         lons_arr = np.atleast_1d(np.asarray(lons, dtype=np.float64))
@@ -183,14 +189,16 @@ class MajorTOM(TortillaExtension):
             raise ValueError("lats and lons must have the same shape")
         return lats_arr, lons_arr
 
-    def _compute_grid_indices(self, lats_arr, lons_arr):
+    def _compute_grid_indices(
+        self, lats_arr: np.ndarray, lons_arr: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Compute row and column indices for coordinates."""
         # Row index: rightmost ring with lat <= value (bottom edge); clamp to bounds
         row_idx = np.searchsorted(self._lats, lats_arr, side="left") - 1
-        row_idx = np.clip(row_idx, 0, len(self._lats) - 1)
+        row_idx = np.clip(row_idx, 0, len(self._lats) - 1).astype(np.int64)
 
         # Column index per unique row
-        col_idx = np.empty_like(row_idx)
+        col_idx = np.empty_like(row_idx, dtype=np.int64)
         for r in np.unique(row_idx):
             sel = row_idx == r
             row_lons = self._row_lons[int(r)]
@@ -200,19 +208,28 @@ class MajorTOM(TortillaExtension):
 
         return row_idx, col_idx
 
-    def _get_label_arrays(self, row_idx, col_idx):
+    def _get_label_arrays(
+        self, row_idx: np.ndarray, col_idx: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Get row and column labels from indices."""
         rows = np.array([self._row_labels[int(ri)] for ri in row_idx], dtype=object)
         cols = np.array(
             [
                 self._row_col_labels[int(ri)][int(ci)]
-                for ri, ci in zip(row_idx, col_idx)
+                for ri, ci in zip(row_idx, col_idx, strict=True)
             ],
             dtype=object,
         )
         return rows, cols
 
-    def _convert_to_integer_format(self, rows, cols, row_idx, col_idx, return_idx):
+    def _convert_to_integer_format(
+        self,
+        rows: np.ndarray,
+        cols: np.ndarray,
+        row_idx: np.ndarray,
+        col_idx: np.ndarray,
+        return_idx: bool,
+    ):
         """Convert labels to signed integers for legacy compatibility."""
 
         def r_int(lbl: str) -> int:
@@ -241,7 +258,14 @@ class MajorTOM(TortillaExtension):
             return rints, cints, row_idx.astype(int), col_idx.astype(int)
         return rints, cints
 
-    def _format_output(self, rows, cols, row_idx, col_idx, return_idx):
+    def _format_output(
+        self,
+        rows: np.ndarray,
+        cols: np.ndarray,
+        row_idx: np.ndarray,
+        col_idx: np.ndarray,
+        return_idx: bool,
+    ):
         """Format output for string label format."""
         if rows.size == 1:
             if return_idx:
@@ -274,7 +298,7 @@ class MajorTOM(TortillaExtension):
             np.array(
                 (
                     list(x)
-                    if isinstance(x, Iterable) and not isinstance(x, (str, bytes))
+                    if isinstance(x, Iterable) and not isinstance(x, str | bytes)
                     else [x]
                 ),
                 dtype=object,
@@ -288,7 +312,7 @@ class MajorTOM(TortillaExtension):
         # Decode rows to absolute row indices
         row_idx = np.empty(rows_in.shape[0], dtype=int)
         for i, rv in enumerate(rows_in):
-            if isinstance(rv, (int, np.integer)):
+            if isinstance(rv, int | np.integer):
                 k = int(rv)
                 label = f"{abs(k)}{'U' if k >= 0 else 'D'}"
             else:
@@ -302,8 +326,8 @@ class MajorTOM(TortillaExtension):
 
         # Decode cols to absolute col indices (search label inside that row's label array)
         col_idx = np.empty_like(row_idx)
-        for i, (ri, cv) in enumerate(zip(row_idx, cols_in)):
-            if isinstance(cv, (int, np.integer)):
+        for i, (ri, cv) in enumerate(zip(row_idx, cols_in, strict=True)):
+            if isinstance(cv, int | np.integer):
                 k = int(cv)
                 clabel = f"{abs(k)}{'R' if k >= 0 else 'L'}"
             else:
@@ -319,7 +343,7 @@ class MajorTOM(TortillaExtension):
         # Emit coordinates (bottom-left anchor)
         lats = self._lats[row_idx]
         lons = np.array(
-            [self._row_lons[int(ri)][int(ci)] for ri, ci in zip(row_idx, col_idx)],
+            [self._row_lons[int(ri)][int(ci)] for ri, ci in zip(row_idx, col_idx, strict=True)],
             dtype=float,
         )
 
@@ -329,7 +353,8 @@ class MajorTOM(TortillaExtension):
 
     def get_schema(self) -> dict[str, pl.DataType]:
         """Return the expected schema for this extension."""
-        return {"majortom:code": pl.Utf8}
+        schema: dict[str, pl.DataType] = {"majortom:code": cast(pl.DataType, pl.Utf8)}
+        return schema
 
     def _compute(self, tortilla: "Tortilla") -> pl.DataFrame:
         """
@@ -363,8 +388,8 @@ class MajorTOM(TortillaExtension):
                     # Skip invalid WKB data with specific exception types
                     continue
 
-        # Initialize results array with None for all rows
-        codes = [None] * len(df)
+        # Initialize results array with None for all rows (with proper type annotation)
+        codes: list[str | None] = [None] * len(df)
 
         if lats:
             # Convert coordinates to grid codes
@@ -377,9 +402,10 @@ class MajorTOM(TortillaExtension):
                 cols = [cols]
 
             # Fill results at valid positions
-            for valid_idx, r, c in zip(valid_indices, rows, cols):
+            for valid_idx, r, c in zip(valid_indices, rows, cols, strict=True):
                 if r is not None and c is not None:
                     codes[valid_idx] = f"{r}{self.sep}{c}"
 
         # Return DataFrame with proper schema
-        return pl.DataFrame({"majortom:code": codes}, schema={"majortom:code": pl.Utf8})
+        result_schema: dict[str, pl.DataType] = {"majortom:code": cast(pl.DataType, pl.Utf8)}
+        return pl.DataFrame({"majortom:code": codes}, schema=result_schema)

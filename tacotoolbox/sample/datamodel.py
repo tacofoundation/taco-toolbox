@@ -75,7 +75,7 @@ def requires_gdal(min_version="3.11"):
 
             if not _gdal_checked:
                 try:
-                    from osgeo import gdal
+                    from osgeo import gdal # type: ignore[import-untyped]
 
                     _gdal_module = gdal
 
@@ -109,9 +109,8 @@ class TacotiffValidator:
 
     TACOTIFF format requirements:
     - Driver: GDAL generated COG (Cloud Optimized GeoTIFF)
-    - Compression: ZSTD (for optimal compression ratio and speed)
+    - Compression: JXL (next-gen JPEG with the best performance and quality)
     - Interleave: TILE (for efficient access patterns)
-    - Predictor: HORIZONTAL (2) or NONE (1)
     - Overviews: None (to avoid redundant data storage)
     - BIGTIFF: YES (to standardize between large and small files)
     - GEOTIFF version: 1.1 (for standard compliance)
@@ -142,20 +141,13 @@ class TacotiffValidator:
 
             # Validate ZSTD compression (5000)
             compression = ds_args.get("COMPRESSION", "").upper()
-            if compression != "ZSTD":
-                raise ValueError(f"TACOTIFF assets must use ZSTD compression, found: {compression or 'NONE'}")
+            if compression != "JXL":
+                raise ValueError(f"TACOTIFF assets must use JXL compression, found: {compression or 'NONE'}")
 
             # Validate TILE interleave
             interleave = ds_args.get("INTERLEAVE", "").upper()
             if interleave != "TILE":
                 raise ValueError(f"TACOTIFF assets must use TILE interleave, found: {interleave or 'PIXEL'}")
-
-            # Validate predictor setting
-            predictor = ds_args.get("PREDICTOR", "")
-            if predictor not in ["1", "2"]:
-                raise ValueError(
-                    f"TACOTIFF assets must use HORIZONTAL (2) or NONE (1) predictor, found: {predictor or 'unknown'}"
-                )
 
             # Validate no overviews present
             band = ds.GetRasterBand(1)

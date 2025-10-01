@@ -1,8 +1,12 @@
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 
 import polars as pl
 import pydantic
 
+
+if TYPE_CHECKING:
+    from tacotoolbox.sample.datamodel import Sample
 
 class TortillaExtension(ABC, pydantic.BaseModel):
     """Abstract base class for Tortilla extensions that add computed columns."""
@@ -150,7 +154,7 @@ class Tortilla:
         Args:
             deep: Expansion level (0-5 max)
                 - 0: Current level only (with extensions)
-                - >0: Expand N levels deep (base metadata only, adds internal:position)
+                - >0: Expand N levels deep (base metadata only, adds internal:parent_id)
 
         Returns:
             DataFrame with sample metadata and optional position tracking
@@ -174,7 +178,7 @@ class Tortilla:
             target_deep: Target expansion depth
 
         Returns:
-            DataFrame with expanded samples and internal:position column (linked-list style)
+            DataFrame with expanded samples and internal:parent_id column (linked-list style)
         """
         if target_deep > self._current_depth:
             raise ValueError(f"Cannot expand to depth {target_deep}, current max depth is {self._current_depth}")
@@ -193,7 +197,7 @@ class Tortilla:
 
                         # Add position column pointing to parent in previous level
                         child_metadata_df = child_metadata_df.with_columns(
-                            pl.lit(parent_idx).alias("internal:position")
+                            pl.lit(parent_idx).alias("internal:parent_id")
                         )
 
                         next_dfs.append(child_metadata_df)

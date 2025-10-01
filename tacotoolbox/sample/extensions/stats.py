@@ -1,3 +1,4 @@
+from typing import TYPE_CHECKING
 import functools
 import pathlib
 
@@ -7,6 +8,8 @@ import pydantic
 
 from tacotoolbox.sample.datamodel import SampleExtension
 
+if TYPE_CHECKING:
+    from osgeo import gdal  # type: ignore[import-untyped]
 
 def requires_gdal(func):
     """Decorator to ensure GDAL is available."""
@@ -17,7 +20,7 @@ def requires_gdal(func):
         nonlocal _gdal_checked
         if not _gdal_checked:
             try:
-                from osgeo import gdal
+                from osgeo import gdal # type: ignore[import-untyped]
             except ImportError as err:
                 raise ImportError("GDAL is required for GeoTIFF operations. Install: conda install gdal") from err
             _gdal_checked = True
@@ -181,7 +184,7 @@ class GeotiffStats(SampleExtension):
             for p in self._percentiles:
                 target = (p / 100.0) * total_pixels
                 bin_idx = np.searchsorted(cumulative, target)
-                bin_idx = min(bin_idx, self._histogram_buckets - 1)
+                bin_idx = min(bin_idx, self._histogram_buckets - 1)  # type: ignore[arg-type]
 
                 bin_width = (max_val - min_val) / self._histogram_buckets
                 pct_val = min_val + (bin_idx + 0.5) * bin_width

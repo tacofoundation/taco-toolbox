@@ -1,4 +1,4 @@
-from importlib.resources import files
+from importlib.resources import files, as_file
 
 import polars as pl
 
@@ -13,8 +13,10 @@ def load_admin_layer(level: int | str, admin_layers_pkg: str = "tacotoolbox") ->
     """Load admin lookup table (code->name) for given level (0=countries, 1=states, 2=districts)."""
     lvl = str(level)
     base = files(admin_layers_pkg).joinpath("tortilla/data/admin/")
-    path = base / f"admin{lvl}.parquet"
-    return pl.read_parquet(path)
+    traversable = base / f"admin{lvl}.parquet"
+    
+    with as_file(traversable) as path:
+        return pl.read_parquet(path)
 
 
 def morton_key(lon: float, lat: float, bits: int = 24) -> int:

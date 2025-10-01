@@ -1572,6 +1572,49 @@ files = [
 ]
 
 [[package]]
+name = "tacozip"
+version = "0.10.2"
+description = "Regular ZIP (STORE-only) writer with libzip backend and TACO Header at byte 0"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "tacozip-0.10.2-cp310-cp310-macosx_11_0_universal2.whl", hash = "sha256:e071112e4797286519282b518530ab814071d50d9578326aea9de3d6296007df"},
+    {file = "tacozip-0.10.2-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:731b4cc65712fcc10465a1bc7f642bc80e30008dc802876474375db1b1ede5ce"},
+    {file = "tacozip-0.10.2-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:9953c92c3fbcb4f6b546bc3c2cfd6e5f58db46c434e6031ed07f83f3cf8258aa"},
+    {file = "tacozip-0.10.2-cp310-cp310-musllinux_1_2_aarch64.whl", hash = "sha256:a11c91ee813676c7b035924615372b24209da8402420f8ff0007536925325bfb"},
+    {file = "tacozip-0.10.2-cp310-cp310-musllinux_1_2_x86_64.whl", hash = "sha256:662960c6bd998bfd49e91c0588d602e7229180fd34aaf06c82f0dc3e0eadd005"},
+    {file = "tacozip-0.10.2-cp310-cp310-win_amd64.whl", hash = "sha256:0995bd6f988da8a363ab40f5688fab43148305dda1d5c921e998a58a644b4808"},
+    {file = "tacozip-0.10.2-cp311-cp311-macosx_11_0_universal2.whl", hash = "sha256:dcb4a8120be6e30f6ae951a107ee4c935490d4ab569a48a5d59ca400877dfddc"},
+    {file = "tacozip-0.10.2-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:dc4be57b1e73c31a2e2a72f8224dab98ec29c53c3f2e4a6e76cacf905b421852"},
+    {file = "tacozip-0.10.2-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:19921afed73a39b1a19ec55a9c073be7eae08e9ad7b5abf215cf64cedf708956"},
+    {file = "tacozip-0.10.2-cp311-cp311-musllinux_1_2_aarch64.whl", hash = "sha256:dae98cb40b17757c7238d9bf3ab666b1741a84b815759c03b0a4117cb79708d5"},
+    {file = "tacozip-0.10.2-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:38dfc6d2cb8e41456ba2cc1147c8572d48bfd64c64e0b2224933607015fedb7b"},
+    {file = "tacozip-0.10.2-cp311-cp311-win_amd64.whl", hash = "sha256:a28abc153fbe2686f0accf6f0b76fc2ebe27a645835a23529f9d57b22b41641a"},
+    {file = "tacozip-0.10.2-cp312-cp312-macosx_11_0_universal2.whl", hash = "sha256:f66cec2bee554fcefb74f3a72ec9cb04205d1eb0717936c7a257db530d50425c"},
+    {file = "tacozip-0.10.2-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:ceae2b1669e20ffa2dd58d4075501b6e60e4fc0a623455b414f1f4384fa6360f"},
+    {file = "tacozip-0.10.2-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:f9e98e6dd41763a8262f305e2dca6057febd7b0db73c29a864187904109942ff"},
+    {file = "tacozip-0.10.2-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:900f1d54b13974e586b4f4b77e9faa27896cdbad6de74211984b8be923ec0f9a"},
+    {file = "tacozip-0.10.2-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:2f55d01d9f5f4c5ed684a192cdb62e61c9d06f5709846691f1ade18bcda841a0"},
+    {file = "tacozip-0.10.2-cp312-cp312-win_amd64.whl", hash = "sha256:267884109a4b48bca440358e82d87dbfb398e5b5b72d0e10dbe394e59b505c76"},
+    {file = "tacozip-0.10.2-cp313-cp313-macosx_11_0_universal2.whl", hash = "sha256:0ae403e2064cb8eec5848fe707ae9e555f54a274a70676382aba7f7a3f5cb7de"},
+    {file = "tacozip-0.10.2-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:669efe5c26f744abffefb7deb4ebf69276dad29e6b1e2103a3edc1d554504b0d"},
+    {file = "tacozip-0.10.2-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:9b7c42217f27db80b83e6d772d3d700aff2fb2af2923c210f4a7cbf0780ba24c"},
+    {file = "tacozip-0.10.2-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:f400d434035255046b40a2a0e781a1c7fb920507516c5034a5cb4a098be65b74"},
+    {file = "tacozip-0.10.2-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:1da3418634db601ae4f9bf29dd7a5a39a89015caaea8feac8b016cb044f961b8"},
+    {file = "tacozip-0.10.2-cp313-cp313-win_amd64.whl", hash = "sha256:8f8612f2da03769d381e92a6a35dca30388a7d0d942bab006eeb802580d4c979"},
+    {file = "tacozip-0.10.2-cp39-cp39-macosx_11_0_universal2.whl", hash = "sha256:28222ee1d2b4d38b30be2170bfe71bbefe11ccf638192d795b63faadaee23b92"},
+    {file = "tacozip-0.10.2-cp39-cp39-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:e7ad01eecf3978fe343278f95d8fe66418bfdae7bb8c3fb6ab697d13f5989487"},
+    {file = "tacozip-0.10.2-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:8137345ac4e85d028a843154e05f3017712419e5b7913e6ea067966183f095d4"},
+    {file = "tacozip-0.10.2-cp39-cp39-musllinux_1_2_aarch64.whl", hash = "sha256:147b6d634c7fbbc45b3601537628b1081bfc997e39ae9f63fb5db6e83e9a0b60"},
+    {file = "tacozip-0.10.2-cp39-cp39-musllinux_1_2_x86_64.whl", hash = "sha256:e82ec172228177f1413861e40b6b4874c0fc1db27d0c45a939bb1649fc9faf09"},
+    {file = "tacozip-0.10.2-cp39-cp39-win_amd64.whl", hash = "sha256:aaed681067480ceac87e8ff5654fc2de614ed97a90982c77152e2621c8ae1a36"},
+    {file = "tacozip-0.10.2.tar.gz", hash = "sha256:f467ef102a07bb30b0983123a7757a89502ad7d25baf85dfb31b0cf5a7f71694"},
+]
+
+[package.extras]
+dev = ["black", "flake8", "mypy", "pytest (>=6.0)", "pytest-cov"]
+
+[[package]]
 name = "tox"
 version = "4.23.2"
 description = "tox is a generic virtualenv management and test command line tool"
@@ -1689,4 +1732,4 @@ watchmedo = ["PyYAML (>=3.10)"]
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.11,<4.0"
-content-hash = "6dbcd55def343822f2366ca7db92f077d7ffa06f797a88224c831a5afc7a60e2"
+content-hash = "5ac9326d9af8ce6d2fa7487d3d9e71b244b6514473b2f0d376dd0aa52f5184be"

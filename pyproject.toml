@@ -21,6 +21,8 @@ polars = ">=1.25.2"
 pyarrow = ">=18.1.0"
 pyproj = ">=3.7.2"
 shapely = ">=2.1.1"
+tacozip = ">=0.10.2"
+
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.2.0"
@@ -53,7 +55,7 @@ select = [
     "RUF", "TRY",
 ]
 ignore = ["E501", "E731", "TRY003", "F401", "F821", "S311"]
-per-file-ignores = { "tests/*" = ["S101"] , "tacotoolbox/v1/*" = ["ALL"] }
+per-file-ignores = { "tests/*" = ["S101"],  "tacotoolbox/v1/*" = ["ALL"] }
 
 [tool.ruff.format]
 preview = true
@@ -64,3 +66,10 @@ skip_empty = true
 [tool.coverage.run]
 branch = true
 source = ["tacotoolbox"]
+
+
+[tool.mypy]
+exclude = [
+    "^tacotoolbox/v1/",
+]
+ignore_missing_imports = true
