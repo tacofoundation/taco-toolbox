@@ -36,8 +36,8 @@ class GeotiffStats(SampleExtension):
     """Extract statistics from GeoTIFF files using GDAL.
 
     Returns Parquet-compatible list of lists structure:
-    - Categorical: list[list[float32]] where values are probabilities x 10,000
-    - Continuous: list[list[float32]] with [min, max, mean, std, valid%, p25, p50, p75, p95]
+    - Categorical: list[list[float32]] with probabilities for each class in class_values.
+    - Continuous: list[list[float32]] with [min, max, mean, std, valid%, p25, p50, p75, p95].
 
     Automatically applies scaling transformation if scaling metadata exists in sample.
     """
@@ -114,7 +114,7 @@ class GeotiffStats(SampleExtension):
                 for class_val in self.class_values:
                     prob_float = (
                         1.0 if class_val == single_value else 0.0
-                    )  # FIXED: was 10000.0
+                    )
                     band_probs.append(prob_float)
 
                 result.append(band_probs)

@@ -32,7 +32,7 @@ class SpectralBand(pydantic.BaseModel):
         index: Band index in the data array
         common_name: Standard name (e.g., "Red", "NIR", "SWIR1")
         description: Human-readable description
-        unit: Measurement unit (e.g., "nm", "μm")
+        unit: Measurement unit (e.g., "nm", "um")
         center_wavelength: Central wavelength in nm
         full_width_half_max: Bandwidth at half maximum intensity
     """

@@ -75,7 +75,7 @@ class STAC(SampleExtension):
         GDAL-style affine transform (x0, px_w, rot_x, y0, rot_y, px_h),
         where typical north-up rasters have rot_x = rot_y = 0 and px_h < 0.
     time_start : TimestampLike
-        Start time. Accepts a timezone-aware or naïve `datetime` (naïve will be
+        Start time. Accepts a timezone-aware or naive `datetime` (naive will be
         interpreted as system/unspecified timezone by `timestamp()`), or an
         epoch value in seconds (`int`/`float`).
     centroid : bytes | None
