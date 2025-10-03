@@ -339,11 +339,13 @@ class OffsetEnricher:
             Enriched DataFrame with internal columns
         """
         # Add empty internal columns
-        df = df.with_columns([
-            pl.lit(None, dtype=pl.Int64).alias("internal:offset"),
-            pl.lit(None, dtype=pl.Int64).alias("internal:size"),
-            pl.lit(None, dtype=pl.Binary).alias("internal:header"),
-        ])
+        df = df.with_columns(
+            [
+                pl.lit(None, dtype=pl.Int64).alias("internal:offset"),
+                pl.lit(None, dtype=pl.Int64).alias("internal:size"),
+                pl.lit(None, dtype=pl.Binary).alias("internal:header"),
+            ]
+        )
 
         # Process each row
         rows_data = []
@@ -358,8 +360,14 @@ class OffsetEnricher:
                 row_dict["internal:size"] = size
 
             # Extract TACOTIFF header if applicable
-            if row_dict["type"] == "TACOTIFF" and "path" in row_dict and row_dict["path"]:
-                row_dict["internal:header"] = self._get_tacotiff_header(row_dict["path"])
+            if (
+                row_dict["type"] == "TACOTIFF"
+                and "path" in row_dict
+                and row_dict["path"]
+            ):
+                row_dict["internal:header"] = self._get_tacotiff_header(
+                    row_dict["path"]
+                )
 
             rows_data.append(row_dict)
 
@@ -450,7 +458,9 @@ class RelativePathEnricher:
         for sample in samples:
             if sample.type == "TORTILLA":
                 # TORTILLA gets directory path
-                new_prefix = f"{path_prefix}{sample.id}/" if path_prefix else f"{sample.id}/"
+                new_prefix = (
+                    f"{path_prefix}{sample.id}/" if path_prefix else f"{sample.id}/"
+                )
                 mapping[sample.id] = f"DATA/{new_prefix}"
 
                 # Recurse into children
@@ -471,9 +481,11 @@ class RelativePathEnricher:
             Enriched DataFrame with internal:relative_path column
         """
         # Add empty relative_path column
-        df = df.with_columns([
-            pl.lit(None, dtype=pl.Utf8).alias("internal:relative_path"),
-        ])
+        df = df.with_columns(
+            [
+                pl.lit(None, dtype=pl.Utf8).alias("internal:relative_path"),
+            ]
+        )
 
         # Process each row
         rows_data = []

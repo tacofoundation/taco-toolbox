@@ -62,11 +62,13 @@ class ZipOffsetReader:
                 extra_len = struct.unpack("<H", header[28:30])[0]
                 actual_offset = info.header_offset + 30 + filename_len + extra_len
 
-                files_info.append({
-                    "filename": info.filename,
-                    "internal:offset": actual_offset,
-                    "internal:size": info.compress_size,
-                })
+                files_info.append(
+                    {
+                        "filename": info.filename,
+                        "internal:offset": actual_offset,
+                        "internal:size": info.compress_size,
+                    }
+                )
 
         return pl.DataFrame(files_info) if files_info else pl.DataFrame()
 
@@ -114,7 +116,8 @@ class ZipOffsetReader:
         with zipfile.ZipFile(zip_path, "r") as zf, open(zip_path, "rb") as f:
             # Find all metadata parquets
             parquet_files = [
-                info for info in zf.infolist()
+                info
+                for info in zf.infolist()
                 if info.filename.startswith("METADATA/")
                 and info.filename.endswith(".parquet")
             ]
@@ -131,7 +134,9 @@ class ZipOffsetReader:
                     if signature == 0x04034B50:
                         filename_len = struct.unpack("<H", header[26:28])[0]
                         extra_len = struct.unpack("<H", header[28:30])[0]
-                        actual_offset = info.header_offset + 30 + filename_len + extra_len
+                        actual_offset = (
+                            info.header_offset + 30 + filename_len + extra_len
+                        )
                         entries.append((actual_offset, info.compress_size))
 
         return entries
@@ -161,7 +166,9 @@ class ZipOffsetReader:
                         if signature == 0x04034B50:
                             filename_len = struct.unpack("<H", header[26:28])[0]
                             extra_len = struct.unpack("<H", header[28:30])[0]
-                            actual_offset = info.header_offset + 30 + filename_len + extra_len
+                            actual_offset = (
+                                info.header_offset + 30 + filename_len + extra_len
+                            )
                             return (actual_offset, info.compress_size)
 
         raise ZipWriterError("COLLECTION.json not found in ZIP file")
@@ -210,9 +217,7 @@ class ZipWriter:
         """
         try:
             # Step 1: Create ZIP with DATA/
-            self._create_with_data(
-                src_files, arc_files, metadata_package["max_depth"]
-            )
+            self._create_with_data(src_files, arc_files, metadata_package["max_depth"])
 
             # Step 2: Read DATA/ offsets
             data_df = ZipOffsetReader.read_file_offsets(self.output_path, "DATA/")
@@ -308,7 +313,7 @@ class ZipWriter:
 
         tacozip.append_files(
             zip_path=str(self.output_path),
-            entries=[(str(temp_json), "COLLECTION.json")]
+            entries=[(str(temp_json), "COLLECTION.json")],
         )
 
     def _update_header(self) -> None:
@@ -318,10 +323,7 @@ class ZipWriter:
 
         all_entries = [*metadata_offsets, collection_offset]
 
-        tacozip.update_header(
-            zip_path=str(self.output_path),
-            entries=all_entries
-        )
+        tacozip.update_header(zip_path=str(self.output_path), entries=all_entries)
 
     def _write_temp_parquet(
         self,
@@ -341,11 +343,11 @@ class ZipWriter:
             Path to temporary file
         """
         temp_file = self.working_dir / f"{uuid.uuid4().hex}_level{level}.parquet"
-        
+
         # Convert to Arrow table and write using PyArrow API
         arrow_table = df.to_arrow()
         pq.write_table(arrow_table, temp_file, **kwargs)
-        
+
         return temp_file
 
     def _cleanup_temp_files(self) -> None:

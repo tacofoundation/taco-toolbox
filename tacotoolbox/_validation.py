@@ -9,10 +9,13 @@ MAX_SPLIT_SIZE = int(3.9 * 1024**3)  # 3.9GB in bytes
 
 class TacoValidationError(Exception):
     """Raised when TACO creation validation fails."""
+
     pass
 
 
-def validate_output_path(path: pathlib.Path, output_format: Literal["zip", "folder"]) -> None:
+def validate_output_path(
+    path: pathlib.Path, output_format: Literal["zip", "folder"]
+) -> None:
     """
     Validate that output path is available.
 
@@ -73,8 +76,7 @@ def validate_split_size(size_str: str) -> int:
 
 
 def validate_format_and_split(
-    output_format: Literal["zip", "folder"],
-    split_size: str | None
+    output_format: Literal["zip", "folder"], split_size: str | None
 ) -> None:
     """
     Validate format and split_size compatibility.

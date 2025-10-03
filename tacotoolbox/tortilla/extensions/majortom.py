@@ -77,7 +77,7 @@ class MajorTOM(TortillaExtension):
 
         # Create latitudes exactly like the original Grid class
         lats_all = np.linspace(-90, 90, num_divisions_in_hemisphere + 1)[:-1]
-        lats_all = np.mod(lats_all, 180) - 90 # type: ignore[assignment]
+        lats_all = np.mod(lats_all, 180) - 90  # type: ignore[assignment]
         lats_all = np.sort(lats_all)
 
         # Legacy equator row: side="left" (first index where lat >= 0)
@@ -110,7 +110,7 @@ class MajorTOM(TortillaExtension):
             # Full longitudes for the row: [-180, 180), step = 360/n_cols
             # Match the original Grid class exactly
             lons_full = np.linspace(-180.0, 180.0, n_cols + 1)[:-1]
-            lons_full = np.mod(lons_full, 360) - 180 # type: ignore[assignment]
+            lons_full = np.mod(lons_full, 360) - 180  # type: ignore[assignment]
             lons_full = np.sort(lons_full)
 
             # Legacy column labels built against ZERO at exact 0°, if present
@@ -343,7 +343,10 @@ class MajorTOM(TortillaExtension):
         # Emit coordinates (bottom-left anchor)
         lats = self._lats[row_idx]
         lons = np.array(
-            [self._row_lons[int(ri)][int(ci)] for ri, ci in zip(row_idx, col_idx, strict=True)],
+            [
+                self._row_lons[int(ri)][int(ci)]
+                for ri, ci in zip(row_idx, col_idx, strict=True)
+            ],
             dtype=float,
         )
 
@@ -407,5 +410,7 @@ class MajorTOM(TortillaExtension):
                     codes[valid_idx] = f"{r}{self.sep}{c}"
 
         # Return DataFrame with proper schema
-        result_schema: dict[str, pl.DataType] = {"majortom:code": cast(pl.DataType, pl.Utf8)}
+        result_schema: dict[str, pl.DataType] = {
+            "majortom:code": cast(pl.DataType, pl.Utf8)
+        }
         return pl.DataFrame({"majortom:code": codes}, schema=result_schema)

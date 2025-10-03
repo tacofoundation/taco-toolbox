@@ -108,15 +108,15 @@ class FolderWriter:
             if sample.type == "TORTILLA":
                 # Create subdirectory for nested tortilla
                 new_prefix = (
-                    f"{path_prefix}{sample.id}/"
-                    if path_prefix
-                    else f"{sample.id}/"
+                    f"{path_prefix}{sample.id}/" if path_prefix else f"{sample.id}/"
                 )
                 nested_dir = self.data_dir / new_prefix.rstrip("/")
                 nested_dir.mkdir(parents=True, exist_ok=True)
 
                 # Recurse into children
-                self._copy_samples_recursive(sample.path.samples, path_prefix=new_prefix)
+                self._copy_samples_recursive(
+                    sample.path.samples, path_prefix=new_prefix
+                )
             else:
                 # Copy leaf node file
                 src_path = sample.path
@@ -210,53 +210,59 @@ class FolderWriter:
         Returns:
             Avro type (string or dict)
         """
-        # Integer types
-        if pa.types.is_int64(arrow_type):
-            return "long"
-        elif pa.types.is_int32(arrow_type):
-            return "int"
-        elif pa.types.is_int16(arrow_type):
-            return "int"
-        elif pa.types.is_int8(arrow_type):
-            return "int"
+        # Handle simple scalar types
+        simple_type = self._convert_simple_type(arrow_type)
+        if simple_type:
+            return simple_type
 
-        # Float types
-        elif pa.types.is_float64(arrow_type):
-            return "double"
-        elif pa.types.is_float32(arrow_type):
-            return "float"
+        # Handle complex types
+        if pa.types.is_list(arrow_type) or pa.types.is_large_list(arrow_type):
+            return self._convert_list_type(arrow_type)
 
-        # Boolean
-        elif pa.types.is_boolean(arrow_type):
-            return "boolean"
-
-        # String/Binary
-        elif pa.types.is_string(arrow_type) or pa.types.is_large_string(arrow_type):
-            return "string"
-        elif pa.types.is_binary(arrow_type) or pa.types.is_large_binary(arrow_type):
-            return "bytes"
-
-        # List/Array types
-        elif pa.types.is_list(arrow_type) or pa.types.is_large_list(arrow_type):
-            value_type = arrow_type.value_type
-            avro_value_type = self._arrow_type_to_avro(value_type)
-            return {"type": "array", "items": avro_value_type}
-
-        # Struct types
-        elif pa.types.is_struct(arrow_type):
-            struct_fields = []
-            for i in range(arrow_type.num_fields):
-                struct_field = arrow_type.field(i)
-                avro_field_type = self._arrow_type_to_avro(struct_field.type)
-                struct_fields.append({
-                    "name": struct_field.name,
-                    "type": ["null", avro_field_type]
-                })
-            return {"type": "record", "name": "StructField", "fields": struct_fields}
+        if pa.types.is_struct(arrow_type):
+            return self._convert_struct_type(arrow_type)
 
         # Default to string for unknown types
-        else:
+        return "string"
+
+    def _convert_simple_type(self, arrow_type: pa.DataType) -> str | None:
+        """Convert simple Arrow types to Avro types."""
+        if pa.types.is_int64(arrow_type):
+            return "long"
+        if (
+            pa.types.is_int32(arrow_type)
+            or pa.types.is_int16(arrow_type)
+            or pa.types.is_int8(arrow_type)
+        ):
+            return "int"
+        if pa.types.is_float64(arrow_type):
+            return "double"
+        if pa.types.is_float32(arrow_type):
+            return "float"
+        if pa.types.is_boolean(arrow_type):
+            return "boolean"
+        if pa.types.is_string(arrow_type) or pa.types.is_large_string(arrow_type):
             return "string"
+        if pa.types.is_binary(arrow_type) or pa.types.is_large_binary(arrow_type):
+            return "bytes"
+        return None
+
+    def _convert_list_type(self, arrow_type: pa.DataType) -> dict[str, Any]:
+        """Convert Arrow list type to Avro array type."""
+        value_type = arrow_type.value_type
+        avro_value_type = self._arrow_type_to_avro(value_type)
+        return {"type": "array", "items": avro_value_type}
+
+    def _convert_struct_type(self, arrow_type: pa.DataType) -> dict[str, Any]:
+        """Convert Arrow struct type to Avro record type."""
+        struct_fields = []
+        for i in range(arrow_type.num_fields):
+            struct_field = arrow_type.field(i)
+            avro_field_type = self._arrow_type_to_avro(struct_field.type)
+            struct_fields.append(
+                {"name": struct_field.name, "type": ["null", avro_field_type]}
+            )
+        return {"type": "record", "name": "StructField", "fields": struct_fields}
 
     def _write_collection_json(self, collection: dict[str, object]) -> None:
         """

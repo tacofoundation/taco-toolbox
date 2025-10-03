@@ -25,7 +25,9 @@ PROTECTED_CORE_FIELDS = {"id", "type", "path"}
 class SampleExtension(ABC, pydantic.BaseModel):
     """Abstract base class for Sample extensions that compute metadata."""
 
-    return_none: bool = pydantic.Field(False, description="If True, return None values while preserving schema")
+    return_none: bool = pydantic.Field(
+        False, description="If True, return None values while preserving schema"
+    )
 
     @abstractmethod
     def get_schema(self) -> dict[str, pl.DataType]:
@@ -67,7 +69,9 @@ def requires_gdal(min_version="3.11"):
 
         def _raise_gdal_version_error(current_version, min_version):
             """Raise ImportError for GDAL version mismatch."""
-            raise ImportError(f"GDAL {min_version}+ required. Current: {current_version}")
+            raise ImportError(
+                f"GDAL {min_version}+ required. Current: {current_version}"
+            )
 
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -75,7 +79,7 @@ def requires_gdal(min_version="3.11"):
 
             if not _gdal_checked:
                 try:
-                    from osgeo import gdal # type: ignore[import-untyped]
+                    from osgeo import gdal  # type: ignore[import-untyped]
 
                     _gdal_module = gdal
 
@@ -142,18 +146,24 @@ class TacotiffValidator:
             # Validate ZSTD compression (5000)
             compression = ds_args.get("COMPRESSION", "").upper()
             if compression != "JXL":
-                raise ValueError(f"TACOTIFF assets must use JXL compression, found: {compression or 'NONE'}")
+                raise ValueError(
+                    f"TACOTIFF assets must use JXL compression, found: {compression or 'NONE'}"
+                )
 
             # Validate TILE interleave
             interleave = ds_args.get("INTERLEAVE", "").upper()
             if interleave != "TILE":
-                raise ValueError(f"TACOTIFF assets must use TILE interleave, found: {interleave or 'PIXEL'}")
+                raise ValueError(
+                    f"TACOTIFF assets must use TILE interleave, found: {interleave or 'PIXEL'}"
+                )
 
             # Validate no overviews present
             band = ds.GetRasterBand(1)
             overview_count = band.GetOverviewCount()
             if overview_count != 0:
-                raise ValueError(f"TACOTIFF assets must not have overviews, found: {overview_count} overview levels")
+                raise ValueError(
+                    f"TACOTIFF assets must not have overviews, found: {overview_count} overview levels"
+                )
 
         finally:
             # Always clean up GDAL dataset to free memory
@@ -195,11 +205,15 @@ class Sample(pydantic.BaseModel):
 
     # Core attributes
     id: str  # Unique identifier following TACO naming conventions
-    path: pathlib.Path | Tortilla | bytes  # Location of data (file, container, or bytes)
+    path: (
+        pathlib.Path | Tortilla | bytes
+    )  # Location of data (file, container, or bytes)
     type: AssetType  # Type of geospatial data asset
 
     # Private attribute to store extension schemas
-    _extension_schemas: dict[str, pl.DataType] = pydantic.PrivateAttr(default_factory=dict)
+    _extension_schemas: dict[str, pl.DataType] = pydantic.PrivateAttr(
+        default_factory=dict
+    )
 
     model_config = pydantic.ConfigDict(
         arbitrary_types_allowed=True,  # Support Tortilla dataclass
@@ -210,7 +224,11 @@ class Sample(pydantic.BaseModel):
         """Initialize Sample with optional temp_dir that doesn't get stored."""
         # Handle temp_dir for bytes conversion without storing it
         if "path" in data and isinstance(data["path"], bytes):
-            temp_dir = pathlib.Path(tempfile.gettempdir()) if temp_dir is None else pathlib.Path(temp_dir)
+            temp_dir = (
+                pathlib.Path(tempfile.gettempdir())
+                if temp_dir is None
+                else pathlib.Path(temp_dir)
+            )
 
             # Create temp directory if it doesn't exist
             temp_dir.mkdir(parents=True, exist_ok=True)
@@ -229,7 +247,9 @@ class Sample(pydantic.BaseModel):
         super().__init__(**data)
 
     @pydantic.field_validator("path")
-    def validate_path(cls, v: pathlib.Path | Tortilla | bytes) -> pathlib.Path | Tortilla:
+    def validate_path(
+        cls, v: pathlib.Path | Tortilla | bytes
+    ) -> pathlib.Path | Tortilla:
         """Validate and normalize the data path."""
         if isinstance(v, Tortilla):
             return v
@@ -239,7 +259,9 @@ class Sample(pydantic.BaseModel):
                 raise ValueError(f"Path {v} does not exist.")
             return v.absolute()
 
-        raise ValueError("Path must be pathlib.Path or Tortilla (bytes handled in __init__)")
+        raise ValueError(
+            "Path must be pathlib.Path or Tortilla (bytes handled in __init__)"
+        )
 
     @pydantic.model_validator(mode="after")
     def global_validation(self):
@@ -254,7 +276,9 @@ class Sample(pydantic.BaseModel):
 
         return self
 
-    def extend_with(self, extension: Any | dict[str, Any], name: str | None = None) -> None:
+    def extend_with(
+        self, extension: Any | dict[str, Any], name: str | None = None
+    ) -> None:
         """
         Add extension to sample by adding fields directly to the model.
 
@@ -319,7 +343,9 @@ class Sample(pydantic.BaseModel):
                 namespaced_data[namespaced_key] = value
             self._add_metadata_fields(namespaced_data)
         else:
-            raise ValueError(f"Extension must be pydantic model or dict, got: {type(extension)}")
+            raise ValueError(
+                f"Extension must be pydantic model or dict, got: {type(extension)}"
+            )
 
     def _add_metadata_fields(self, metadata_dict: dict) -> None:
         """Add metadata fields to the sample with validation."""

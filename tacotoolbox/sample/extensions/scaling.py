@@ -27,7 +27,9 @@ class Scaling(SampleExtension):
 
     scaling_factor: float | list[float] = 1.0
     scaling_offset: float | list[float] = 0.0
-    padding: list[int] =  pydantic.Field(default_factory=lambda: [0, 0, 0, 0]) # [top, right, bottom, left]
+    padding: list[int] = pydantic.Field(
+        default_factory=lambda: [0, 0, 0, 0]
+    )  # [top, right, bottom, left]
 
     @pydantic.field_validator("scaling_factor")
     @classmethod
@@ -48,29 +50,54 @@ class Scaling(SampleExtension):
     def validate_padding(cls, v):
         """Ensure padding is a list of 4 integers."""
         if len(v) != 4:
-            raise ValueError("padding must be a list of 4 integers [top, right, bottom, left]")
+            raise ValueError(
+                "padding must be a list of 4 integers [top, right, bottom, left]"
+            )
         return [int(x) for x in v]
 
     def get_schema(self) -> dict[str, pl.DataType]:
         """Return the expected schema for this extension."""
-        schema = {"scaling:padding": pl.List(pl.Int32)}
+        schema: dict[str, pl.DataType] = {"scaling:padding": pl.List(pl.Int32())}
 
-        if isinstance(self.scaling_factor, list) or isinstance(self.scaling_offset, list):
-            schema.update({"scaling:factor": pl.List(pl.Float32), "scaling:offset": pl.List(pl.Float32)})
+        if isinstance(self.scaling_factor, list) or isinstance(
+            self.scaling_offset, list
+        ):
+            schema.update(
+                {
+                    "scaling:factor": pl.List(pl.Float32()),
+                    "scaling:offset": pl.List(pl.Float32()),
+                }
+            )
         else:
-            schema.update({"scaling:factor": pl.Float32, "scaling:offset": pl.Float32})
+            schema.update(
+                {"scaling:factor": pl.Float32(), "scaling:offset": pl.Float32()}
+            )
 
         return schema
 
     def _compute(self, sample) -> pl.DataFrame:
         """Actual computation logic - only called when return_none=False."""
         # Convert to lists if needed for consistency
-        if isinstance(self.scaling_factor, list) or isinstance(self.scaling_offset, list):
-            factor = self.scaling_factor if isinstance(self.scaling_factor, list) else [self.scaling_factor]
-            offset = self.scaling_offset if isinstance(self.scaling_offset, list) else [self.scaling_offset]
+        if isinstance(self.scaling_factor, list) or isinstance(
+            self.scaling_offset, list
+        ):
+            factor = (
+                self.scaling_factor
+                if isinstance(self.scaling_factor, list)
+                else [self.scaling_factor]
+            )
+            offset = (
+                self.scaling_offset
+                if isinstance(self.scaling_offset, list)
+                else [self.scaling_offset]
+            )
 
             return pl.DataFrame(
-                {"scaling:factor": [factor], "scaling:offset": [offset], "scaling:padding": [self.padding]},
+                {
+                    "scaling:factor": [factor],
+                    "scaling:offset": [offset],
+                    "scaling:padding": [self.padding],
+                },
                 schema=self.get_schema(),
             )
         else:

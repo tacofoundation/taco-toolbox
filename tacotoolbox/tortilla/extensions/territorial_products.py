@@ -1,7 +1,9 @@
 import ee
 
 
-def create_single_product(name, path, reducer, band=None, collection_type="Image", unmask_value=0):
+def create_single_product(
+    name, path, reducer, band=None, collection_type="Image", unmask_value=0
+):
     """Create a single territorial product."""
     if collection_type == "ImageCollection":
         image = ee.ImageCollection(path).mosaic().unmask(unmask_value)
@@ -28,7 +30,11 @@ def create_soil_products():
 
     products = []
     for name, path in soil_datasets.items():
-        products.append(create_single_product(name=name, path=path, reducer=ee.Reducer.mean(), band="b0"))
+        products.append(
+            create_single_product(
+                name=name, path=path, reducer=ee.Reducer.mean(), band="b0"
+            )
+        )
     return products
 
 
@@ -42,7 +48,11 @@ def create_admin_products():
 
     products = []
     for name, path in admin_datasets.items():
-        products.append(create_single_product(name=name, path=path, reducer=ee.Reducer.mode(), unmask_value=65535))
+        products.append(
+            create_single_product(
+                name=name, path=path, reducer=ee.Reducer.mode(), unmask_value=65535
+            )
+        )
     return products
 
 
@@ -61,9 +71,7 @@ def get_territorial_products():
     )
     products.append(
         create_single_product(
-            "cisi",
-            "projects/sat-io/open-datasets/CISI/global_CISI",
-            ee.Reducer.mean()
+            "cisi", "projects/sat-io/open-datasets/CISI/global_CISI", ee.Reducer.mean()
         )
     )
 

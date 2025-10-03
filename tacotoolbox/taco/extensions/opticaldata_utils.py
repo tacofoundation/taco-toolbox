@@ -1,6 +1,7 @@
-from typing import Callable
+from collections.abc import Callable
 
 SensorFunc = Callable[[str | list[str]], dict]
+
 
 def landsat1mss_bands(bands: str | list[str] = "all") -> dict:
     """Gets the bands of the Landsat 1 - MSS sensor.
@@ -1259,7 +1260,7 @@ def get_sensor_bands(sensor: str, bands: str | list[str] = "all") -> dict:
     """
 
     # Mapping of sensors to their corresponding band functions
-    sensor_functions : dict[str, SensorFunc] = {
+    sensor_functions: dict[str, SensorFunc] = {
         "landsat1mss": landsat1mss_bands,
         "landsat2mss": landsat2mss_bands,
         "landsat3mss": landsat3mss_bands,

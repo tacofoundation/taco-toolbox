@@ -84,7 +84,11 @@ class OpticalData(TacoExtension):
             raise ValueError("Sensor must be specified when bands are provided")
 
         # Auto-populate bands from sensor if not explicitly provided
-        if self.bands is None and self.sensor is not None and any(sensor in self.sensor for sensor in SUPPORTED_SENSORS):
+        if (
+            self.bands is None
+            and self.sensor is not None
+            and any(sensor in self.sensor for sensor in SUPPORTED_SENSORS)
+        ):
             # Handle band subset notation: "landsat8oli[B02,B03,B04]"
             if "[" in self.sensor and "]" in self.sensor:
                 # Clean up spaces
@@ -105,25 +109,30 @@ class OpticalData(TacoExtension):
                 bands_dict = get_sensor_bands(self.sensor)
 
             # Convert to SpectralBand objects
-            self.bands = [SpectralBand(name=name, **band_data) for name, band_data in bands_dict.items()]
+            self.bands = [
+                SpectralBand(name=name, **band_data)
+                for name, band_data in bands_dict.items()
+            ]
 
         return self
 
     def get_schema(self) -> dict[str, pl.DataType]:
         return {
-            "optical:sensor": pl.Utf8,
+            "optical:sensor": pl.Utf8(),
             "optical:bands": pl.List(
-                pl.Struct([
-                    ("name", pl.Utf8),
-                    ("index", pl.Int32),
-                    ("common_name", pl.Utf8),
-                    ("description", pl.Utf8),
-                    ("unit", pl.Utf8),
-                    ("center_wavelength", pl.Float64),
-                    ("full_width_half_max", pl.Float64),
-                ])
+                pl.Struct(
+                    [
+                        pl.Field("name", pl.Utf8()),
+                        pl.Field("index", pl.Int32()),
+                        pl.Field("common_name", pl.Utf8()),
+                        pl.Field("description", pl.Utf8()),
+                        pl.Field("unit", pl.Utf8()),
+                        pl.Field("center_wavelength", pl.Float64()),
+                        pl.Field("full_width_half_max", pl.Float64()),
+                    ]
+                )
             ),
-            "optical:num_bands": pl.Int32,
+            "optical:num_bands": pl.Int32(),
         }
 
     def _compute(self, taco) -> pl.DataFrame:
@@ -132,20 +141,24 @@ class OpticalData(TacoExtension):
         bands_data = []
         if self.bands:
             for band in self.bands:
-                bands_data.append({
-                    "name": band.name,
-                    "index": band.index,
-                    "common_name": band.common_name,
-                    "description": band.description,
-                    "unit": band.unit,
-                    "center_wavelength": band.center_wavelength,
-                    "full_width_half_max": band.full_width_half_max,
-                })
+                bands_data.append(
+                    {
+                        "name": band.name,
+                        "index": band.index,
+                        "common_name": band.common_name,
+                        "description": band.description,
+                        "unit": band.unit,
+                        "center_wavelength": band.center_wavelength,
+                        "full_width_half_max": band.full_width_half_max,
+                    }
+                )
 
-        return pl.DataFrame([
-            {
-                "optical:sensor": self.sensor,
-                "optical:bands": bands_data,
-                "optical:num_bands": len(bands_data) if bands_data else 0,
-            }
-        ])
+        return pl.DataFrame(
+            [
+                {
+                    "optical:sensor": self.sensor,
+                    "optical:bands": bands_data,
+                    "optical:num_bands": len(bands_data) if bands_data else 0,
+                }
+            ]
+        )

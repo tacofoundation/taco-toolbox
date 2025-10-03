@@ -158,10 +158,9 @@ def _read_original_pit_schema(taco_path: pathlib.Path) -> dict[str, Any] | None:
         Original PIT schema or None if not present
     """
     try:
-        with zipfile.ZipFile(taco_path, "r") as zf:
-            with zf.open("COLLECTION.json") as f:
-                collection = json.load(f)
-                return collection.get("taco:pit_schema")
+        with zipfile.ZipFile(taco_path, "r") as zf, zf.open("COLLECTION.json") as f:
+            collection = json.load(f)
+            return collection.get("taco:pit_schema")
     except Exception:
         return None
 

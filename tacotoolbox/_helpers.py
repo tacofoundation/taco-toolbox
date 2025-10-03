@@ -144,7 +144,9 @@ class FileExtractor:
         for sample in samples:
             if sample.type == "TORTILLA":
                 # Descend into nested structure
-                new_path_prefix = f"{path_prefix}{sample.id}/" if path_prefix else f"{sample.id}/"
+                new_path_prefix = (
+                    f"{path_prefix}{sample.id}/" if path_prefix else f"{sample.id}/"
+                )
                 FileExtractor.extract_files_recursive(
                     sample.path.samples,
                     data_root,

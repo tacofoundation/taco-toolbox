@@ -4,14 +4,16 @@ from typing import TYPE_CHECKING
 import polars as pl
 import pydantic
 
-
 if TYPE_CHECKING:
     from tacotoolbox.sample.datamodel import Sample
+
 
 class TortillaExtension(ABC, pydantic.BaseModel):
     """Abstract base class for Tortilla extensions that add computed columns."""
 
-    return_none: bool = pydantic.Field(False, description="If True, return None values while preserving schema")
+    return_none: bool = pydantic.Field(
+        False, description="If True, return None values while preserving schema"
+    )
 
     @abstractmethod
     def get_schema(self) -> dict[str, pl.DataType]:
@@ -83,7 +85,9 @@ class Tortilla:
                     missing_columns = reference_columns - current_columns
                     extra_columns = current_columns - reference_columns
 
-                    error_msg = f"Schema inconsistency at sample {i} (id: {sample.id}):\n"
+                    error_msg = (
+                        f"Schema inconsistency at sample {i} (id: {sample.id}):\n"
+                    )
 
                     if missing_columns:
                         error_msg += f"  Missing columns: {sorted(missing_columns)}\n"
@@ -109,7 +113,11 @@ class Tortilla:
 
         first_sample = self.samples[0]
 
-        if hasattr(first_sample, "path") and hasattr(first_sample.path, "samples") and first_sample.path.samples:
+        if (
+            hasattr(first_sample, "path")
+            and hasattr(first_sample.path, "samples")
+            and first_sample.path.samples
+        ):
             child_tortilla = Tortilla(first_sample.path.samples)
             return 1 + child_tortilla._current_depth
         else:
@@ -181,7 +189,9 @@ class Tortilla:
             DataFrame with expanded samples and internal:parent_id column (linked-list style)
         """
         if target_deep > self._current_depth:
-            raise ValueError(f"Cannot expand to depth {target_deep}, current max depth is {self._current_depth}")
+            raise ValueError(
+                f"Cannot expand to depth {target_deep}, current max depth is {self._current_depth}"
+            )
 
         current_samples = self.samples
         current_dfs = []
@@ -191,7 +201,11 @@ class Tortilla:
             next_samples = []
 
             for parent_idx, sample in enumerate(current_samples):
-                if hasattr(sample, "path") and hasattr(sample.path, "samples") and sample.path.samples:
+                if (
+                    hasattr(sample, "path")
+                    and hasattr(sample.path, "samples")
+                    and sample.path.samples
+                ):
                     for child_sample in sample.path.samples:
                         child_metadata_df = child_sample.export_metadata()
 

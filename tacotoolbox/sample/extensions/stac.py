@@ -48,7 +48,9 @@ def raster_centroid(
     centroid_y = origin_y + (rows / 2) * pixel_height
 
     # Transform centroid to EPSG:4326 using pyproj
-    transformer = Transformer.from_crs(CRS.from_string(crs), CRS.from_epsg(4326), always_xy=True)
+    transformer = Transformer.from_crs(
+        CRS.from_string(crs), CRS.from_epsg(4326), always_xy=True
+    )
     lon, lat = transformer.transform(centroid_x, centroid_y)
 
     # Create shapely Point and convert to WKB
@@ -115,7 +117,9 @@ class STAC(SampleExtension):
                 values.time_end = int(values.time_end)
 
             if values.time_start > values.time_end:
-                raise ValueError(f"Invalid times: {values.time_start} > {values.time_end}")
+                raise ValueError(
+                    f"Invalid times: {values.time_start} > {values.time_end}"
+                )
 
         return values
 
@@ -129,7 +133,9 @@ class STAC(SampleExtension):
         """
         if values.centroid is None:
             if len(values.tensor_shape) < 2:
-                raise ValueError(f"tensor_shape must have at least 2 dimensions (got {values.tensor_shape})")
+                raise ValueError(
+                    f"tensor_shape must have at least 2 dimensions (got {values.tensor_shape})"
+                )
             # Extract (rows, cols) from the last two dims and compute centroid
             rows, cols = values.tensor_shape[-2], values.tensor_shape[-1]
             values.centroid = raster_centroid(
@@ -142,12 +148,12 @@ class STAC(SampleExtension):
     def get_schema(self) -> dict[str, pl.DataType]:
         """Return the expected schema for this extension."""
         return {
-            "stac:crs": pl.Utf8,
-            "stac:tensor_shape": pl.List(pl.Int64),
-            "stac:geotransform": pl.List(pl.Float64),
-            "stac:time_start": pl.Int64,
-            "stac:centroid": pl.Binary,
-            "stac:time_end": pl.Int64,
+            "stac:crs": pl.Utf8(),
+            "stac:tensor_shape": pl.List(pl.Int64()),
+            "stac:geotransform": pl.List(pl.Float64()),
+            "stac:time_start": pl.Int64(),
+            "stac:centroid": pl.Binary(),
+            "stac:time_end": pl.Int64(),
         }
 
     def _compute(self, sample) -> pl.DataFrame:

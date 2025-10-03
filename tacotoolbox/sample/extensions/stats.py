@@ -1,6 +1,6 @@
-from typing import TYPE_CHECKING
 import functools
 import pathlib
+from typing import TYPE_CHECKING
 
 import numpy as np
 import polars as pl
@@ -11,6 +11,7 @@ from tacotoolbox.sample.datamodel import SampleExtension
 if TYPE_CHECKING:
     from osgeo import gdal  # type: ignore[import-untyped]
 
+
 def requires_gdal(func):
     """Decorator to ensure GDAL is available."""
     _gdal_checked = False
@@ -20,9 +21,11 @@ def requires_gdal(func):
         nonlocal _gdal_checked
         if not _gdal_checked:
             try:
-                from osgeo import gdal # type: ignore[import-untyped]
+                from osgeo import gdal  # type: ignore[import-untyped]
             except ImportError as err:
-                raise ImportError("GDAL is required for GeoTIFF operations. Install: conda install gdal") from err
+                raise ImportError(
+                    "GDAL is required for GeoTIFF operations. Install: conda install gdal"
+                ) from err
             _gdal_checked = True
         return func(*args, **kwargs)
 
@@ -109,7 +112,9 @@ class GeotiffStats(SampleExtension):
                 # Create probabilities: 1.0 for the single value, 0.0 for others
                 band_probs = []
                 for class_val in self.class_values:
-                    prob_float = 1.0 if class_val == single_value else 0.0  # FIXED: was 10000.0
+                    prob_float = (
+                        1.0 if class_val == single_value else 0.0
+                    )  # FIXED: was 10000.0
                     band_probs.append(prob_float)
 
                 result.append(band_probs)

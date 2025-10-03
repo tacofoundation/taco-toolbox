@@ -93,9 +93,7 @@ def create(
     # Handle splitting if requested
     if split_size is not None:
         max_size = validate_split_size(split_size)
-        return _create_with_splitting(
-            taco, output_path, max_size, quiet, **kwargs
-        )
+        return _create_with_splitting(taco, output_path, max_size, quiet, **kwargs)
 
     # Single container creation
     if output_format == "zip":
@@ -284,7 +282,7 @@ def _create_with_splitting(
                 f"with max size {max_size / (1024**3):.1f}GB"
             )
 
-        return created_files
-
     except Exception as e:
         raise TacoCreationError(f"Failed to create split containers: {e}") from e
+    else:
+        return created_files

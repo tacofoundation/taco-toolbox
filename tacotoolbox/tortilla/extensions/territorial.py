@@ -244,7 +244,10 @@ class Territorial(TortillaExtension):
         return groups
 
     def _reduce_chunk(
-        self, chunk: list[tuple[int, float, float]], reducer_groups: dict[Any, list[dict]], ee
+        self,
+        chunk: list[tuple[int, float, float]],
+        reducer_groups: dict[Any, list[dict]],
+        ee,
     ) -> list[dict]:
         """
         Process a chunk of coordinate points with Earth Engine.
@@ -291,7 +294,10 @@ class Territorial(TortillaExtension):
         return merged
 
     def _reduce_chunk_with_retry(
-        self, chunk: list[tuple[int, float, float]], reducer_groups: dict[Any, list[dict]], ee
+        self,
+        chunk: list[tuple[int, float, float]],
+        reducer_groups: dict[Any, list[dict]],
+        ee,
     ) -> list[dict]:
         """
         Reduce chunk with exponential backoff retry logic.
@@ -315,7 +321,7 @@ class Territorial(TortillaExtension):
                     raise
                 # Exponential backoff: 2^attempt * base_delay seconds
                 time.sleep(self.retry_base_delay * (2**attempt))
-        
+
         # This should never be reached due to the raise above, but mypy needs it
         raise RuntimeError("Retry logic failed unexpectedly")
 
@@ -358,6 +364,7 @@ class Territorial(TortillaExtension):
                     if x is not None:
                         return lookup_dict.get(x, "Ocean/Sea/Lakes")
                     return "Ocean/Sea/Lakes"
+
                 return lookup_admin_name
 
             lookup_fn = create_lookup_function(admin_map)

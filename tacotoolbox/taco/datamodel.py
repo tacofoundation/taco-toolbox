@@ -89,10 +89,10 @@ class Contact(TacoExtension):
 
     def get_schema(self) -> dict[str, pl.DataType]:
         return {
-            "name": pl.Utf8,
-            "organization": pl.Utf8,
-            "email": pl.Utf8,
-            "role": pl.Utf8,
+            "name": pl.Utf8(),
+            "organization": pl.Utf8(),
+            "email": pl.Utf8(),
+            "role": pl.Utf8(),
         }
 
     def _compute(self, taco: "Taco") -> pl.DataFrame:
@@ -183,7 +183,7 @@ class Extent(TacoExtension):
         return v
 
     def get_schema(self) -> dict[str, pl.DataType]:
-        return {"spatial": pl.List(pl.Float64), "temporal": pl.List(pl.Utf8)}
+        return {"spatial": pl.List(pl.Float64()), "temporal": pl.List(pl.Utf8())}
 
     def _compute(self, taco: "Taco") -> pl.DataFrame:
         """Return extent data as DataFrame."""
@@ -329,7 +329,7 @@ class Taco(pydantic.BaseModel):
         Returns:
             Single-row DataFrame with complete dataset metadata
         """
-        metadata = {}
+        metadata: dict = {}
 
         # Export all model attributes (core + extensions)
         for key, value in self.__dict__.items():
