@@ -11,7 +11,6 @@ DataLookup: TypeAlias = dict[str, OffsetPair]  # sample_id -> (offset, size)
 HierarchyLookup: TypeAlias = dict[str, OffsetPair]  # tortilla_id -> (offset, size)
 
 
-# PIT Schema types
 class PITRootLevel(TypedDict):
     """Root level of PIT schema (level 0 - the collection)."""
 
@@ -19,29 +18,26 @@ class PITRootLevel(TypedDict):
     type: str  # Node type: "TORTILLA" or "SAMPLE"
 
 
-class PITHierarchyLevel(TypedDict):
-    """Hierarchy level of PIT schema (levels 1+)."""
+class PITPattern(TypedDict):
+    """Pattern descriptor for a specific position in the hierarchy."""
 
-    depth: int  # Level depth (1, 2, 3, ...)
-    n: int  # Total number of nodes at this level
-    children: list[str]  # Pattern of child types for each parent
+    n: int  # Total nodes at this depth for this pattern
+    children: list[str]  # Ordered array of child types
 
 
 class PITSchema(TypedDict):
     """Position-Isomorphic Tree schema for deterministic navigation."""
 
     root: PITRootLevel
-    hierarchy: list[PITHierarchyLevel]
+    hierarchy: dict[str, list[PITPattern]]  # depth_str -> patterns array
 
 
-# Metadata bundle per level
 class LevelMetadata(TypedDict):
     """Metadata for a single hierarchy level."""
 
     dataframe: pl.DataFrame
 
 
-# Complete metadata package
 class MetadataPackage(TypedDict):
     """Complete metadata bundle for TACO creation."""
 
@@ -51,7 +47,6 @@ class MetadataPackage(TypedDict):
     pit_schema: PITSchema  # PIT schema for deterministic navigation
 
 
-# File extraction results
 class ExtractedFiles(TypedDict):
     """Files extracted from samples for DATA/."""
 
@@ -59,7 +54,6 @@ class ExtractedFiles(TypedDict):
     arc_files: list[str]  # Archive paths (DATA/...)
 
 
-# ZIP creation results
 class ZipCreationResult(TypedDict):
     """Result of ZIP creation process."""
 

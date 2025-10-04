@@ -57,17 +57,15 @@ def edit_collection(
         >>> from tacotoolbox import Taco
         >>> taco = Taco.load("dataset.tacozip")
         >>> data = taco.model_dump()
-        >>> data.pop("tortilla")  # Remove tortilla
-        >>> data.pop("taco:pit_schema", None)  # Remove protected field
+        >>> data.pop("tortilla")
+        >>> data.pop("taco:pit_schema", None)
         >>> data["description"] = "Updated"
         >>> edit_collection("dataset.tacozip", data)
     """
     taco_path = pathlib.Path(taco_path)
 
-    # Validate it's a valid ZIP file
     _validate_zip_path(taco_path)
 
-    # REJECT if user tries to modify protected schema
     if "taco:pit_schema" in collection_data:
         raise TacoEditError(
             "Cannot modify 'taco:pit_schema' field.\n"
@@ -76,38 +74,30 @@ def edit_collection(
             "The original schema will be preserved automatically."
         )
 
-    # Validate required fields
     _validate_collection_data(collection_data)
 
-    # Read original schema to preserve it
     original_schema = _read_original_pit_schema(taco_path)
 
-    # Build final data: user's data + original schema
     final_data = collection_data.copy()
     if original_schema is not None:
         final_data["taco:pit_schema"] = original_schema
 
-    # Setup temp directory
     base_temp = temp_dir or pathlib.Path(tempfile.gettempdir())
     temp_subdir = base_temp / f"taco_edit_{uuid.uuid4().hex}"
 
     try:
         temp_subdir.mkdir(parents=True, exist_ok=True)
 
-        # Write new COLLECTION.json
         temp_json = temp_subdir / "collection.json"
         with open(temp_json, "w", encoding="utf-8") as f:
             json.dump(final_data, f, indent=4, ensure_ascii=False)
 
-        # Remove old COLLECTION.json
         tacozip.trim_from(zip_path=str(taco_path), target="COLLECTION.json")
 
-        # Append new COLLECTION.json
         tacozip.append_files(
             zip_path=str(taco_path), entries=[(str(temp_json), "COLLECTION.json")]
         )
 
-        # Update TACO_HEADER
         _update_taco_header(taco_path)
 
     except TacoEditError:
