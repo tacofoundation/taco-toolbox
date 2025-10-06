@@ -20,6 +20,25 @@ class PITValidationError(Exception):
     """Raised when Position-Isomorphic Tree constraint is violated."""
 
 
+def _remove_empty_internal_columns(df: pl.DataFrame) -> pl.DataFrame:
+    """
+    Remove internal: columns that are completely None.
+
+    Args:
+        df: Input DataFrame
+
+    Returns:
+        DataFrame without empty internal: columns
+    """
+    cols_to_drop = []
+
+    for col in df.columns:
+        if col.startswith("internal:") and df[col].is_null().all():
+            cols_to_drop.append(col)
+
+    return df.drop(cols_to_drop) if cols_to_drop else df
+
+
 class MetadataGenerator:
     """Generate consolidated metadata tables for all hierarchy levels."""
 
@@ -225,7 +244,7 @@ class MetadataGenerator:
 
     def _clean_dataframe(self, df: pl.DataFrame) -> pl.DataFrame:
         """
-        Remove completely null or empty columns.
+        Remove completely null or empty columns, and columns not relevant for containers.
 
         Args:
             df: Input DataFrame
@@ -233,6 +252,11 @@ class MetadataGenerator:
         Returns:
             Cleaned DataFrame
         """
+        # STEP 1: Remove columns that are not useful in containers
+        container_irrelevant_cols = ["path"]
+        df = df.drop([col for col in container_irrelevant_cols if col in df.columns])
+
+        # STEP 2: Remove completely null or empty columns
         cols_to_keep = []
 
         for col in df.columns:
@@ -408,7 +432,8 @@ class OffsetEnricher:
 
             rows_data.append(row_dict)
 
-        return pl.DataFrame(rows_data, schema=df.schema)
+        result_df = pl.DataFrame(rows_data, schema=df.schema)
+        return _remove_empty_internal_columns(result_df)
 
     def _get_tacotiff_header(self, path: str) -> bytes | None:
         """
@@ -521,4 +546,5 @@ class RelativePathEnricher:
 
             rows_data.append(row_dict)
 
-        return pl.DataFrame(rows_data, schema=df.schema)
+        result_df = pl.DataFrame(rows_data, schema=df.schema)
+        return _remove_empty_internal_columns(result_df)

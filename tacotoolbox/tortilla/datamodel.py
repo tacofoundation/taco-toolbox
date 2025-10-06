@@ -180,13 +180,16 @@ class Tortilla:
 
     def _expand_hierarchical(self, target_deep: int) -> pl.DataFrame:
         """
-        Build expanded DataFrame with linked-list position encoding.
+        Build expanded DataFrame for hierarchical samples.
+
+        In PIT structures, parent relationships are deterministic and can be
+        calculated from the PIT schema.
 
         Args:
             target_deep: Target expansion depth
 
         Returns:
-            DataFrame with expanded samples and internal:parent_id column (linked-list style)
+            DataFrame with expanded samples (no internal:parent_id column)
         """
         if target_deep > self._current_depth:
             raise ValueError(
@@ -200,7 +203,7 @@ class Tortilla:
             next_dfs = []
             next_samples = []
 
-            for parent_idx, sample in enumerate(current_samples):
+            for sample in current_samples:
                 if (
                     hasattr(sample, "path")
                     and hasattr(sample.path, "samples")
@@ -208,12 +211,6 @@ class Tortilla:
                 ):
                     for child_sample in sample.path.samples:
                         child_metadata_df = child_sample.export_metadata()
-
-                        # Add position column pointing to parent in previous level
-                        child_metadata_df = child_metadata_df.with_columns(
-                            pl.lit(parent_idx).alias("internal:parent_id")
-                        )
-
                         next_dfs.append(child_metadata_df)
                         next_samples.append(child_sample)
 
