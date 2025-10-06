@@ -22,18 +22,33 @@ class PITValidationError(Exception):
 
 def _remove_empty_internal_columns(df: pl.DataFrame) -> pl.DataFrame:
     """
-    Remove internal: columns that are completely None.
+    Remove optional internal: columns that are completely None.
+
+    Structural columns (internal:offset, internal:size, internal:relative_path)
+    are never removed even if None, as they are required by readers.
+
+    Only removes optional content columns like internal:header.
 
     Args:
         df: Input DataFrame
 
     Returns:
-        DataFrame without empty internal: columns
+        DataFrame without empty optional internal: columns
     """
+    protected_columns = {
+        "internal:offset",
+        "internal:size",
+        "internal:relative_path",
+    }
+
     cols_to_drop = []
 
     for col in df.columns:
-        if col.startswith("internal:") and df[col].is_null().all():
+        if (
+            col.startswith("internal:")
+            and col not in protected_columns
+            and df[col].is_null().all()
+        ):
             cols_to_drop.append(col)
 
     return df.drop(cols_to_drop) if cols_to_drop else df
