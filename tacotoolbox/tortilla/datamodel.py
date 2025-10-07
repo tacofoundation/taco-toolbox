@@ -182,14 +182,14 @@ class Tortilla:
         """
         Build expanded DataFrame for hierarchical samples.
 
-        In PIT structures, parent relationships are deterministic and can be
-        calculated from the PIT schema.
+        Adds internal:temporal_parent_id for schema generation.
+        This column should be removed after schema generation.
 
         Args:
             target_deep: Target expansion depth
 
         Returns:
-            DataFrame with expanded samples (no internal:parent_id column)
+            DataFrame with expanded samples including internal:temporal_parent_id
         """
         if target_deep > self._current_depth:
             raise ValueError(
@@ -203,7 +203,7 @@ class Tortilla:
             next_dfs = []
             next_samples = []
 
-            for sample in current_samples:
+            for parent_idx, sample in enumerate(current_samples):
                 if (
                     hasattr(sample, "path")
                     and hasattr(sample.path, "samples")
@@ -211,6 +211,13 @@ class Tortilla:
                 ):
                     for child_sample in sample.path.samples:
                         child_metadata_df = child_sample.export_metadata()
+
+                        # Add temporal parent_id for schema generation
+                        # This links each child to its parent index
+                        child_metadata_df = child_metadata_df.with_columns(
+                            pl.lit(parent_idx).alias("internal:temporal_parent_id")
+                        )
+
                         next_dfs.append(child_metadata_df)
                         next_samples.append(child_sample)
 

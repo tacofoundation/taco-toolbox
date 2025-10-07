@@ -112,9 +112,7 @@ class GeotiffStats(SampleExtension):
                 # Create probabilities: 1.0 for the single value, 0.0 for others
                 band_probs = []
                 for class_val in self.class_values:
-                    prob_float = (
-                        1.0 if class_val == single_value else 0.0
-                    )
+                    prob_float = 1.0 if class_val == single_value else 0.0
                     band_probs.append(prob_float)
 
                 result.append(band_probs)

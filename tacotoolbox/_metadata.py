@@ -1,5 +1,5 @@
 import pathlib
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import polars as pl
 
@@ -77,20 +77,31 @@ class MetadataGenerator:
         levels: list[LevelMetadata] = []
         dataframes: list[pl.DataFrame] = []
 
-        for depth in range(self.max_depth + 1):
-            df = self.taco.tortilla.export_metadata(deep=depth)
+        for _depth in range(self.max_depth + 1):
+            df = self.taco.tortilla.export_metadata(deep=_depth)
             df = self._clean_dataframe(df)
             dataframes.append(df)
 
-            if depth == 0:
+            if _depth == 0:
                 self._validate_pit_level0(df)
             else:
-                self._validate_pit_depth(df, dataframes[depth - 1], depth)
-
-            levels.append({"dataframe": df})
+                self._validate_pit_depth(df, dataframes[_depth - 1], _depth)
 
         collection = generate_collection_json(self.taco)
+
+        # Generate schema BEFORE cleaning (needs internal:temporal_parent_id)
         pit_schema = generate_pit_schema(dataframes)
+
+        # NOW clean the dataframes (remove internal:temporal_parent_id)
+        cleaned_dataframes = []
+        for df in dataframes:
+            if "internal:temporal_parent_id" in df.columns:
+                df = df.drop("internal:temporal_parent_id")
+            cleaned_dataframes.append(df)
+
+        # Update levels with cleaned dataframes
+        for _depth, df in enumerate(cleaned_dataframes):
+            levels.append({"dataframe": df})
 
         return {
             "levels": levels,
@@ -267,11 +278,9 @@ class MetadataGenerator:
         Returns:
             Cleaned DataFrame
         """
-        # STEP 1: Remove columns that are not useful in containers
         container_irrelevant_cols = ["path"]
         df = df.drop([col for col in container_irrelevant_cols if col in df.columns])
 
-        # STEP 2: Remove completely null or empty columns
         cols_to_keep = []
 
         for col in df.columns:
@@ -294,10 +303,10 @@ class MetadataGenerator:
 
 def generate_pit_schema(dataframes: list[pl.DataFrame]) -> PITSchema:
     """
-    Generate PIT schema from DataFrames.
+    Generate PIT schema from DataFrames using internal:temporal_parent_id.
 
     Args:
-        dataframes: List of DataFrames (one per depth)
+        dataframes: List of DataFrames with internal:temporal_parent_id
 
     Returns:
         PIT schema for deterministic navigation
@@ -324,29 +333,80 @@ def generate_pit_schema(dataframes: list[pl.DataFrame]) -> PITSchema:
         if len(df) == 0:
             continue
 
-        parent_types = [_normalize_type(t) for t in parent_df["type"].to_list()]
-        parent_pattern = _infer_pattern(parent_types)
-        tortilla_positions = [
-            i for i, t in enumerate(parent_pattern) if t == "TORTILLA"
-        ]
-
-        if not tortilla_positions:
-            continue
-
-        patterns: list[PITPattern] = []
-        num_parents = len(parent_df)
-        child_types = [_normalize_type(t) for t in df["type"].to_list()]
-
-        for tortilla_idx in range(len(tortilla_positions)):
-            chunk_pattern = _extract_tortilla_pattern(
-                child_types, num_parents, len(tortilla_positions), tortilla_idx
+        if "internal:temporal_parent_id" not in df.columns:
+            raise PITValidationError(
+                f"Depth {depth} missing 'internal:temporal_parent_id' column"
             )
-            chunk_total = num_parents * len(chunk_pattern)
-            patterns.append({"n": chunk_total, "children": chunk_pattern})
 
-        hierarchy[str(depth)] = patterns
+        if depth == 1:
+            children_per_parent = len(df) // len(parent_df)
+            first_parent_children = df.head(children_per_parent)
+            child_types = [
+                _normalize_type(t) for t in first_parent_children["type"].to_list()
+            ]
+
+            pattern: PITPattern = {"n": len(df), "children": child_types}
+            hierarchy[str(depth)] = [pattern]
+
+        else:
+            parent_schema = hierarchy[str(depth - 1)]
+            parent_pattern = parent_schema[0]["children"]
+            pattern_size = len(parent_pattern)
+            num_groups = len(parent_df) // pattern_size
+
+            tortilla_positions = [
+                i for i, t in enumerate(parent_pattern) if t == "TORTILLA"
+            ]
+
+            if not tortilla_positions:
+                continue
+
+            all_patterns: list[PITPattern] = []
+
+            for position_idx in tortilla_positions:
+                position_children = df.filter(
+                    pl.col("internal:temporal_parent_id") == position_idx
+                )
+
+                if len(position_children) == 0:
+                    continue
+
+                types = position_children["type"].to_list()
+                types_normalized = [_normalize_type(t) for t in types]
+                total_nodes = num_groups * len(types_normalized)
+
+                pattern_dict: PITPattern = {
+                    "n": total_nodes,
+                    "children": types_normalized,
+                }
+                all_patterns.append(pattern_dict)
+
+            hierarchy[str(depth)] = all_patterns
 
     return {"root": root, "hierarchy": hierarchy}
+
+
+def generate_pit_schema_clean(dataframes: list[pl.DataFrame]) -> PITSchema:
+    """
+    Generate PIT schema and remove internal:temporal_parent_id from dataframes.
+
+    DEPRECATED: Use generate_pit_schema() directly and handle cleanup separately.
+    This function is kept for backwards compatibility.
+
+    Args:
+        dataframes: List of DataFrames with internal:temporal_parent_id
+
+    Returns:
+        PIT schema (dataframes modified in-place to remove parent_id)
+    """
+    schema = generate_pit_schema(dataframes)
+
+    # Remove internal:temporal_parent_id from dataframes in-place
+    for i, df in enumerate(dataframes):
+        if "internal:temporal_parent_id" in df.columns:
+            dataframes[i] = df.drop("internal:temporal_parent_id")
+
+    return schema
 
 
 def _normalize_type(type_str: str) -> str:
