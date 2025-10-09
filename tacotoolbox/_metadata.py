@@ -1,5 +1,5 @@
 import pathlib
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import polars as pl
 
@@ -114,7 +114,7 @@ class MetadataGenerator:
         """
         Validate PIT constraint for level 0 (root collection).
 
-        Level 0 should have uniform node types (all TORTILLA or all SAMPLE).
+        Level 0 should have uniform node types (all FOLDER or all FILE).
 
         Args:
             df: DataFrame for level 0
@@ -132,9 +132,9 @@ class MetadataGenerator:
             raise PITValidationError(
                 f"PIT constraint violated at level 0:\n"
                 f"All nodes must have the same type.\n"
-                f"Found normalized types: {unique_types}\n\n"
+                f"Found types: {unique_types}\n\n"
                 f"TACO requires Position-Isomorphic Tree (PIT) structure.\n"
-                f"Level 0 must be homogeneous (all TORTILLA or all SAMPLE)."
+                f"Level 0 must be homogeneous (all FOLDER or all FILE)."
             )
 
     def _validate_pit_depth(
@@ -156,40 +156,38 @@ class MetadataGenerator:
 
         parent_types = [_normalize_type(t) for t in parent_df["type"].to_list()]
         parent_pattern = self._infer_unique_pattern(parent_types, depth - 1)
-        tortilla_positions = [
-            i for i, t in enumerate(parent_pattern) if t == "TORTILLA"
-        ]
+        folder_positions = [i for i, t in enumerate(parent_pattern) if t == "FOLDER"]
 
-        if not tortilla_positions:
+        if not folder_positions:
             raise PITValidationError(
-                f"Depth {depth} exists but no TORTILLAs at depth {depth - 1}"
+                f"Depth {depth} exists but no FOLDERs at depth {depth - 1}"
             )
 
         num_parents = len(parent_df)
         child_types = [_normalize_type(t) for t in df["type"].to_list()]
 
-        for tortilla_idx, position in enumerate(tortilla_positions):
+        for folder_idx, position in enumerate(folder_positions):
             chunk_pattern = self._extract_chunk_pattern(
-                child_types, num_parents, len(tortilla_positions), tortilla_idx
+                child_types, num_parents, len(folder_positions), folder_idx
             )
 
             if chunk_pattern is None:
                 raise PITValidationError(
                     f"PIT constraint violated at depth {depth}:\n"
-                    f"Cannot extract consistent pattern for TORTILLA at position {position}"
+                    f"Cannot extract consistent pattern for FOLDER at position {position}"
                 )
 
             for parent_idx in range(num_parents):
-                chunk_start = (
-                    parent_idx * len(tortilla_positions) + tortilla_idx
-                ) * len(chunk_pattern)
+                chunk_start = (parent_idx * len(folder_positions) + folder_idx) * len(
+                    chunk_pattern
+                )
                 chunk_end = chunk_start + len(chunk_pattern)
                 actual_chunk = child_types[chunk_start:chunk_end]
 
                 if actual_chunk != chunk_pattern:
                     raise PITValidationError(
                         f"PIT constraint violated at depth {depth}:\n"
-                        f"TORTILLA at position {position}, parent {parent_idx} has different pattern.\n"
+                        f"FOLDER at position {position}, parent {parent_idx} has different pattern.\n"
                         f"Expected: {chunk_pattern}\n"
                         f"Actual: {actual_chunk}"
                     )
@@ -229,38 +227,38 @@ class MetadataGenerator:
         self,
         types: list[str],
         num_parents: int,
-        num_tortillas_per_parent: int,
-        tortilla_idx: int,
+        num_folders_per_parent: int,
+        folder_idx: int,
     ) -> list[str] | None:
         """
-        Extract pattern for specific TORTILLA position.
+        Extract pattern for specific FOLDER position.
 
         Args:
             types: All child types at this depth
             num_parents: Number of parents from previous depth
-            num_tortillas_per_parent: Number of TORTILLAs per parent
-            tortilla_idx: Index of TORTILLA position we're extracting
+            num_folders_per_parent: Number of FOLDERs per parent
+            folder_idx: Index of FOLDER position we're extracting
 
         Returns:
-            Pattern for this TORTILLA position or None if inconsistent
+            Pattern for this FOLDER position or None if inconsistent
         """
         total_types = len(types)
-        expected_total = num_parents * num_tortillas_per_parent
+        expected_total = num_parents * num_folders_per_parent
 
         if total_types % expected_total != 0:
             return None
 
         chunk_size = total_types // expected_total
 
-        first_chunk_start = tortilla_idx * chunk_size
+        first_chunk_start = folder_idx * chunk_size
         first_chunk_end = first_chunk_start + chunk_size
         pattern = types[first_chunk_start:first_chunk_end]
 
         for parent_idx in range(num_parents):
-            for tort_idx in range(num_tortillas_per_parent):
-                if tort_idx == tortilla_idx:
+            for fld_idx in range(num_folders_per_parent):
+                if fld_idx == folder_idx:
                     chunk_start = (
-                        parent_idx * num_tortillas_per_parent + tort_idx
+                        parent_idx * num_folders_per_parent + fld_idx
                     ) * chunk_size
                     chunk_end = chunk_start + chunk_size
                     if types[chunk_start:chunk_end] != pattern:
@@ -354,16 +352,16 @@ def generate_pit_schema(dataframes: list[pl.DataFrame]) -> PITSchema:
             pattern_size = len(parent_pattern)
             num_groups = len(parent_df) // pattern_size
 
-            tortilla_positions = [
-                i for i, t in enumerate(parent_pattern) if t == "TORTILLA"
+            folder_positions = [
+                i for i, t in enumerate(parent_pattern) if t == "FOLDER"
             ]
 
-            if not tortilla_positions:
+            if not folder_positions:
                 continue
 
             all_patterns: list[PITPattern] = []
 
-            for position_idx in tortilla_positions:
+            for position_idx in folder_positions:
                 position_children = df.filter(
                     pl.col("internal:temporal_parent_id") == position_idx
                 )
@@ -411,69 +409,45 @@ def generate_pit_schema_clean(dataframes: list[pl.DataFrame]) -> PITSchema:
 
 def _normalize_type(type_str: str) -> str:
     """
-    Normalize asset type to PIT conceptual type.
+    Return asset type without normalization.
+
+    Previously this function normalized FILE→SAMPLE and FOLDER→TORTILLA,
+    but now returns the original type directly for use in PIT schema.
 
     Args:
-        type_str: Original asset type
+        type_str: Original asset type ("FILE" or "FOLDER")
 
     Returns:
-        Normalized type: "SAMPLE" or "TORTILLA"
+        Original type: "FILE" or "FOLDER"
+
+    Example:
+        >>> _normalize_type("FILE")
+        'FILE'
+        >>> _normalize_type("FOLDER")
+        'FOLDER'
     """
-    return "SAMPLE" if type_str != "TORTILLA" else "TORTILLA"
-
-
-def _infer_pattern(types: list[str]) -> list[str]:
-    """Infer repeating pattern from types list."""
-    total = len(types)
-
-    for pattern_len in range(1, total // 2 + 1):
-        if total % pattern_len != 0:
-            continue
-
-        pattern = types[:pattern_len]
-        num_repeats = total // pattern_len
-
-        if all(
-            types[i * pattern_len : (i + 1) * pattern_len] == pattern
-            for i in range(num_repeats)
-        ):
-            return pattern
-
-    return types
-
-
-def _extract_tortilla_pattern(
-    types: list[str],
-    num_parents: int,
-    num_tortillas_per_parent: int,
-    tortilla_idx: int,
-) -> list[str]:
-    """Extract pattern for specific TORTILLA position."""
-    total_types = len(types)
-    expected_total = num_parents * num_tortillas_per_parent
-    chunk_size = total_types // expected_total
-
-    first_chunk_start = tortilla_idx * chunk_size
-    first_chunk_end = first_chunk_start + chunk_size
-    return types[first_chunk_start:first_chunk_end]
+    return type_str
 
 
 class OffsetEnricher:
     """Enrich metadata with internal ZIP offsets and headers."""
 
-    def __init__(self, zip_path: pathlib.Path, quiet: bool = False) -> None:
+    def __init__(
+        self, zip_path: pathlib.Path, arc_files: list[str], quiet: bool = False
+    ) -> None:
         self.zip_path = zip_path
+        self.arc_files = arc_files
         self.quiet = quiet
 
     def enrich_metadata(
         self, df: pl.DataFrame, data_lookup: DataLookup
     ) -> pl.DataFrame:
         """
-        Add internal:offset, internal:size, internal:header columns.
+        Add internal:offset, internal:size, internal:header columns using positional matching.
 
         Args:
             df: Input metadata DataFrame
-            data_lookup: Mapping of sample_id to (offset, size)
+            data_lookup: Mapping of archive path to (offset, size)
 
         Returns:
             Enriched DataFrame with internal columns
@@ -487,14 +461,18 @@ class OffsetEnricher:
         )
 
         rows_data = []
-        for row in df.iter_rows(named=True):
+        for row_idx, row in enumerate(df.iter_rows(named=True)):
             row_dict = dict(row)
-            sample_id = row_dict["id"]
 
-            if sample_id in data_lookup:
-                offset, size = data_lookup[sample_id]
-                row_dict["internal:offset"] = offset
-                row_dict["internal:size"] = size
+            # Use row position to get corresponding archive file
+            if row_idx < len(self.arc_files):
+                arc_file = self.arc_files[row_idx]
+
+                # Lookup offset/size using archive path
+                if arc_file in data_lookup:
+                    offset, size = data_lookup[arc_file]
+                    row_dict["internal:offset"] = offset
+                    row_dict["internal:size"] = size
 
             if (
                 row_dict["type"] == "TACOTIFF"
@@ -560,44 +538,44 @@ class RelativePathEnricher:
     def __init__(self, samples: list[Any], quiet: bool = False) -> None:
         self.samples = samples
         self.quiet = quiet
-        self.path_mapping = self._build_path_mapping()
+        self.path_list = self._build_path_list()
 
-    def _build_path_mapping(self) -> dict[str, str]:
+    def _build_path_list(self) -> list[str]:
         """
-        Build mapping of sample_id to relative path.
+        Build ordered list of relative paths matching DataFrame row order.
 
         Returns:
-            Dictionary mapping sample_id to relative path from container root
+            List of relative paths in same order as samples appear in flattened hierarchy
         """
-        mapping: dict[str, str] = {}
-        self._traverse_samples(self.samples, mapping, path_prefix="")
-        return mapping
+        paths: list[str] = []
+        self._traverse_samples(self.samples, paths, path_prefix="")
+        return paths
 
     def _traverse_samples(
-        self, samples: list[Any], mapping: dict[str, str], path_prefix: str
+        self, samples: list[Any], paths: list[str], path_prefix: str
     ) -> None:
         """
-        Recursively traverse samples to build path mapping.
+        Recursively traverse samples to build ordered path list.
 
         Args:
             samples: List of Sample objects
-            mapping: Dictionary to populate
+            paths: List to populate (in order)
             path_prefix: Current path prefix
         """
         for sample in samples:
-            if sample.type == "TORTILLA":
+            if sample.type == "FOLDER":
                 new_prefix = (
                     f"{path_prefix}{sample.id}/" if path_prefix else f"{sample.id}/"
                 )
-                mapping[sample.id] = f"DATA/{new_prefix}"
-                self._traverse_samples(sample.path.samples, mapping, new_prefix)
+                paths.append(f"DATA/{new_prefix}")
+                self._traverse_samples(sample.path.samples, paths, new_prefix)
             else:
                 file_suffix = sample.path.suffix
-                mapping[sample.id] = f"DATA/{path_prefix}{sample.id}{file_suffix}"
+                paths.append(f"DATA/{path_prefix}{sample.id}{file_suffix}")
 
     def enrich_metadata(self, df: pl.DataFrame) -> pl.DataFrame:
         """
-        Add internal:relative_path column.
+        Add internal:relative_path column using positional matching.
 
         Args:
             df: Input metadata DataFrame
@@ -612,12 +590,12 @@ class RelativePathEnricher:
         )
 
         rows_data = []
-        for row in df.iter_rows(named=True):
+        for row_idx, row in enumerate(df.iter_rows(named=True)):
             row_dict = dict(row)
-            sample_id = row_dict["id"]
 
-            if sample_id in self.path_mapping:
-                row_dict["internal:relative_path"] = self.path_mapping[sample_id]
+            # Use row position to get corresponding path
+            if row_idx < len(self.path_list):
+                row_dict["internal:relative_path"] = self.path_list[row_idx]
 
             rows_data.append(row_dict)
 

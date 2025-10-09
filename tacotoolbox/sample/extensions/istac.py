@@ -120,7 +120,7 @@ class ISTAC(SampleExtension):
             "istac:geometry": pl.Binary(),
             "istac:time_start": pl.Int64(),
             "istac:time_end": pl.Int64(),
-            "istac:centroid": pl.Binary()
+            "istac:centroid": pl.Binary(),
         }
 
     def _compute(self, sample) -> pl.DataFrame:

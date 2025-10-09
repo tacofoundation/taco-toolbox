@@ -105,7 +105,7 @@ class FolderWriter:
             path_prefix: Current path prefix for nested samples
         """
         for sample in samples:
-            if sample.type == "TORTILLA":
+            if sample.type == "FOLDER":
                 # Create subdirectory for nested tortilla
                 new_prefix = (
                     f"{path_prefix}{sample.id}/" if path_prefix else f"{sample.id}/"

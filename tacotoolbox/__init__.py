@@ -1,4 +1,4 @@
-from tacotoolbox import datamodel
+from tacotoolbox import datamodel, validator
 from tacotoolbox.create import create
 
 
@@ -19,4 +19,5 @@ __all__ = [
     "create",
     "datamodel",
     "edit",
+    "validator",
 ]

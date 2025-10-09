@@ -40,7 +40,7 @@ def calculate_sample_size(sample: Any) -> int:
     """
     Calculate total size of a sample in bytes.
 
-    Recursively sums sizes for TORTILLA types.
+    Recursively sums sizes for FOLDER types (nested Tortilla).
 
     Args:
         sample: Sample object with type and path attributes
@@ -48,7 +48,7 @@ def calculate_sample_size(sample: Any) -> int:
     Returns:
         Total size in bytes
     """
-    if sample.type == "TORTILLA":
+    if sample.type == "FOLDER":
         return sum(calculate_sample_size(s) for s in sample.path.samples)
     return sample.path.stat().st_size
 
@@ -117,7 +117,7 @@ class FileExtractor:
         """
         Recursively extract data files from samples.
 
-        Handles nested TORTILLA structures, preserving hierarchy.
+        Handles nested FOLDER structures (Tortilla), preserving hierarchy.
 
         Args:
             samples: List of Sample objects
@@ -142,7 +142,7 @@ class FileExtractor:
             arc_files = []
 
         for sample in samples:
-            if sample.type == "TORTILLA":
+            if sample.type == "FOLDER":
                 # Descend into nested structure
                 new_path_prefix = (
                     f"{path_prefix}{sample.id}/" if path_prefix else f"{sample.id}/"

@@ -75,13 +75,13 @@ class ZipOffsetReader:
     @staticmethod
     def create_data_lookup(df: pl.DataFrame) -> DataLookup:
         """
-        Create lookup: sample_id -> (offset, size) for DATA/ files.
+        Create lookup: archive_path -> (offset, size) for DATA/ files.
 
         Args:
             df: DataFrame from read_file_offsets() with DATA/ files
 
         Returns:
-            Dictionary mapping sample_id to (offset, size)
+            Dictionary mapping archive path (e.g., "DATA/sample.tif") to (offset, size)
         """
         lookup: DataLookup = {}
 
@@ -89,14 +89,9 @@ class ZipOffsetReader:
             return lookup
 
         for row in df.iter_rows(named=True):
-            # Extract sample_id from filename
-            # Examples: DATA/sample.tif -> sample
-            #           DATA/parent/child.tif -> child
-            path_parts = row["filename"].split("/")
-            if len(path_parts) >= 2:
-                filename = path_parts[-1]
-                sample_id = filename.rsplit(".", 1)[0]  # Remove extension
-                lookup[sample_id] = (row["internal:offset"], row["internal:size"])
+            # Use full archive path as key (not just sample_id)
+            # This avoids collisions when multiple files have same ID in different paths
+            lookup[row["filename"]] = (row["internal:offset"], row["internal:size"])
 
         return lookup
 
@@ -216,6 +211,9 @@ class ZipWriter:
             ZipWriterError: If creation fails
         """
         try:
+            # Save arc_files for enricher
+            self.arc_files = arc_files
+
             # Step 1: Create ZIP with DATA/
             self._create_with_data(src_files, arc_files, metadata_package["max_depth"])
 
@@ -277,16 +275,17 @@ class ZipWriter:
 
         Args:
             levels: List of LevelMetadata dicts
-            data_lookup: Lookup for DATA/ offsets
+            data_lookup: Lookup for DATA/ offsets by archive path
             **kwargs: Additional kwargs for pyarrow.parquet.write_table()
         """
-        enricher = OffsetEnricher(self.output_path, self.quiet)
+        # Create enricher with arc_files for positional matching
+        enricher = OffsetEnricher(self.output_path, self.arc_files, self.quiet)
         entries = []
 
         for i, level_meta in enumerate(levels):
             df = level_meta["dataframe"]
 
-            # Enrich with internal:offset/size/header
+            # Enrich with internal:offset/size/header using positional matching
             df = enricher.enrich_metadata(df, data_lookup)
 
             # Write temporary parquet using PyArrow API

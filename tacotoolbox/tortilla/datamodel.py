@@ -1,11 +1,17 @@
+import warnings
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import polars as pl
 import pydantic
 
 if TYPE_CHECKING:
     from tacotoolbox.sample.datamodel import Sample
+
+
+# Module-level globals for ordering warnings (shared across all Tortilla instances)
+_ORDERING_WARNING_COUNT = 0
+_MAX_ORDERING_WARNINGS = 3
 
 
 class TortillaExtension(ABC, pydantic.BaseModel):
@@ -51,6 +57,9 @@ class Tortilla:
 
     Supports nested sample structures up to 5 levels deep with position tracking.
     Uses eager DataFrame construction with schema validation for performance.
+
+    Best Practice: When mixing FOLDERs and FILEs in the same Tortilla,
+    place all FOLDERs before FILEs for better organization and readability.
     """
 
     def __init__(self, samples: list["Sample"]) -> None:
@@ -67,6 +76,9 @@ class Tortilla:
             raise ValueError("Cannot create Tortilla with empty samples list")
 
         self.samples = samples
+
+        # Check ordering best practice (only for mixed types)
+        self._check_sample_ordering()
 
         # Extract metadata from all samples
         metadata_dfs = []
@@ -106,22 +118,74 @@ class Tortilla:
         self._metadata_df = pl.concat(metadata_dfs, how="vertical")
         self._current_depth = self._calculate_current_depth()
 
+    def _check_sample_ordering(self) -> None:
+        """
+        Check if samples follow best practice: FOLDERs before FILEs.
+
+        Only warns if:
+        1. There's a mix of FOLDERs and FILEs
+        2. FOLDERs appear after FILEs
+        3. Warning hasn't been shown too many times (globally across all Tortillas)
+        """
+        global _ORDERING_WARNING_COUNT
+
+        # Skip if warning limit reached globally
+        if _ORDERING_WARNING_COUNT >= _MAX_ORDERING_WARNINGS:
+            return
+
+        # Get sample types
+        types = [sample.type for sample in self.samples]
+
+        # Check if there's a mix of types
+        unique_types = set(types)
+        if len(unique_types) <= 1:
+            # Only FOLDERs or only FILEs - no need to check ordering
+            return
+
+        # Check if both FOLDER and FILE exist
+        has_folders = "FOLDER" in unique_types
+        has_files = "FILE" in unique_types
+
+        if not (has_folders and has_files):
+            # No mix, skip
+            return
+
+        # Find first FOLDER and first FILE positions
+        first_folder_idx = next((i for i, t in enumerate(types) if t == "FOLDER"), None)
+        first_file_idx = next((i for i, t in enumerate(types) if t == "FILE"), None)
+
+        # Check if any FOLDER comes after any FILE
+        if (
+            first_file_idx is not None
+            and first_folder_idx is not None
+            and first_folder_idx > first_file_idx
+        ):
+            # Bad ordering detected - increment global counter
+            _ORDERING_WARNING_COUNT += 1
+
+            warnings.warn(
+                f"Best practice recommendation: In Tortilla with mixed types, "
+                f"place all FOLDERs before FILEs for better organization. "
+                f"Found FILE at position {first_file_idx} before FOLDER at position {first_folder_idx}. "
+                f"(Warning {_ORDERING_WARNING_COUNT}/{_MAX_ORDERING_WARNINGS})",
+                UserWarning,
+                stacklevel=3,
+            )
+
     def _calculate_current_depth(self) -> int:
         """Calculate current depth by examining first sample."""
         if not self.samples:
             return 0
 
-        first_sample = self.samples[0]
+        max_depth = 0
 
-        if (
-            hasattr(first_sample, "path")
-            and hasattr(first_sample.path, "samples")
-            and first_sample.path.samples
-        ):
-            child_tortilla = Tortilla(first_sample.path.samples)
-            return 1 + child_tortilla._current_depth
-        else:
-            return 0
+        for sample in self.samples:
+            if sample.type == "FOLDER":
+                tortilla_path = cast(Tortilla, sample.path)
+                child_depth = 1 + tortilla_path._current_depth
+                max_depth = max(max_depth, child_depth)
+
+        return max_depth
 
     def __len__(self) -> int:
         """Return number of samples in this tortilla."""

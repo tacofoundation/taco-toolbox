@@ -1,10 +1,9 @@
-import functools
 import pathlib
 import re
 import tempfile
 import uuid
 from abc import ABC, abstractmethod
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import polars as pl
 import pydantic
@@ -12,8 +11,11 @@ import pydantic
 # Dependencies
 from tacotoolbox.tortilla.datamodel import Tortilla
 
+if TYPE_CHECKING:
+    from tacotoolbox.sample.validators._base import SampleValidator
+
 # Asset types
-AssetType = Literal["TACOTIFF", "TACOGEOPARQUET", "TORTILLA", "OTHER"]
+AssetType = Literal["FILE", "FOLDER"]
 
 # Key validation pattern
 VALID_KEY_PATTERN = re.compile(r"^[a-zA-Z0-9_]+(?:[:][\w]+)?$")
@@ -59,127 +61,19 @@ class SampleExtension(ABC, pydantic.BaseModel):
         return self._compute(sample)
 
 
-def requires_gdal(min_version="3.11"):
-    """Decorator to ensure GDAL is available with minimum version."""
-
-    def decorator(func):
-        # Cache the check result to make subsequent calls fast
-        _gdal_checked = False
-        _gdal_module = None
-
-        def _raise_gdal_version_error(current_version, min_version):
-            """Raise ImportError for GDAL version mismatch."""
-            raise ImportError(
-                f"GDAL {min_version}+ required. Current: {current_version}"
-            )
-
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            nonlocal _gdal_checked, _gdal_module
-
-            if not _gdal_checked:
-                try:
-                    from osgeo import gdal  # type: ignore[import-untyped]
-
-                    _gdal_module = gdal
-
-                    # Simple version comparison using tuple comparison
-                    current = tuple(map(int, gdal.__version__.split(".")[:2]))
-                    required = tuple(map(int, min_version.split(".")[:2]))
-
-                    if current < required:
-                        _raise_gdal_version_error(gdal.__version__, min_version)
-
-                except ImportError as e:
-                    if "GDAL" not in str(e):
-                        raise ImportError(
-                            f"GDAL {min_version}+ required for TACOTIFF validation. "
-                            f"Install: conda install gdal>={min_version}"
-                        ) from e
-                    raise
-
-                _gdal_checked = True
-
-            return func(*args, **kwargs)
-
-        return wrapper
-
-    return decorator
-
-
-class TacotiffValidator:
-    """
-    Validator for TACOTIFF sample using GDAL to enforce strict format requirements.
-
-    TACOTIFF format requirements:
-    - Driver: GDAL generated COG (Cloud Optimized GeoTIFF)
-    - Compression: JXL (next-gen JPEG with the best performance and quality)
-    - Interleave: TILE (for efficient access patterns)
-    - Overviews: None (to avoid redundant data storage)
-    - BIGTIFF: YES (to standardize between large and small files)
-    - GEOTIFF version: 1.1 (for standard compliance)
-    """
-
-    @requires_gdal(min_version="3.11")
-    def validate(self, path: pathlib.Path) -> None:
-        """
-        Validate a TACOTIFF file against format requirements.
-
-        Example:
-            >>> validator = TacotiffValidator()
-            >>> validator.validate(Path("my_file.tif"))  # Raises ValueError if invalid
-        """
-        from osgeo import gdal
-
-        # Open the dataset using GDAL
-        ds = gdal.Open(str(path))
-
-        # Check if GDAL can open the file
-        if not ds:
-            raise ValueError(f"Cannot open {path} with GDAL")
-
-        try:
-            # Get image structure metadata from GDAL
-            # This contains compression, interleave, and other format info
-            ds_args = ds.GetMetadata("IMAGE_STRUCTURE")
-
-            # Validate ZSTD compression (5000)
-            compression = ds_args.get("COMPRESSION", "").upper()
-            if compression != "JXL":
-                raise ValueError(
-                    f"TACOTIFF assets must use JXL compression, found: {compression or 'NONE'}"
-                )
-
-            # Validate TILE interleave
-            interleave = ds_args.get("INTERLEAVE", "").upper()
-            if interleave != "TILE":
-                raise ValueError(
-                    f"TACOTIFF assets must use TILE interleave, found: {interleave or 'PIXEL'}"
-                )
-
-            # Validate no overviews present
-            band = ds.GetRasterBand(1)
-            overview_count = band.GetOverviewCount()
-            if overview_count != 0:
-                raise ValueError(
-                    f"TACOTIFF assets must not have overviews, found: {overview_count} overview levels"
-                )
-
-        finally:
-            # Always clean up GDAL dataset to free memory
-            ds = None
-
-
 class Sample(pydantic.BaseModel):
     """
     The fundamental data unit in the TACO framework, combining raw data with
     structured metadata for training, validation, and testing.
 
     Supported data asset types:
-    - TACOTIFF: Cloud Optimized GeoTIFF with strict format requirements
-    - TACOGEOPARQUET: GeoParquet format with strict format requirements
-    - TORTILLA: A set of samples with similar characteristics
-    - OTHER: Other file-based formats (e.g., TIFF, NetCDF, HDF5, PDF, CSV)
+    - FILE: Any file-based format (e.g., GeoTIFF, NetCDF, HDF5, PDF, CSV, Zarr)
+    - FOLDER: A nested collection of samples (Tortilla)
+
+    Format-specific validation is handled by validators (applied via validate_with):
+    - Use TacotiffValidator for TACOTIFF format validation
+    - Use TacozarrValidator for TACOZARR format validation (future)
+    - Use TacogeoparquetValidator for TACOGEOPARQUET format validation (future)
 
     Bytes Support:
     When passing bytes as path, temporary files are created in the system temp
@@ -187,20 +81,38 @@ class Sample(pydantic.BaseModel):
     up quickly. Use temp_dir parameter to specify a directory with adequate space.
 
     Example:
+        >>> from tacotoolbox import Sample
+        >>> from tacotoolbox.sample.validators import TacotiffValidator
+        >>>
+        >>> # Basic sample
         >>> sample = Sample(
         ...     id="soyuntaco",
         ...     path=Path("/home/lxlx/sentinel2.tif"),
-        ...     type="TACOTIFF"
+        ...     type="FILE"
         ... )
+        >>>
+        >>> # Validate with TACOTIFF format
+        >>> sample.validate_with(TacotiffValidator())
+        >>>
+        >>> # Bytes support
         >>> sample = Sample(
         ...     id="bytesample",
         ...     path=image_bytes,
-        ...     type="TACOTIFF",
+        ...     type="FILE",
         ...     temp_dir="/data/workspace"
         ... )
+        >>>
+        >>> # Extensions
         >>> sample.extend_with(stac_obj)
         >>> sample.extend_with({"s2:mgrs_tile": "T30UYA"})
         >>> sample.extend_with(scaling_extension)
+        >>>
+        >>> # Nested samples (FOLDER)
+        >>> nested = Sample(
+        ...     id="multitemporal",
+        ...     path=Tortilla(samples=[s1, s2, s3]),
+        ...     type="FOLDER"
+        ... )
     """
 
     # Core attributes
@@ -266,15 +178,36 @@ class Sample(pydantic.BaseModel):
     @pydantic.model_validator(mode="after")
     def global_validation(self):
         """Cross-field validation ensuring path type matches asset type."""
-        # TORTILLA type must have Tortilla path
-        if self.type == "TORTILLA" and not isinstance(self.path, Tortilla):
-            raise ValueError("TORTILLA type must have a Tortilla instance as path")
+        # FOLDER type must have Tortilla path
+        if self.type == "FOLDER" and not isinstance(self.path, Tortilla):
+            raise ValueError("FOLDER type must have a Tortilla instance as path")
 
-        # TACOTIFF specific validations
-        if self.type == "TACOTIFF":
-            TacotiffValidator().validate(self.path)
+        # FILE type must have pathlib.Path (validated in validate_path)
+        if self.type == "FILE" and isinstance(self.path, Tortilla):
+            raise ValueError("FILE type must have a pathlib.Path, not Tortilla")
 
         return self
+
+    def validate_with(self, validator: "SampleValidator") -> None:
+        """
+        Validate sample using provided validator.
+
+        Validators enforce format-specific requirements (e.g., TACOTIFF, TACOZARR).
+        This method allows applying strict format validation after sample creation.
+
+        Args:
+            validator: SampleValidator instance (e.g., TacotiffValidator())
+
+        Raises:
+            ValidationError: If validation fails
+
+        Example:
+            >>> from tacotoolbox.sample.validators import TacotiffValidator
+            >>>
+            >>> sample = Sample(id="s2", path=Path("data.tif"), type="FILE")
+            >>> sample.validate_with(TacotiffValidator())  # Validates TACOTIFF format
+        """
+        validator.validate(self)
 
     def extend_with(
         self, extension: Any | dict[str, Any], name: str | None = None
@@ -370,6 +303,10 @@ class Sample(pydantic.BaseModel):
         Returns all fields in the model, including core attributes and
         extension metadata with proper data types preserved.
 
+        Core fields (id, type, path) always use String type for schema consistency,
+        even when path is None (FOLDER samples). This ensures all samples have
+        compatible schemas for concatenation.
+
         Returns:
             pl.DataFrame: Single-row DataFrame with complete sample metadata
         """
@@ -379,18 +316,20 @@ class Sample(pydantic.BaseModel):
         if isinstance(self.path, pathlib.Path):
             data["path"] = self.path.as_posix()
         elif isinstance(self.path, Tortilla):
-            data["path"] = None
+            data["path"] = None  # None value is OK, but type will be String
 
-        # Create initial DataFrame
-        df = pl.DataFrame([data])
+        # Define core schema - ensures schema consistency across all samples
+        # path is String even for FOLDERs (value=None, but type=String)
+        core_schema: dict[str, pl.DataType] = {
+            "id": pl.String(),
+            "type": pl.String(),
+            "path": pl.String(),
+        }
 
-        # Apply saved schemas
-        cast_exprs = []
-        for col_name, dtype in self._extension_schemas.items():
-            if col_name in df.columns:
-                cast_exprs.append(pl.col(col_name).cast(dtype))
+        # Build complete schema: core + extensions
+        complete_schema = {**core_schema, **self._extension_schemas}
 
-        if cast_exprs:
-            df = df.with_columns(cast_exprs)
+        # Create DataFrame with explicit schema
+        df = pl.DataFrame([data], schema=complete_schema)
 
         return df
