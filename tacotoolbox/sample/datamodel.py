@@ -2,6 +2,7 @@ import pathlib
 import re
 import tempfile
 import uuid
+import warnings
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -156,7 +157,16 @@ class Sample(pydantic.BaseModel):
             # Replace bytes with path
             data["path"] = temp_path.absolute()
 
+        # Extract extension fields (anything not a core field)
+        core_fields = {"id", "path", "type"}
+        extension_fields = {k: v for k, v in data.items() if k not in core_fields}
+
+        # Initialize with all fields (Pydantic accepts them due to extra="allow")
         super().__init__(**data)
+
+        # Auto-extend with extension fields to track their schemas
+        if extension_fields:
+            self.extend_with(extension_fields)
 
     @pydantic.field_validator("path")
     def validate_path(
@@ -263,6 +273,12 @@ class Sample(pydantic.BaseModel):
 
     def _handle_dict_extension(self, extension: dict) -> None:
         """Handle dictionary extension."""
+        # First, infer schemas from dict values and update _extension_schemas
+        for key, value in extension.items():
+            # Infer Polars dtype from Python value
+            self._extension_schemas[key] = self._infer_polars_dtype(value)
+
+        # Then add the fields
         self._add_metadata_fields(extension)
 
     def _handle_pydantic_extension(self, extension, name: str | None) -> None:
@@ -295,6 +311,35 @@ class Sample(pydantic.BaseModel):
                 f"Invalid key format '{key}'. Use alphanumeric + underscore, "
                 f"optionally with colon (e.g., 'key', 'my_key', 'stac:title')"
             )
+
+    def _infer_polars_dtype(self, value: Any) -> pl.DataType:
+        """Infer Polars DataType from Python value."""
+        if value is None:
+            return pl.Utf8()  # Default to String for None
+        elif isinstance(value, str):
+            return pl.Utf8()
+        elif isinstance(value, bool):
+            return pl.Boolean()
+        elif isinstance(value, int):
+            return pl.Int64()
+        elif isinstance(value, float):
+            return pl.Float64()
+        elif isinstance(value, list):
+            if not value:
+                return pl.List(pl.Utf8())  # Default list type
+            # Infer from first element
+            inner_type = self._infer_polars_dtype(value[0])
+            return pl.List(inner_type)
+        elif isinstance(value, dict):
+            return pl.Struct(
+                [pl.Field(k, self._infer_polars_dtype(v)) for k, v in value.items()]
+            )
+        else:
+            warnings.warn(
+                f"Could not infer Polars dtype for value: {value}. Defaulting to String.",
+                stacklevel=2,
+            )
+            return pl.Utf8()  # Fallback to string
 
     def export_metadata(self) -> pl.DataFrame:
         """

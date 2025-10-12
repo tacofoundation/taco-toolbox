@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "tacotoolbox"
-version = "0.10.1"
+version = "0.10.2"
 description = "A toolbox to create TACO compliant datasets"
 authors = ["Cesar Aybar <cesar.aybar@uv.es>", "Ingrid Aybar <aybar.camacho@gmail.com>"]
 repository = "https://github.com/csaybar/tacotoolbox"
