@@ -60,20 +60,38 @@ class Tortilla:
 
     Best Practice: When mixing FOLDERs and FILEs in the same Tortilla,
     place all FOLDERs before FILEs for better organization and readability.
+
+    Auto-Padding: Use `pad_to` parameter to automatically pad sample list to
+    make length divisible by a specific value. Useful for creating homogeneous
+    tree structures. Padding samples have IDs starting with "__TACOPAD__" and
+    preserve the schema of real samples with None values.
     """
 
-    def __init__(self, samples: list["Sample"]) -> None:
+    def __init__(self, samples: list["Sample"], pad_to: int | None = None) -> None:
         """
         Create Tortilla with eager DataFrame construction and schema validation.
 
         Args:
             samples: List of Sample objects
+            pad_to: Optional padding factor. If provided, adds dummy samples with
+                   "__TACOPAD__" prefix to make len(samples) % pad_to == 0.
+                   Useful for homogeneous tree structures (e.g., pad_to=32 for
+                   balanced binary trees).
 
         Raises:
-            ValueError: If samples have inconsistent metadata schemas
+            ValueError: If samples have inconsistent metadata schemas or empty list
+
+        Example:
+            >>> # Create tortilla with auto-padding to multiple of 32
+            >>> tortilla = Tortilla(samples=my_samples, pad_to=32)
+            >>> # If my_samples has 50 items, 14 padding samples will be added (50 + 14 = 64)
         """
         if not samples:
             raise ValueError("Cannot create Tortilla with empty samples list")
+
+        # Auto-pad if requested
+        if pad_to is not None:
+            samples = self._create_padded_samples(samples, pad_to)
 
         self.samples = samples
 
@@ -117,6 +135,63 @@ class Tortilla:
         # Concatenate DataFrames - all schemas are guaranteed to be consistent
         self._metadata_df = pl.concat(metadata_dfs, how="vertical")
         self._current_depth = self._calculate_current_depth()
+
+    @staticmethod
+    def _create_padded_samples(samples: list, pad_to: int) -> list:
+        """
+        Create padding samples to make total length divisible by pad_to.
+
+        Padding samples have IDs with "__TACOPAD__" prefix and preserve the
+        schema of real samples by filling extension columns with None values.
+
+        Args:
+            samples: Original list of samples
+            pad_to: Target divisor for total length
+
+        Returns:
+            List with original samples plus padding samples
+        """
+        # Local import to avoid circular dependency
+        from tacotoolbox.sample.datamodel import Sample
+
+        # Check if padding needed
+        if len(samples) % pad_to == 0:
+            return samples
+
+        # Calculate number of padding samples needed
+        num_padding = pad_to - (len(samples) % pad_to)
+
+        # Get reference schema from first sample
+        ref_df = samples[0].export_metadata()
+
+        # Create padding samples
+        padded_samples = samples.copy()
+
+        for i in range(num_padding):
+            # Create base dummy sample with __TACOPAD__ prefix
+            dummy = Sample(
+                id=f"__TACOPAD__{len(samples) + i}",
+                path=b"",
+                type="FILE",
+            )
+
+            # Get extension columns (excluding core fields)
+            extension_cols = [
+                col for col in ref_df.columns if col not in ["id", "type", "path"]
+            ]
+
+            if extension_cols:
+                # Create DataFrame with None values using reference schema
+                schema = {col: ref_df.schema[col] for col in extension_cols}
+                none_data = {col: [None] for col in extension_cols}
+                padding_df = pl.DataFrame(none_data, schema=schema)
+
+                # Extend dummy with padding DataFrame
+                dummy.extend_with(padding_df)
+
+            padded_samples.append(dummy)
+
+        return padded_samples
 
     def _check_sample_ordering(self) -> None:
         """

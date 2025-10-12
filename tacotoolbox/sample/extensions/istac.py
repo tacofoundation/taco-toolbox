@@ -38,6 +38,10 @@ class ISTAC(SampleExtension):
     time_end : int | None
         Optional end time as seconds since Unix epoch. If provided, must be >= time_start.
         Useful for data representing a time interval (e.g., satellite pass duration).
+    time_middle : int | None
+        Automatically computed midpoint between `time_start` and `time_end`.
+        Only populated when `time_end` is provided. Calculated as the integer
+        average of the two timestamps.
     centroid : bytes | None
         Optional centroid point in EPSG:4326 as WKB binary. If not provided, it will
         be automatically computed from the geometry. Useful for quick spatial queries
@@ -67,12 +71,14 @@ class ISTAC(SampleExtension):
     - Centroid is always in EPSG:4326 regardless of source geometry CRS
     - For raster data with regular grids, use the STAC extension instead
     - WKB binary format is used for efficient storage and GeoParquet compatibility
+    - `time_middle` is automatically computed when both start and end times exist
     """
 
     crs: str
     geometry: bytes
     time_start: int
     time_end: int | None = None
+    time_middle: int | None = None
     centroid: bytes | None = None
 
     @pydantic.model_validator(mode="after")
@@ -83,6 +89,19 @@ class ISTAC(SampleExtension):
                 f"Invalid temporal interval: time_start ({self.time_start}) "
                 f"> time_end ({self.time_end})"
             )
+        return self
+
+    @pydantic.model_validator(mode="after")
+    def populate_time_middle(self) -> "ISTAC":
+        """
+        Auto-populate `time_middle` when both time_start and time_end exist.
+
+        This validator runs after `check_times` to ensure the temporal interval
+        is valid before computing the midpoint.
+        """
+        if self.time_end is not None and self.time_middle is None:
+            self.time_middle = (self.time_start + self.time_end) // 2
+
         return self
 
     @pydantic.model_validator(mode="after")
@@ -120,6 +139,7 @@ class ISTAC(SampleExtension):
             "istac:geometry": pl.Binary(),
             "istac:time_start": pl.Int64(),
             "istac:time_end": pl.Int64(),
+            "istac:time_middle": pl.Int64(),
             "istac:centroid": pl.Binary(),
         }
 
@@ -131,6 +151,7 @@ class ISTAC(SampleExtension):
                 "istac:geometry": [self.geometry],
                 "istac:time_start": [self.time_start],
                 "istac:time_end": [self.time_end],
+                "istac:time_middle": [self.time_middle],
                 "istac:centroid": [self.centroid],
             },
             schema=self.get_schema(),

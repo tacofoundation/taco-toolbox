@@ -84,6 +84,10 @@ class STAC(SampleExtension):
         `tensor_shape`.
     time_end : TimestampLike | None
         Optional end time. Same accepted forms as `time_start`.
+    time_middle : int | None
+        Automatically computed midpoint between `time_start` and `time_end`.
+        Only populated when `time_end` is provided. Calculated as the integer
+        average of the two timestamps.
 
     Notes
     -----
@@ -91,6 +95,7 @@ class STAC(SampleExtension):
       coerced to seconds since the Unix epoch (int) via `.timestamp()`.
     - The model enforces a non-decreasing temporal interval: `time_start <= time_end`
       (i.e., it rejects only `time_start > time_end`).
+    - `time_middle` is automatically computed when both start and end times exist.
     """
 
     crs: str
@@ -99,6 +104,7 @@ class STAC(SampleExtension):
     time_start: TimestampLike
     centroid: bytes | None = None
     time_end: TimestampLike | None = None
+    time_middle: int | None = None
 
     @pydantic.model_validator(mode="after")
     def check_times(cls, values):
@@ -120,6 +126,19 @@ class STAC(SampleExtension):
                 raise ValueError(
                     f"Invalid times: {values.time_start} > {values.time_end}"
                 )
+
+        return values
+
+    @pydantic.model_validator(mode="after")
+    def populate_time_middle(cls, values):
+        """
+        Auto-populate `time_middle` when both time_start and time_end exist.
+
+        This validator runs after `check_times` to ensure timestamps are already
+        converted to integers.
+        """
+        if values.time_end is not None and values.time_middle is None:
+            values.time_middle = (values.time_start + values.time_end) // 2
 
         return values
 
@@ -154,6 +173,7 @@ class STAC(SampleExtension):
             "stac:time_start": pl.Int64(),
             "stac:centroid": pl.Binary(),
             "stac:time_end": pl.Int64(),
+            "stac:time_middle": pl.Int64(),
         }
 
     def _compute(self, sample) -> pl.DataFrame:
@@ -166,6 +186,7 @@ class STAC(SampleExtension):
                 "stac:time_start": [self.time_start],
                 "stac:centroid": [self.centroid],
                 "stac:time_end": [self.time_end],
+                "stac:time_middle": [self.time_middle],
             },
             schema=self.get_schema(),
         )
