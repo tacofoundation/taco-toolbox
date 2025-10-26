@@ -80,6 +80,7 @@ class Tortilla:
 
         Raises:
             ValueError: If samples have inconsistent metadata schemas or empty list
+                       or if Inclusive ID Rule is violated
 
         Example:
             >>> # Create tortilla with auto-padding to multiple of 32
@@ -97,6 +98,9 @@ class Tortilla:
 
         # Check ordering best practice (only for mixed types)
         self._check_sample_ordering()
+        
+        # Validate Inclusive ID Rule
+        self._validate_inclusive_ids()
 
         # Extract metadata from all samples
         metadata_dfs = []
@@ -143,6 +147,8 @@ class Tortilla:
 
         Padding samples have IDs with "__TACOPAD__" prefix and preserve the
         schema of real samples by filling extension columns with None values.
+        
+        Padding IDs are sequential: __TACOPAD__0, __TACOPAD__1, __TACOPAD__2, etc.
 
         Args:
             samples: Original list of samples
@@ -169,8 +175,9 @@ class Tortilla:
 
         for i in range(num_padding):
             # Create base dummy sample with __TACOPAD__ prefix
+            # IDs are sequential: 0, 1, 2, etc (no reference to existing samples)
             dummy = Sample(
-                id=f"__TACOPAD__{len(samples) + i}",
+                id=f"__TACOPAD__{i}",
                 path=b"",
                 type="FILE",
             )
@@ -204,48 +211,123 @@ class Tortilla:
         """
         global _ORDERING_WARNING_COUNT
 
-        # Skip if warning limit reached globally
         if _ORDERING_WARNING_COUNT >= _MAX_ORDERING_WARNINGS:
             return
 
-        # Get sample types
         types = [sample.type for sample in self.samples]
-
-        # Check if there's a mix of types
-        unique_types = set(types)
-        if len(unique_types) <= 1:
-            # Only FOLDERs or only FILEs - no need to check ordering
-            return
-
-        # Check if both FOLDER and FILE exist
-        has_folders = "FOLDER" in unique_types
-        has_files = "FILE" in unique_types
+        has_folders = "FOLDER" in types
+        has_files = "FILE" in types
 
         if not (has_folders and has_files):
-            # No mix, skip
             return
 
-        # Find first FOLDER and first FILE positions
-        first_folder_idx = next((i for i, t in enumerate(types) if t == "FOLDER"), None)
-        first_file_idx = next((i for i, t in enumerate(types) if t == "FILE"), None)
+        first_folder_idx = next(
+            (i for i, sample in enumerate(self.samples) if sample.type == "FOLDER"),
+            None,
+        )
+        first_file_idx = next(
+            (i for i, sample in enumerate(self.samples) if sample.type == "FILE"), None
+        )
 
-        # Check if any FOLDER comes after any FILE
-        if (
-            first_file_idx is not None
-            and first_folder_idx is not None
-            and first_folder_idx > first_file_idx
-        ):
-            # Bad ordering detected - increment global counter
-            _ORDERING_WARNING_COUNT += 1
+        if first_file_idx is not None and first_folder_idx is not None:
+            if first_file_idx < first_folder_idx:
+                _ORDERING_WARNING_COUNT += 1
+                warnings.warn(
+                    f"Consider placing FOLDERs before FILEs for better organization. "
+                    f"Found FILE at position {first_file_idx} before FOLDER at position {first_folder_idx}. "
+                    f"(Warning {_ORDERING_WARNING_COUNT}/{_MAX_ORDERING_WARNINGS})",
+                    UserWarning,
+                    stacklevel=3,
+                )
 
-            warnings.warn(
-                f"Best practice recommendation: In Tortilla with mixed types, "
-                f"place all FOLDERs before FILEs for better organization. "
-                f"Found FILE at position {first_file_idx} before FOLDER at position {first_folder_idx}. "
-                f"(Warning {_ORDERING_WARNING_COUNT}/{_MAX_ORDERING_WARNINGS})",
-                UserWarning,
-                stacklevel=3,
-            )
+    def _validate_inclusive_ids(self) -> None:
+        """
+        Validate Inclusive ID Rule: The folder with maximum non-padding IDs 
+        must contain ALL IDs from folders with fewer IDs (subset relationship).
+        
+        IDs starting with '__TACOPAD__' are IGNORED in validation as they 
+        represent padding placeholders, not real data.
+        
+        This ensures that dataset.read("some_id") only fails if that ID 
+        doesn't exist in ANY folder, not just some.
+        
+        Valid examples (inclusive subsets):
+            Folder A: ["img_001", "img_002", "img_003"]
+            Folder B: ["img_001", "img_002"]  # subset of A
+            
+            Folder A: ["data", "mask", "thumbnail"]
+            Folder B: ["data", "mask", "__TACOPAD__0"]  # "data", "mask" subset of A
+        
+        Invalid example (non-inclusive):
+            Folder A: ["img_001", "img_002"]
+            Folder B: ["img_001", "img_003"]  # "img_003" not in A, "img_002" not in B
+        
+        Raises:
+            ValueError: If ID sets are not inclusive (not subset relationships)
+        """
+        # Collect FOLDER samples
+        folder_samples = [s for s in self.samples if s.type == "FOLDER"]
+        
+        # Skip validation if no folders or only one folder
+        if len(folder_samples) <= 1:
+            return
+        
+        # Extract NON-PADDING child ID sets from each FOLDER
+        id_sets: list[tuple[str, frozenset[str]]] = []
+        
+        for folder in folder_samples:
+            if hasattr(folder.path, 'samples') and folder.path.samples:
+                real_ids = frozenset(
+                    sample.id for sample in folder.path.samples
+                    if not sample.id.startswith("__TACOPAD__")
+                )
+                id_sets.append((folder.id, real_ids))
+        
+        # If only one folder has children, skip
+        if len(id_sets) <= 1:
+            return
+        
+        # Find the folder with maximum IDs (the superset)
+        max_folder_id, max_id_set = max(id_sets, key=lambda x: len(x[1]))
+        
+        # Validate: ALL other folders must be SUBSETS of max_id_set
+        for folder_id, child_set in id_sets:
+            if folder_id == max_folder_id:
+                continue
+            
+            if not child_set.issubset(max_id_set):
+                # Found IDs that are NOT in the maximum set
+                extra_ids = child_set - max_id_set
+                
+                # Build error message
+                error_parts = [
+                    "Inclusive ID Rule violated:",
+                    "The folder with maximum IDs must contain ALL IDs from other folders.",
+                    "(IDs starting with '__TACOPAD__' are ignored in validation)",
+                    "",
+                    f"Maximum ID folder: '{max_folder_id}'",
+                    f"  Non-padding IDs ({len(max_id_set)}): {sorted(max_id_set)}",
+                    "",
+                    f"Problematic folder: '{folder_id}'",
+                    f"  Non-padding IDs ({len(child_set)}): {sorted(child_set)}",
+                    "",
+                    f"IDs in '{folder_id}' NOT in '{max_folder_id}': {sorted(extra_ids)}",
+                    "",
+                    "How to fix:",
+                    "1. Ensure the folder with most files contains ALL possible IDs",
+                    "2. Other folders can have fewer files (will be padded automatically)",
+                    "3. Use Tortilla(samples, pad_to=N) to fill missing slots with '__TACOPAD__'",
+                    "",
+                    "Valid example:",
+                    "  Folder A: ['cloudmask', 'data', 'thumbnail']  # Maximum",
+                    "  Folder B: ['cloudmask', 'data']  # Subset of A, OK",
+                    "",
+                    "Invalid example:",
+                    "  Folder A: ['cloudmask', 'data']",
+                    "  Folder B: ['cloudmask', 'thumbnail']  # 'thumbnail' not in A, FAIL"
+                ]
+                
+                raise ValueError("\n".join(error_parts))
 
     def _calculate_current_depth(self) -> int:
         """Calculate current depth by examining first sample."""
@@ -321,14 +403,14 @@ class Tortilla:
         """
         Build expanded DataFrame for hierarchical samples.
 
-        Adds internal:temporal_parent_id for schema generation.
-        This column should be removed after schema generation.
+        Adds internal:parent_id column to link children to their parent's index.
+        This column is permanent and enables relational queries.
 
         Args:
             target_deep: Target expansion depth
 
         Returns:
-            DataFrame with expanded samples including internal:temporal_parent_id
+            DataFrame with expanded samples including internal:parent_id
         """
         if target_deep > self._current_depth:
             raise ValueError(
@@ -351,10 +433,8 @@ class Tortilla:
                     for child_sample in sample.path.samples:
                         child_metadata_df = child_sample.export_metadata()
 
-                        # Add temporal parent_id for schema generation
-                        # This links each child to its parent index
                         child_metadata_df = child_metadata_df.with_columns(
-                            pl.lit(parent_idx).alias("internal:temporal_parent_id")
+                            pl.lit(parent_idx).alias("internal:parent_id")
                         )
 
                         next_dfs.append(child_metadata_df)

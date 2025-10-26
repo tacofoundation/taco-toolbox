@@ -8,7 +8,6 @@ import pydantic
 from pydantic import Field, PrivateAttr
 from shapely.wkb import loads as wkb_loads
 
-# Import the ABC interface
 from tacotoolbox.tortilla.datamodel import TortillaExtension
 
 if TYPE_CHECKING:
@@ -21,15 +20,13 @@ class MajorTOM(TortillaExtension):
 
     API Usage:
         majortom = MajorTOM(dist_km=100)
-        tortilla.extend_with(majortom)  # Now compatible with Tortilla ABC interface
+        tortilla.extend_with(majortom)
 
-    Matching legacy semantics:
-        - Equator row is computed with searchsorted(..., side="left").
-        - Column labels are generated BEFORE longitude filtering and then sliced,
-          so R/L counts remain relative to the 0° meridian of the full row.
+    ID Format: [DIST]km_[ROWID]_[COLID]
+        Example: 0100km_0003U_0005R
+        All numeric values use %04d formatting for consistency.
     """
 
-    # ---- Inputs / knobs -----------------------------------------------------
     dist_km: float = Field(
         100, description="Target spacing (km) along meridians and parallels."
     )
@@ -43,62 +40,49 @@ class MajorTOM(TortillaExtension):
     )
     sep: str = Field("_", description="Separator for row/col codes")
 
-    # ---- Internal derived state (private) -----------------------------------
-    _lats: np.ndarray = PrivateAttr(
-        default_factory=lambda: np.empty(0)
-    )  # sorted rings (deg)
+    _lats: np.ndarray = PrivateAttr(default_factory=lambda: np.empty(0))
     _row_labels: np.ndarray = PrivateAttr(
         default_factory=lambda: np.empty(0, dtype=object)
     )
     _zero_row_idx: int = PrivateAttr(default=0)
+    _row_lons: list[np.ndarray] = PrivateAttr(default_factory=list)
+    _row_col_labels: list[np.ndarray] = PrivateAttr(default_factory=list)
 
-    _row_lons: list[np.ndarray] = PrivateAttr(
-        default_factory=list
-    )  # per-row sorted lons (filtered)
-    _row_col_labels: list[np.ndarray] = PrivateAttr(
-        default_factory=list
-    )  # per-row labels (filtered)
-
-    # Constants
     R_EQUATOR_KM: float = 6378.137
 
     model_config = pydantic.ConfigDict(arbitrary_types_allowed=True)
 
-    # ======================================================================
-    #                              BUILD GRID
-    # ======================================================================
     @pydantic.model_validator(mode="after")
     def _build(self) -> "MajorTOM":
         """Compute latitudinal rings and per-row longitude subdivisions."""
-        # --- 1) Latitudinal rings (south→north), ~dist_km spacing pole→pole
-        # Match the original Grid class exactly
         arc_pole_to_pole_km = math.pi * self.R_EQUATOR_KM
         num_divisions_in_hemisphere = math.ceil(arc_pole_to_pole_km / self.dist_km)
 
-        # Create latitudes exactly like the original Grid class
         lats_all = np.linspace(-90, 90, num_divisions_in_hemisphere + 1)[:-1]
         lats_all = np.mod(lats_all, 180) - 90  # type: ignore[assignment]
         lats_all = np.sort(lats_all)
 
-        # Legacy equator row: side="left" (first index where lat >= 0)
         zero_row = int(np.searchsorted(lats_all, 0.0, side="left"))
         rows_all = np.empty_like(lats_all, dtype=object)
-        rows_all[zero_row:] = [f"{i}U" for i in range(len(lats_all) - zero_row)]
-        rows_all[:zero_row] = [f"{abs(i - zero_row)}D" for i in range(zero_row)]
+        
+        # Use %04d formatting for row labels
+        rows_all[zero_row:] = [
+            f"{i:04d}U" for i in range(len(lats_all) - zero_row)
+        ]
+        rows_all[:zero_row] = [
+            f"{abs(i - zero_row):04d}D" for i in range(zero_row)
+        ]
 
-        # Filter by latitude_range
         lat_lo, lat_hi = self.latitude_range
         lat_mask = (lats_all >= lat_lo) & (lats_all <= lat_hi)
         self._lats = lats_all[lat_mask]
         self._row_labels = rows_all[lat_mask]
 
-        # Equator index within filtered view (clamped if filtered out)
         zero_in_filtered = np.searchsorted(self._lats, 0.0, side="left")
         self._zero_row_idx = int(
             np.clip(zero_in_filtered, 0, max(0, len(self._lats) - 1))
         )
 
-        # --- 2) Per-row longitudes and labels (generate, then filter) -------
         lon_lo, lon_hi = self.longitude_range
         row_lons_filtered: list[np.ndarray] = []
         row_labels_filtered: list[np.ndarray] = []
@@ -107,13 +91,10 @@ class MajorTOM(TortillaExtension):
             circ_km = 2.0 * math.pi * self.R_EQUATOR_KM * math.cos(math.radians(lat))
             n_cols = max(1, int(math.ceil(circ_km / self.dist_km)))
 
-            # Full longitudes for the row: [-180, 180), step = 360/n_cols
-            # Match the original Grid class exactly
             lons_full = np.linspace(-180.0, 180.0, n_cols + 1)[:-1]
             lons_full = np.mod(lons_full, 360) - 180  # type: ignore[assignment]
             lons_full = np.sort(lons_full)
 
-            # Legacy column labels built against ZERO at exact 0°, if present
             zero_hits = np.where(lons_full == 0.0)[0]
             zero_col_full = (
                 int(zero_hits[0])
@@ -122,14 +103,15 @@ class MajorTOM(TortillaExtension):
             )
 
             cols_full = np.empty(lons_full.size, dtype=object)
+            
+            # Use %04d formatting for column labels
             cols_full[zero_col_full:] = [
-                f"{i}R" for i in range(lons_full.size - zero_col_full)
+                f"{i:04d}R" for i in range(lons_full.size - zero_col_full)
             ]
             cols_full[:zero_col_full] = [
-                f"{abs(i - zero_col_full)}L" for i in range(zero_col_full)
+                f"{abs(i - zero_col_full):04d}L" for i in range(zero_col_full)
             ]
 
-            # Now apply longitude_range filter to BOTH arrays (preserving labels)
             if lon_lo > -180.0 or lon_hi < 180.0:
                 mask = (lons_full >= lon_lo) & (lons_full <= lon_hi)
                 lons = lons_full[mask]
@@ -139,9 +121,8 @@ class MajorTOM(TortillaExtension):
                 cols = cols_full
 
             if lons.size == 0:
-                # Keep at least one column if filtering removed all
                 lons = np.array([-180.0], dtype=np.float64)
-                cols = np.array(["0R"], dtype=object)
+                cols = np.array(["0000R"], dtype=object)
 
             row_lons_filtered.append(lons)
             row_labels_filtered.append(cols)
@@ -150,9 +131,6 @@ class MajorTOM(TortillaExtension):
         self._row_col_labels = row_labels_filtered
         return self
 
-    # ======================================================================
-    #                         CORE CONVERSIONS
-    # ======================================================================
     def latlon2rowcol(
         self,
         lats: Iterable[float] | float,
@@ -162,11 +140,11 @@ class MajorTOM(TortillaExtension):
         integer: bool = False,
     ):
         """
-        Convert latitude/longitude to (row_label, col_label) of the **bottom-left** grid anchor.
+        Convert latitude/longitude to (row_label, col_label) of the bottom-left grid anchor.
 
-        integer=True mimics legacy mapping:
-          - rows:  "kU" → +k,  "kD" → -k
-          - cols:  "kR" → +k,  "kL" → -k
+        integer=True mimics legacy mapping with updated format:
+          - rows:  "0003U" -> +3,  "0002D" -> -2
+          - cols:  "0005R" -> +5,  "0004L" -> -4
         """
         lats_arr, lons_arr = self._validate_and_normalize_coords(lats, lons)
         row_idx, col_idx = self._compute_grid_indices(lats_arr, lons_arr)
@@ -193,17 +171,15 @@ class MajorTOM(TortillaExtension):
         self, lats_arr: np.ndarray, lons_arr: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray]:
         """Compute row and column indices for coordinates."""
-        # Row index: rightmost ring with lat <= value (bottom edge); clamp to bounds
         row_idx = np.searchsorted(self._lats, lats_arr, side="left") - 1
         row_idx = np.clip(row_idx, 0, len(self._lats) - 1).astype(np.int64)
 
-        # Column index per unique row
         col_idx = np.empty_like(row_idx, dtype=np.int64)
         for r in np.unique(row_idx):
             sel = row_idx == r
             row_lons = self._row_lons[int(r)]
             ci = np.searchsorted(row_lons, lons_arr[sel], side="left") - 1
-            ci[ci < 0] = row_lons.size - 1  # wrap
+            ci[ci < 0] = row_lons.size - 1
             col_idx[sel] = ci
 
         return row_idx, col_idx
@@ -286,14 +262,10 @@ class MajorTOM(TortillaExtension):
         cols: Iterable[str | int] | str | int,
     ):
         """
-        Convert (row_label/row_int, col_label/col_int) -> (lat, lon) of the **bottom-left** grid anchor.
+        Convert (row_label/row_int, col_label/col_int) -> (lat, lon) of the bottom-left grid anchor.
 
-        If strings are given, they must match the stored labels (e.g., "3U", "2D", "5R", "4L").
-        If integers are given, they are interpreted in legacy form:
-            rows: +k → "kU",  -k → "kD"
-            cols: +k → "kR",  -k → "kL"
+        Supports both new format ("0003U") and legacy integer format.
         """
-        # Normalize inputs
         to_obj_array = lambda x: np.atleast_1d(
             np.array(
                 (
@@ -309,27 +281,24 @@ class MajorTOM(TortillaExtension):
         if rows_in.shape != cols_in.shape:
             raise ValueError("rows and cols must have the same shape")
 
-        # Decode rows to absolute row indices
         row_idx = np.empty(rows_in.shape[0], dtype=int)
         for i, rv in enumerate(rows_in):
             if isinstance(rv, int | np.integer):
                 k = int(rv)
-                label = f"{abs(k)}{'U' if k >= 0 else 'D'}"
+                label = f"{abs(k):04d}{'U' if k >= 0 else 'D'}"
             else:
                 label = str(rv)
-            # find the index in self._row_labels equal to label
             hits = np.where(self._row_labels == label)[0]
             if hits.size == 0:
                 raise ValueError(f"Row label {label!r} not found in grid.")
             row_idx[i] = int(hits[0])
         row_idx = np.clip(row_idx, 0, len(self._lats) - 1)
 
-        # Decode cols to absolute col indices (search label inside that row's label array)
         col_idx = np.empty_like(row_idx)
         for i, (ri, cv) in enumerate(zip(row_idx, cols_in, strict=True)):
             if isinstance(cv, int | np.integer):
                 k = int(cv)
-                clabel = f"{abs(k)}{'R' if k >= 0 else 'L'}"
+                clabel = f"{abs(k):04d}{'R' if k >= 0 else 'L'}"
             else:
                 clabel = str(cv)
             row_cols = self._row_col_labels[int(ri)]
@@ -340,7 +309,6 @@ class MajorTOM(TortillaExtension):
                 )
             col_idx[i] = int(hits[0])
 
-        # Emit coordinates (bottom-left anchor)
         lats = self._lats[row_idx]
         lons = np.array(
             [
@@ -363,17 +331,17 @@ class MajorTOM(TortillaExtension):
         """
         Process Tortilla and return DataFrame with MajorTOM codes.
 
+        New format: [DIST]km_[ROWID]_[COLID]
+        Example: 0100km_0003U_0005R
+
         Args:
             tortilla: Input Tortilla object
 
         Returns:
-            pl.DataFrame: DataFrame with "majortom:code" column,
-                         aligned with input DataFrame (exact row count match)
+            pl.DataFrame: DataFrame with "majortom:code" column
         """
-        # Get DataFrame from tortilla
         df = tortilla._metadata_df
 
-        # Extract coordinates from WKB binary centroids
         lats, lons = [], []
         valid_indices = []
 
@@ -381,35 +349,32 @@ class MajorTOM(TortillaExtension):
             centroid_wkb = row.get("stac:centroid", None)
             if centroid_wkb is not None:
                 try:
-                    # Convert WKB binary to shapely geometry
                     geom = wkb_loads(centroid_wkb)
-                    if hasattr(geom, "x") and hasattr(geom, "y"):  # Point geometry
+                    if hasattr(geom, "x") and hasattr(geom, "y"):
                         lons.append(float(geom.x))
                         lats.append(float(geom.y))
                         valid_indices.append(i)
                 except (ValueError, TypeError, AttributeError):
-                    # Skip invalid WKB data with specific exception types
                     continue
 
-        # Initialize results array with None for all rows (with proper type annotation)
         codes: list[str | None] = [None] * len(df)
 
         if lats:
-            # Convert coordinates to grid codes
             rows, cols = self.latlon2rowcol(lats, lons, integer=False)
 
-            # Ensure rows and cols are iterable
             if not hasattr(rows, "__iter__") or isinstance(rows, str):
                 rows = [rows]
             if not hasattr(cols, "__iter__") or isinstance(cols, str):
                 cols = [cols]
 
-            # Fill results at valid positions
+            # Format dist_km as integer with %04d
+            dist_km_formatted = f"{int(self.dist_km):04d}km"
+
             for valid_idx, r, c in zip(valid_indices, rows, cols, strict=True):
                 if r is not None and c is not None:
-                    codes[valid_idx] = f"{r}{self.sep}{c}"
+                    # New format: [DIST]km_[ROWID]_[COLID]
+                    codes[valid_idx] = f"{dist_km_formatted}{self.sep}{r}{self.sep}{c}"
 
-        # Return DataFrame with proper schema
         result_schema: dict[str, pl.DataType] = {
             "majortom:code": cast(pl.DataType, pl.Utf8)
         }

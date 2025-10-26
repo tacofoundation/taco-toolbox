@@ -1,163 +1,311 @@
 import pathlib
-from typing import Any
+import re
+from typing import TYPE_CHECKING, Any
 
-from tacotoolbox._types import ExtractedFiles
+if TYPE_CHECKING:
+    from tacotoolbox.sample.datamodel import Sample
 
 
-def parse_size(size_str: str) -> int:
+class FileExtractor:
+    """Extract file paths from sample hierarchies."""
+    
+    @staticmethod
+    def extract_files_recursive(samples: list["Sample"]) -> dict[str, list[str]]:
+        """
+        Extract all file paths from samples recursively.
+        
+        Builds correct archive paths for dual metadata system:
+        - Level 0 files: DATA/sample_001 (no subfolder, ID as-is)
+        - Level 1+ files: DATA/folder_A/nested_001 (with subfolders, ID as-is)
+        
+        Args:
+            samples: List of Sample objects (can contain FOLDERs)
+        
+        Returns:
+            Dictionary with:
+                - "src_files": List of source file paths (absolute)
+                - "arc_files": List of archive paths in ZIP
+        
+        Example:
+            >>> samples = [file1, file2, folder_A]
+            >>> extracted = FileExtractor.extract_files_recursive(samples)
+            >>> extracted["src_files"]
+            ["/data/file1.tif", "/data/file2.tif", "/data/nested1.tif"]
+            >>> extracted["arc_files"]
+            ["DATA/file1", "DATA/file2", "DATA/folder_A/nested1"]
+        """
+        src_files = []
+        arc_files = []
+        
+        # Process each sample at root level
+        for sample in samples:
+            if sample.type == "FILE":
+                # Level 0 FILE - goes directly in DATA/
+                src_files.append(str(sample.path))
+                
+                # Build archive path: DATA/sample_id (use ID as-is)
+                arc_path = f"DATA/{sample.id}"
+                arc_files.append(arc_path)
+            
+            elif sample.type == "FOLDER":
+                # Level 1+ FOLDER - recurse into it
+                folder_src, folder_arc = FileExtractor._extract_from_folder(
+                    sample,
+                    parent_path="DATA/"
+                )
+                src_files.extend(folder_src)
+                arc_files.extend(folder_arc)
+        
+        return {
+            "src_files": src_files,
+            "arc_files": arc_files
+        }
+    
+    @staticmethod
+    def _extract_from_folder(
+        folder_sample: "Sample",
+        parent_path: str
+    ) -> tuple[list[str], list[str]]:
+        """
+        Extract files from a FOLDER sample recursively.
+        
+        Args:
+            folder_sample: Sample of type FOLDER
+            parent_path: Parent path in archive (e.g., "DATA/" or "DATA/folder_A/")
+        
+        Returns:
+            Tuple of (src_files, arc_files)
+        """
+        src_files = []
+        arc_files = []
+        
+        # Current folder path
+        folder_path = f"{parent_path}{folder_sample.id}/"
+        
+        # Extract files from samples inside this folder
+        for child_sample in folder_sample.path.samples:
+            if child_sample.type == "FILE":
+                # FILE inside folder
+                src_files.append(str(child_sample.path))
+                
+                # Build archive path: DATA/folder_A/nested_001 (use ID as-is)
+                arc_path = f"{folder_path}{child_sample.id}"
+                arc_files.append(arc_path)
+            
+            elif child_sample.type == "FOLDER":
+                # Nested FOLDER - recurse
+                nested_src, nested_arc = FileExtractor._extract_from_folder(
+                    child_sample,
+                    parent_path=folder_path
+                )
+                src_files.extend(nested_src)
+                arc_files.extend(nested_arc)
+        
+        return src_files, arc_files
+    
+    @staticmethod
+    def estimate_sample_size(sample: "Sample") -> int:
+        """
+        Estimate total size of a sample (including nested samples).
+        
+        Args:
+            sample: Sample to estimate
+        
+        Returns:
+            Estimated size in bytes
+        """
+        if sample.type == "FILE":
+            # Get file size from filesystem
+            if hasattr(sample.path, 'stat'):
+                return sample.path.stat().st_size
+            return 0
+        
+        elif sample.type == "FOLDER":
+            # Sum sizes of all nested samples
+            total_size = 0
+            for child in sample.path.samples:
+                total_size += FileExtractor.estimate_sample_size(child)
+            return total_size
+        
+        return 0
+
+
+def group_samples_by_size(
+    samples: list["Sample"],
+    max_size: int
+) -> list[list["Sample"]]:
     """
-    Parse human-readable size string to bytes.
-
-    Args:
-        size_str: Size string like "4GB", "500MB", "1.5TB"
-
-    Returns:
-        Size in bytes
-
-    Raises:
-        ValueError: If format is invalid
-
-    Examples:
-        >>> parse_size("4GB")
-        4294967296
-        >>> parse_size("500MB")
-        524288000
-    """
-    units = {"TB": 1024**4, "GB": 1024**3, "MB": 1024**2, "KB": 1024, "B": 1}
-    size_str = size_str.upper().strip()
-
-    for unit in sorted(units.keys(), key=len, reverse=True):
-        if size_str.endswith(unit):
-            number_part = size_str[: -len(unit)].strip()
-            if not number_part:
-                raise ValueError(f"Invalid size format: {size_str}")
-            return int(float(number_part) * units[unit])
-
-    raise ValueError(f"Invalid size format: {size_str}. Use: TB, GB, MB, KB, or B")
-
-
-def calculate_sample_size(sample: Any) -> int:
-    """
-    Calculate total size of a sample in bytes.
-
-    Recursively sums sizes for FOLDER types (nested Tortilla).
-
-    Args:
-        sample: Sample object with type and path attributes
-
-    Returns:
-        Total size in bytes
-    """
-    if sample.type == "FOLDER":
-        return sum(calculate_sample_size(s) for s in sample.path.samples)
-    return sample.path.stat().st_size
-
-
-def group_samples_by_size(samples: list[Any], max_size: int) -> list[list[Any]]:
-    """
-    Group consecutive samples into chunks not exceeding max_size.
-
+    Group samples into chunks based on size limit.
+    
+    Used for splitting large datasets into multiple ZIP files.
+    
     Args:
         samples: List of Sample objects
         max_size: Maximum size per chunk in bytes
-
+    
     Returns:
-        List of sample chunks
-
-    Notes:
-        - Maintains sample order
-        - Single samples larger than max_size get their own chunk
-        - Greedy packing algorithm
+        List of sample chunks, each under max_size
+    
+    Example:
+        >>> chunks = group_samples_by_size(samples, max_size=4_000_000_000)  # 4GB
+        >>> len(chunks)
+        3  # Split into 3 chunks
     """
-    if not samples:
-        return []
-
-    chunks: list[list[Any]] = []
-    current_chunk: list[Any] = []
+    chunks = []
+    current_chunk = []
     current_size = 0
-
+    
     for sample in samples:
-        sample_size = calculate_sample_size(sample)
-
-        # Sample too large: put in own chunk
-        if sample_size > max_size:
-            if current_chunk:
-                chunks.append(current_chunk)
-                current_chunk = []
-                current_size = 0
-            chunks.append([sample])
-            continue
-
-        # Would exceed limit: start new chunk
+        sample_size = FileExtractor.estimate_sample_size(sample)
+        
+        # Check if adding this sample would exceed limit
         if current_size + sample_size > max_size and current_chunk:
+            # Start new chunk
             chunks.append(current_chunk)
             current_chunk = [sample]
             current_size = sample_size
         else:
+            # Add to current chunk
             current_chunk.append(sample)
             current_size += sample_size
-
+    
+    # Add remaining samples
     if current_chunk:
         chunks.append(current_chunk)
-
+    
     return chunks
 
 
-class FileExtractor:
-    """Extract file paths from samples for DATA/ directory."""
+def parse_size(size_str: str) -> int:
+    """
+    Parse size string to bytes.
+    
+    Supports formats:
+    - "4GB", "4G" -> 4 * 1024^3
+    - "512MB", "512M" -> 512 * 1024^2
+    - "1024KB", "1024K" -> 1024 * 1024
+    - "2048B", "2048" -> 2048
+    
+    Args:
+        size_str: Size string to parse
+    
+    Returns:
+        Size in bytes
+    
+    Raises:
+        ValueError: If format is invalid
+    
+    Example:
+        >>> parse_size("4GB")
+        4294967296
+        >>> parse_size("512MB")
+        536870912
+    """
+    size_str = size_str.strip().upper()
+    
+    # Match pattern: number + optional unit
+    match = re.match(r'^(\d+(?:\.\d+)?)\s*(GB?|MB?|KB?|B?)$', size_str)
+    
+    if not match:
+        raise ValueError(
+            f"Invalid size format: '{size_str}'. "
+            f"Use format like '4GB', '512MB', '1024KB', or '2048B'"
+        )
+    
+    value = float(match.group(1))
+    unit = match.group(2)
+    
+    # Convert to bytes
+    multipliers = {
+        'B': 1,
+        'KB': 1024,
+        'K': 1024,
+        'MB': 1024 ** 2,
+        'M': 1024 ** 2,
+        'GB': 1024 ** 3,
+        'G': 1024 ** 3,
+    }
+    
+    if not unit or unit == 'B':
+        return int(value)
+    
+    return int(value * multipliers.get(unit, 1))
 
-    @staticmethod
-    def extract_files_recursive(
-        samples: list[Any],
-        data_root: str = "DATA/",
-        src_files: list[str] | None = None,
-        arc_files: list[str] | None = None,
-        path_prefix: str = "",
-    ) -> ExtractedFiles:
-        """
-        Recursively extract data files from samples.
 
-        Handles nested FOLDER structures (Tortilla), preserving hierarchy.
+def estimate_metadata_size(num_samples: int, avg_columns: int = 10) -> int:
+    """
+    Estimate size of metadata parquet file.
+    
+    Rough estimation based on number of samples and columns.
+    
+    Args:
+        num_samples: Number of samples in metadata
+        avg_columns: Average number of columns (default: 10)
+    
+    Returns:
+        Estimated size in bytes
+    """
+    # Very rough estimate: ~1KB per row
+    # Parquet is columnar so actual size varies greatly
+    bytes_per_row = 1000
+    return num_samples * bytes_per_row
 
-        Args:
-            samples: List of Sample objects
-            data_root: Root directory in archive (default: "DATA/")
-            src_files: Accumulator for source paths (internal use)
-            arc_files: Accumulator for archive paths (internal use)
-            path_prefix: Current path prefix for nested samples (internal use)
 
-        Returns:
-            ExtractedFiles with src_files and arc_files lists
+def build_archive_path(
+    sample_id: str,
+    file_extension: str,
+    parent_path: str = "DATA/"
+) -> str:
+    """
+    Build archive path for a sample.
+    
+    Args:
+        sample_id: Sample ID
+        file_extension: File extension (with dot, e.g., ".tif")
+        parent_path: Parent path in archive
+    
+    Returns:
+        Complete archive path
+    
+    Example:
+        >>> build_archive_path("sample_001", ".tif")
+        'DATA/sample_001.tif'
+        >>> build_archive_path("nested_001", ".tif", "DATA/folder_A/")
+        'DATA/folder_A/nested_001.tif'
+    """
+    return f"{parent_path}{sample_id}{file_extension}"
 
-        Examples:
-            >>> files = FileExtractor.extract_files_recursive(samples)
-            >>> files["src_files"]
-            ["/home/user/data/img1.tif", "/home/user/data/img2.tif"]
-            >>> files["arc_files"]
-            ["DATA/img1.tif", "DATA/img2.tif"]
-        """
-        if src_files is None:
-            src_files = []
-        if arc_files is None:
-            arc_files = []
 
-        for sample in samples:
-            if sample.type == "FOLDER":
-                # Descend into nested structure
-                new_path_prefix = (
-                    f"{path_prefix}{sample.id}/" if path_prefix else f"{sample.id}/"
-                )
-                FileExtractor.extract_files_recursive(
-                    sample.path.samples,
-                    data_root,
-                    src_files,
-                    arc_files,
-                    path_prefix=new_path_prefix,
-                )
-            else:
-                # Leaf node: add file
-                src_files.append(str(sample.path))
-                file_suffix = pathlib.Path(sample.path).suffix
-                arc_files.append(f"{data_root}{path_prefix}{sample.id}{file_suffix}")
-
-        return {"src_files": src_files, "arc_files": arc_files}
+def validate_sample_paths(samples: list["Sample"]) -> list[str]:
+    """
+    Validate that all FILE samples have valid paths.
+    
+    Args:
+        samples: List of samples to validate
+    
+    Returns:
+        List of validation errors (empty if all valid)
+    
+    Example:
+        >>> errors = validate_sample_paths(samples)
+        >>> if errors:
+        ...     print("Validation errors:", errors)
+    """
+    errors = []
+    
+    for sample in samples:
+        if sample.type == "FILE":
+            # Check if path exists
+            if not sample.path.exists():
+                errors.append(f"Sample '{sample.id}': File not found at {sample.path}")
+            
+            # Check if path is a file (not directory)
+            elif not sample.path.is_file():
+                errors.append(f"Sample '{sample.id}': Path is not a file: {sample.path}")
+        
+        elif sample.type == "FOLDER":
+            # Recurse into folder
+            nested_errors = validate_sample_paths(sample.path.samples)
+            errors.extend(nested_errors)
+    
+    return errors
