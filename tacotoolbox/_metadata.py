@@ -21,6 +21,7 @@ class MetadataPackage:
         local_metadata: Local metadata for DATA/folder/__metadata__ (FOLDERs only, level 1+)
         collection: COLLECTION.json content
         pit_schema: PIT schema for navigation
+        field_schema: Field schema with column names and types per level
         max_depth: Maximum hierarchy depth (max 5, meaning 6 levels: 0-5)
     """
     
@@ -30,12 +31,14 @@ class MetadataPackage:
         local_metadata: dict[str, pl.DataFrame],
         collection: dict[str, Any],
         pit_schema: dict[str, Any],
+        field_schema: dict[str, Any],
         max_depth: int
     ):
         self.levels = levels
         self.local_metadata = local_metadata
         self.collection = collection
         self.pit_schema = pit_schema
+        self.field_schema = field_schema
         self.max_depth = max_depth
 
 
@@ -62,8 +65,8 @@ class MetadataGenerator:
                 self._validate_pit_depth(df, dataframes[depth - 1], depth)
         
         pit_schema = generate_pit_schema(dataframes)
+        field_schema = generate_field_schema(dataframes)
         
-        # Keep internal:parent_id column for relational queries
         levels = dataframes
         
         local_metadata = {}
@@ -84,6 +87,7 @@ class MetadataGenerator:
             local_metadata=local_metadata,
             collection=collection,
             pit_schema=pit_schema,
+            field_schema=field_schema,
             max_depth=self.max_depth
         )
     
@@ -294,12 +298,9 @@ def add_offset_columns(
         sample_type = row["type"]
         
         if sample_type == "FOLDER":
-            # FOLDER: offset points to child's __meta__ file
             if folder_path:
-                # We're inside a folder (Level 1+)
                 meta_path = f"{folder_path}{sample_id}/__meta__"
             else:
-                # We're at Level 0 (METADATA/level0.parquet)
                 meta_path = f"DATA/{sample_id}/__meta__"
             
             if meta_path in offsets_map:
@@ -310,7 +311,6 @@ def add_offset_columns(
                 offsets.append(None)
                 sizes.append(None)
         else:
-            # FILE: offset points to actual data file
             if folder_path:
                 arc_path = f"{folder_path}{sample_id}"
             else:
@@ -330,6 +330,29 @@ def add_offset_columns(
     ])
     
     return _remove_empty_internal_columns(result_df)
+
+
+def generate_field_schema(levels: list[pl.DataFrame]) -> dict[str, Any]:
+    """
+    Generate field schema with column names and types for each level.
+    
+    Args:
+        levels: List of DataFrames representing each hierarchical level
+    
+    Returns:
+        Dictionary with field schema per level
+    """
+    field_schema = {}
+    
+    for i, level_df in enumerate(levels):
+        fields = []
+        for col_name, col_type in level_df.schema.items():
+            type_name = str(col_type).lower()
+            fields.append([col_name, type_name])
+        
+        field_schema[f"level{i}"] = fields
+    
+    return field_schema
 
 
 def generate_pit_schema(dataframes: list[pl.DataFrame]) -> dict[str, Any]:
@@ -364,11 +387,9 @@ def generate_pit_schema(dataframes: list[pl.DataFrame]) -> dict[str, Any]:
             )
         
         if depth == 1:
-            # Level 1: Simple case - just take first parent's children
             children_per_parent = len(df) // len(parent_df)
             first_parent_children = df.head(children_per_parent)
             
-            # Get types and ids
             child_types = [
                 _normalize_type(t) for t in first_parent_children["type"].to_list()
             ]
@@ -378,7 +399,6 @@ def generate_pit_schema(dataframes: list[pl.DataFrame]) -> dict[str, Any]:
             hierarchy[str(depth)] = [pattern]
         
         else:
-            # Level 2+: Need to handle multiple FOLDER positions
             parent_schema = hierarchy[str(depth - 1)]
             parent_pattern = parent_schema[0]["type"]
             pattern_size = len(parent_pattern)
@@ -406,8 +426,6 @@ def generate_pit_schema(dataframes: list[pl.DataFrame]) -> dict[str, Any]:
                 if len(position_children) == 0:
                     continue
                 
-                # Each group represents one parent's children
-                # All groups should have same structure, find the one with most real samples
                 samples_per_group = len(position_children) // num_groups
                 
                 max_real_count = 0

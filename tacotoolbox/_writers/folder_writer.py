@@ -51,7 +51,8 @@ class FolderWriter:
                 print("Writing COLLECTION.json...")
             self._write_collection_json(
                 metadata_package.collection,
-                metadata_package.pit_schema
+                metadata_package.pit_schema,
+                metadata_package.field_schema
             )
             
             if not self.quiet:
@@ -191,12 +192,14 @@ class FolderWriter:
     def _write_collection_json(
         self,
         collection: dict[str, object],
-        pit_schema: dict
+        pit_schema: dict,
+        field_schema: dict
     ) -> None:
         collection_path = self.output_dir / "COLLECTION.json"
         
         collection_with_schema = collection.copy()
         collection_with_schema["taco:pit_schema"] = pit_schema
+        collection_with_schema["taco:field_schema"] = field_schema
         
         with open(collection_path, "w", encoding="utf-8") as f:
             json.dump(collection_with_schema, f, indent=4, ensure_ascii=False)

@@ -3,6 +3,7 @@ import json
 import pathlib
 import tempfile
 import uuid
+import zipfile
 from typing import Any
 
 import polars as pl
@@ -172,6 +173,7 @@ class ZipWriter:
             
             collection = metadata_package.collection.copy()
             collection["taco:pit_schema"] = metadata_package.pit_schema
+            collection["taco:field_schema"] = metadata_package.field_schema
             temp_json = self.temp_dir / f"{uuid.uuid4().hex}.json"
             with open(temp_json, "w", encoding="utf-8") as f:
                 json.dump(collection, f, indent=4, ensure_ascii=False)
@@ -223,6 +225,22 @@ class ZipWriter:
                 src_files=all_src_files,
                 arc_files=all_arc_files,
                 entries=header_entries
+            )
+            
+            if not self.quiet:
+                print("\n[STEP 10] Updating TACO_HEADER with real offsets...")
+            
+            metadata_offsets, metadata_sizes = self._get_metadata_offsets()
+            collection_offset, collection_size = self._get_collection_offset()
+            
+            real_entries = [
+                *zip(metadata_offsets, metadata_sizes),
+                (collection_offset, collection_size)
+            ]
+            
+            tacozip.update_header(
+                zip_path=str(self.output_path),
+                entries=real_entries
             )
             
             if not self.quiet:
@@ -295,6 +313,53 @@ class ZipWriter:
         exclude_columns = {"path"}
         cols_to_keep = [col for col in df.columns if col not in exclude_columns]
         return df.select(cols_to_keep) if cols_to_keep else df
+    
+    def _get_metadata_offsets(self) -> tuple[list[int], list[int]]:
+        """Get offsets and sizes for METADATA/levelX.parquet files."""
+        offsets = []
+        sizes = []
+        
+        with zipfile.ZipFile(self.output_path, "r") as zf:
+            with open(self.output_path, "rb") as f:
+                parquet_files = [
+                    info for info in zf.infolist()
+                    if info.filename.startswith("METADATA/")
+                    and info.filename.endswith(".parquet")
+                ]
+                
+                parquet_files.sort(key=lambda x: x.filename)
+                
+                for info in parquet_files:
+                    f.seek(info.header_offset)
+                    lfh = f.read(30)
+                    
+                    filename_len = int.from_bytes(lfh[26:28], "little")
+                    extra_len = int.from_bytes(lfh[28:30], "little")
+                    
+                    data_offset = info.header_offset + 30 + filename_len + extra_len
+                    data_size = info.compress_size
+                    
+                    offsets.append(data_offset)
+                    sizes.append(data_size)
+        
+        return offsets, sizes
+    
+    def _get_collection_offset(self) -> tuple[int, int]:
+        """Get offset and size for COLLECTION.json."""
+        with zipfile.ZipFile(self.output_path, "r") as zf:
+            with open(self.output_path, "rb") as f:
+                info = zf.getinfo("COLLECTION.json")
+                
+                f.seek(info.header_offset)
+                lfh = f.read(30)
+                
+                filename_len = int.from_bytes(lfh[26:28], "little")
+                extra_len = int.from_bytes(lfh[28:30], "little")
+                
+                data_offset = info.header_offset + 30 + filename_len + extra_len
+                data_size = info.compress_size
+                
+                return data_offset, data_size
     
     def _cleanup(self) -> None:
         """Clean up temporary files."""
