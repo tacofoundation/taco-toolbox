@@ -23,7 +23,7 @@ def create(
     taco: Taco,
     output: str | pathlib.Path,
     output_format: Literal["zip", "folder"] = "zip",
-    split_size: str | None = "3.9GB",
+    split_size: str | None = None,
     temp_dir: str | pathlib.Path | None = None,
     quiet: bool = True,
     **kwargs: Any,

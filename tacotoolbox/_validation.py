@@ -3,9 +3,6 @@ from typing import Literal
 
 from tacotoolbox._helpers import parse_size
 
-# Maximum split size (4GB limit - 100MB safety margin for metadata)
-MAX_SPLIT_SIZE = int(3.9 * 1024**3)  # 3.9GB in bytes
-
 
 class TacoValidationError(Exception):
     """Raised when TACO creation validation fails."""
@@ -26,20 +23,18 @@ def validate_output_path(
     Raises:
         TacoValidationError: If path exists or parent doesn't exist
     """
-    # Check if output already exists
     if path.exists():
         if output_format == "zip":
             raise TacoValidationError(
                 f"Output file already exists: {path}\n"
                 f"Remove it or choose a different output path."
             )
-        else:  # folder
+        else:
             raise TacoValidationError(
                 f"Output directory already exists: {path}\n"
                 f"Remove it or choose a different output path."
             )
 
-    # Check if parent directory exists
     if not path.parent.exists():
         raise TacoValidationError(
             f"Parent directory does not exist: {path.parent}\n"
@@ -52,24 +47,22 @@ def validate_split_size(size_str: str) -> int:
     Validate and parse split_size parameter.
 
     Args:
-        size_str: Size string like "4GB", "2GB"
+        size_str: Size string like "4GB", "100GB", "1TB"
 
     Returns:
         Size in bytes
 
     Raises:
-        TacoValidationError: If size is invalid or exceeds maximum
+        TacoValidationError: If size is invalid
     """
     try:
         size_bytes = parse_size(size_str)
     except ValueError as e:
         raise TacoValidationError(f"Invalid split_size format: {e}") from e
 
-    if size_bytes > MAX_SPLIT_SIZE:
-        max_gb = MAX_SPLIT_SIZE / (1024**3)
+    if size_bytes <= 0:
         raise TacoValidationError(
-            f"split_size cannot exceed {max_gb:.1f}GB (regular ZIP limit minus metadata space).\n"
-            f"Requested: {size_str}"
+            f"split_size must be positive. Requested: {size_str}"
         )
 
     return size_bytes
