@@ -64,14 +64,10 @@ class MajorTOM(TortillaExtension):
 
         zero_row = int(np.searchsorted(lats_all, 0.0, side="left"))
         rows_all = np.empty_like(lats_all, dtype=object)
-        
+
         # Use %04d formatting for row labels
-        rows_all[zero_row:] = [
-            f"{i:04d}U" for i in range(len(lats_all) - zero_row)
-        ]
-        rows_all[:zero_row] = [
-            f"{abs(i - zero_row):04d}D" for i in range(zero_row)
-        ]
+        rows_all[zero_row:] = [f"{i:04d}U" for i in range(len(lats_all) - zero_row)]
+        rows_all[:zero_row] = [f"{abs(i - zero_row):04d}D" for i in range(zero_row)]
 
         lat_lo, lat_hi = self.latitude_range
         lat_mask = (lats_all >= lat_lo) & (lats_all <= lat_hi)
@@ -103,7 +99,7 @@ class MajorTOM(TortillaExtension):
             )
 
             cols_full = np.empty(lons_full.size, dtype=object)
-            
+
             # Use %04d formatting for column labels
             cols_full[zero_col_full:] = [
                 f"{i:04d}R" for i in range(lons_full.size - zero_col_full)

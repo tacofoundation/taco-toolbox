@@ -1,3 +1,18 @@
+"""
+TACO Dataset Metadata Model.
+
+Provides the core TACO dataset descriptor with extensible metadata support.
+Combines Tortilla (hierarchical structure) with standardized dataset metadata
+and a flexible extension system for domain-specific enrichment.
+
+Main components:
+- Taco: Dataset metadata container
+- TacoExtension: Base for computed metadata extensions
+- Contact: Contributor information
+- Extent: Spatial/temporal boundaries
+- TaskType: ML task categories
+"""
+
 from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Literal
@@ -9,24 +24,24 @@ from tacotoolbox.tortilla.datamodel import Tortilla
 
 
 class TacoExtension(ABC, pydantic.BaseModel):
-    """Abstract base class for TACO extensions that compute metadata."""
+    """Base class for TACO metadata extensions."""
 
     @abstractmethod
     def get_schema(self) -> dict[str, pl.DataType]:
-        """Return expected column names and types for this extension."""
+        """Return column names and Polars DataTypes for this extension."""
         pass
 
     @abstractmethod
     def _compute(self, taco: "Taco") -> pl.DataFrame:
-        """Compute extension metadata and return single-row DataFrame."""
+        """Compute extension metadata, return single-row DataFrame."""
         pass
 
     def __call__(self, taco: "Taco") -> pl.DataFrame:
-        """Process TACO and return computed metadata as DataFrame."""
+        """Execute extension computation."""
         return self._compute(taco)
 
 
-# Supported ML task types
+# ML task types for dataset categorization
 TaskType = Literal[
     "regression",
     "classification",
@@ -54,17 +69,10 @@ TaskType = Literal[
 
 class Contact(TacoExtension):
     """
-    Contact information for dataset contributors.
+    Dataset contributor contact information.
 
-    Represents people or organizations involved in dataset creation.
-    At least one of 'name' or 'organization' must be provided.
-
-    Attributes:
-        name: Individual's full name
-        organization: Organization name
-        email: Contact email address
-        role: Role in project (any string - e.g., "principal-investigator",
-              "data-curator", "maintainer", "quality-control")
+    At least one of 'name' or 'organization' required.
+    Role examples: "principal-investigator", "data-curator", "maintainer"
     """
 
     name: str | None = None
@@ -74,7 +82,6 @@ class Contact(TacoExtension):
 
     @pydantic.model_validator(mode="after")
     def check_name_or_organization(self):
-        """Ensure at least one identifier is provided."""
         if not self.name and not self.organization:
             raise ValueError("Either 'name' or 'organization' must be provided")
         return self
@@ -82,7 +89,6 @@ class Contact(TacoExtension):
     @pydantic.field_validator("email")
     @classmethod
     def validate_email(cls, v: str | None) -> str | None:
-        """Basic email validation."""
         if v and "@" not in v:
             raise ValueError("Invalid email format - must contain '@' symbol")
         return v
@@ -96,23 +102,15 @@ class Contact(TacoExtension):
         }
 
     def _compute(self, taco: "Taco") -> pl.DataFrame:
-        """Return contact data as DataFrame."""
         return pl.DataFrame([self.model_dump()])
 
 
 class Extent(TacoExtension):
     """
-    Spatial and temporal boundaries of a dataset.
+    Spatial and temporal boundaries.
 
-    Defines geographic coverage and time range:
-    - Spatial: WGS84 decimal degrees bounding box
-    - Temporal: ISO 8601 datetime strings
-
-    Attributes:
-        spatial: [min_longitude, min_latitude, max_longitude, max_latitude]
-                Values in decimal degrees (-180 to 180 for lon, -90 to 90 for lat)
-        temporal: Optional [start_datetime, end_datetime] in ISO 8601 format
-                 Supports 'Z' suffix and explicit timezone offsets
+    Spatial: [min_lon, min_lat, max_lon, max_lat] in WGS84 decimal degrees
+    Temporal: [start_iso, end_iso] in ISO 8601 format (optional)
     """
 
     spatial: list[float]  # [min_lon, min_lat, max_lon, max_lat]
@@ -121,7 +119,6 @@ class Extent(TacoExtension):
     @pydantic.field_validator("spatial")
     @classmethod
     def validate_spatial(cls, v: list[float]) -> list[float]:
-        """Validate geographic bounding box."""
         if len(v) != 4:
             raise ValueError(
                 "Spatial extent must have exactly 4 values: [min_lon, min_lat, max_lon, max_lat]"
@@ -129,14 +126,12 @@ class Extent(TacoExtension):
 
         min_lon, min_lat, max_lon, max_lat = v
 
-        # Check coordinate bounds
         if not (-180 <= min_lon <= 180) or not (-180 <= max_lon <= 180):
             raise ValueError("Longitude values must be between -180 and 180 degrees")
 
         if not (-90 <= min_lat <= 90) or not (-90 <= max_lat <= 90):
             raise ValueError("Latitude values must be between -90 and 90 degrees")
 
-        # Check logical ordering
         if min_lon >= max_lon:
             raise ValueError("min_longitude must be less than max_longitude")
 
@@ -148,7 +143,6 @@ class Extent(TacoExtension):
     @pydantic.field_validator("temporal")
     @classmethod
     def validate_temporal(cls, v: list[str] | None) -> list[str] | None:
-        """Validate temporal extent datetime strings."""
         if v is None:
             return v
 
@@ -160,7 +154,7 @@ class Extent(TacoExtension):
         start_str, end_str = v
 
         try:
-            # Parse datetime strings (handle 'Z' suffix)
+            # Parse ISO 8601 datetime strings
             if start_str.endswith("Z"):
                 start_dt = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
             else:
@@ -176,7 +170,6 @@ class Extent(TacoExtension):
                 f"Invalid datetime format. Use ISO 8601 format (e.g., '2023-01-01T00:00:00Z'): {e}"
             ) from e
 
-        # Check logical ordering
         if start_dt >= end_dt:
             raise ValueError("Start datetime must be before end datetime")
 
@@ -186,7 +179,6 @@ class Extent(TacoExtension):
         return {"spatial": pl.List(pl.Float64()), "temporal": pl.List(pl.Utf8())}
 
     def _compute(self, taco: "Taco") -> pl.DataFrame:
-        """Return extent data as DataFrame."""
         return pl.DataFrame([self.model_dump()])
 
 
@@ -194,22 +186,25 @@ class Taco(pydantic.BaseModel):
     """
     Core TACO dataset metadata container.
 
-    Main dataset descriptor with required core fields and dynamic extension support.
-    Extensions are added via extend_with() method for consistency.
+    Combines:
+    - Tortilla: Hierarchical sample structure
+    - Core metadata: Required identification fields
+    - Extensions: Dynamic metadata via extend_with()
 
     Required fields:
-        id: Unique dataset identifier (lowercase, alphanumeric + _ -)
+        tortilla: Hierarchical sample structure
+        id: Unique identifier (lowercase, alphanumeric + _ -)
         dataset_version: Version string (e.g., "1.0.0")
-        description: Human-readable dataset description
-        licenses: List of license identifiers
+        description: Dataset description
+        licenses: License identifiers (e.g., ["CC-BY-4.0"])
         extent: Spatial/temporal boundaries
-        providers: List of dataset providers/creators
-        task: ML task type
+        providers: Dataset creators (Contact list)
+        tasks: ML task types
 
     Optional fields:
         taco_version: TACO format version (default: "0.5.0")
         title: Human-friendly title (max 250 chars)
-        curators: List of dataset curators
+        curators: Dataset curators (Contact list)
         keywords: Searchable tags
     """
 
@@ -229,13 +224,12 @@ class Taco(pydantic.BaseModel):
     curators: list[Contact] | None = None
     keywords: list[str] | None = None
 
-    # Allow dynamic fields from extensions and arbitrary types like Tortilla
     model_config = pydantic.ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
     @pydantic.field_validator("id")
     @classmethod
     def validate_id(cls, value: str) -> str:
-        """Validate dataset ID format."""
+        """Validate ID format: lowercase, alphanumeric + underscores/hyphens."""
         if not value.islower():
             raise ValueError("Dataset ID must be lowercase")
 
@@ -249,26 +243,20 @@ class Taco(pydantic.BaseModel):
     @pydantic.field_validator("title")
     @classmethod
     def validate_title(cls, value: str | None) -> str | None:
-        """Validate title length."""
+        """Validate title length (max 250 characters)."""
         if value and len(value) > 250:
             raise ValueError("Title must be less than 250 characters")
         return value
 
     def extend_with(self, extension):
         """
-        Add extension data to the TACO dataset.
+        Add extension data to dataset.
 
         Supports:
-        - TacoExtension instances (computed extensions)
-        - pl.DataFrame (single-row DataFrames)
-        - dict (key-value extension data)
-        - Pydantic models (model_dump() output)
-
-        Args:
-            extension: Extension data to add
-
-        Returns:
-            Self for method chaining
+        - TacoExtension instances (computed)
+        - pl.DataFrame (single-row)
+        - dict (key-value)
+        - Pydantic models (via model_dump)
         """
         if callable(extension) and isinstance(extension, TacoExtension):
             self._handle_taco_extension(extension)
@@ -293,7 +281,7 @@ class Taco(pydantic.BaseModel):
         self._set_extension_attributes(extension_data)
 
     def _handle_dataframe_extension(self, extension: pl.DataFrame) -> None:
-        """Handle direct DataFrame extension."""
+        """Handle DataFrame extension."""
         if len(extension) != 1:
             raise ValueError("DataFrame extension must have exactly one row")
 
@@ -315,41 +303,30 @@ class Taco(pydantic.BaseModel):
             )
 
     def _set_extension_attributes(self, extension_data: dict) -> None:
-        """Set extension attributes on the instance."""
+        """Set extension fields as instance attributes."""
         for key, value in extension_data.items():
             setattr(self, key, value)
 
     def export_metadata(self) -> pl.DataFrame:
         """
-        Export complete TACO metadata as single-row DataFrame.
+        Export complete metadata as single-row DataFrame.
 
-        Returns all core fields and extensions as a DataFrame with nested
-        structures preserved (no flattening of Contact, Extent objects).
-
-        Returns:
-            Single-row DataFrame with complete dataset metadata
+        Preserves nested structures (Contact, Extent) without flattening.
+        Includes core fields, Tortilla reference, and all extensions.
         """
         metadata: dict = {}
 
-        # Export all model attributes (core + extensions)
         for key, value in self.__dict__.items():
             if key.startswith("_"):
                 continue
 
-            if isinstance(value, Contact):
-                # Keep Contact as nested dict
-                metadata[key] = value.model_dump()
-
-            elif isinstance(value, Extent):
-                # Keep Extent as nested dict
+            if isinstance(value, Contact) or isinstance(value, Extent):
                 metadata[key] = value.model_dump()
 
             elif isinstance(value, list) and value and isinstance(value[0], Contact):
-                # Keep list of Contacts as list of dicts
                 metadata[key] = [contact.model_dump() for contact in value]
 
             else:
-                # Regular field (string, list, etc.)
                 metadata[key] = value
 
         return pl.DataFrame([metadata])

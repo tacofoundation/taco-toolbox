@@ -1,3 +1,19 @@
+"""
+Tortilla datamodel for TACO framework.
+
+Tortilla is a container for Sample collections with hierarchical metadata export.
+Supports nested sample structures with position tracking.
+
+Key features:
+- Hierarchical metadata export (up to SHARED_MAX_DEPTH levels)
+- Position-Isomorphic Tree (PIT) validation
+- Auto-padding for homogeneous structures
+- Efficient DataFrame construction with schema validation
+
+Best Practice: When mixing FOLDERs and FILEs, place all FOLDERs before FILEs
+for better organization and readability.
+"""
+
 import warnings
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, cast
@@ -5,13 +21,14 @@ from typing import TYPE_CHECKING, cast
 import polars as pl
 import pydantic
 
+from tacotoolbox._constants import (
+    METADATA_PARENT_ID,
+    PADDING_PREFIX,
+    validate_depth,
+)
+
 if TYPE_CHECKING:
     from tacotoolbox.sample.datamodel import Sample
-
-
-# Module-level globals for ordering warnings (shared across all Tortilla instances)
-_ORDERING_WARNING_COUNT = 0
-_MAX_ORDERING_WARNINGS = 3
 
 
 class TortillaExtension(ABC, pydantic.BaseModel):
@@ -55,7 +72,7 @@ class Tortilla:
     """
     Container for Sample collections with hierarchical metadata export.
 
-    Supports nested sample structures up to 5 levels deep with position tracking.
+    Supports nested sample structures with position tracking (max depth from constants).
     Uses eager DataFrame construction with schema validation for performance.
 
     Best Practice: When mixing FOLDERs and FILEs in the same Tortilla,
@@ -65,6 +82,18 @@ class Tortilla:
     make length divisible by a specific value. Useful for creating homogeneous
     tree structures. Padding samples have IDs starting with "__TACOPAD__" and
     preserve the schema of real samples with None values.
+
+    Example:
+        >>> # Basic tortilla
+        >>> tortilla = Tortilla(samples=[sample1, sample2, sample3])
+
+        >>> # With auto-padding
+        >>> tortilla = Tortilla(samples=my_samples, pad_to=32)
+        >>> # If my_samples has 50 items, 14 padding samples added (50 + 14 = 64)
+
+        >>> # Export metadata at different levels
+        >>> level0 = tortilla.export_metadata(deep=0)  # Current level
+        >>> level1 = tortilla.export_metadata(deep=1)  # One level deep
     """
 
     def __init__(self, samples: list["Sample"], pad_to: int | None = None) -> None:
@@ -75,17 +104,10 @@ class Tortilla:
             samples: List of Sample objects
             pad_to: Optional padding factor. If provided, adds dummy samples with
                    "__TACOPAD__" prefix to make len(samples) % pad_to == 0.
-                   Useful for homogeneous tree structures (e.g., pad_to=32 for
-                   balanced binary trees).
 
         Raises:
             ValueError: If samples have inconsistent metadata schemas or empty list
                        or if Inclusive ID Rule is violated
-
-        Example:
-            >>> # Create tortilla with auto-padding to multiple of 32
-            >>> tortilla = Tortilla(samples=my_samples, pad_to=32)
-            >>> # If my_samples has 50 items, 14 padding samples will be added (50 + 14 = 64)
         """
         if not samples:
             raise ValueError("Cannot create Tortilla with empty samples list")
@@ -98,7 +120,7 @@ class Tortilla:
 
         # Check ordering best practice (only for mixed types)
         self._check_sample_ordering()
-        
+
         # Validate Inclusive ID Rule
         self._validate_inclusive_ids()
 
@@ -145,9 +167,10 @@ class Tortilla:
         """
         Create padding samples to make total length divisible by pad_to.
 
-        Padding samples have IDs with "__TACOPAD__" prefix and preserve the
-        schema of real samples by filling extension columns with None values.
-        
+        Padding samples use empty bytes (b"") which creates 0-byte temporary files.
+        These files can be copied to ZIP/FOLDER containers and are automatically
+        cleaned up after container creation.
+
         Padding IDs are sequential: __TACOPAD__0, __TACOPAD__1, __TACOPAD__2, etc.
 
         Args:
@@ -174,13 +197,9 @@ class Tortilla:
         padded_samples = samples.copy()
 
         for i in range(num_padding):
-            # Create base dummy sample with __TACOPAD__ prefix
-            # IDs are sequential: 0, 1, 2, etc (no reference to existing samples)
-            dummy = Sample(
-                id=f"__TACOPAD__{i}",
-                path=b"",
-                type="FILE",
-            )
+            # Create padding sample using internal factory
+            # This creates a 0-byte temp file that bypasses ID validation
+            dummy = Sample._create_padding(index=i)
 
             # Get extension columns (excluding core fields)
             extension_cols = [
@@ -204,16 +223,10 @@ class Tortilla:
         """
         Check if samples follow best practice: FOLDERs before FILEs.
 
-        Only warns if:
+        Warns if:
         1. There's a mix of FOLDERs and FILEs
         2. FOLDERs appear after FILEs
-        3. Warning hasn't been shown too many times (globally across all Tortillas)
         """
-        global _ORDERING_WARNING_COUNT
-
-        if _ORDERING_WARNING_COUNT >= _MAX_ORDERING_WARNINGS:
-            return
-
         types = [sample.type for sample in self.samples]
         has_folders = "FOLDER" in types
         has_files = "FILE" in types
@@ -231,74 +244,73 @@ class Tortilla:
 
         if first_file_idx is not None and first_folder_idx is not None:
             if first_file_idx < first_folder_idx:
-                _ORDERING_WARNING_COUNT += 1
                 warnings.warn(
                     f"Consider placing FOLDERs before FILEs for better organization. "
-                    f"Found FILE at position {first_file_idx} before FOLDER at position {first_folder_idx}. "
-                    f"(Warning {_ORDERING_WARNING_COUNT}/{_MAX_ORDERING_WARNINGS})",
+                    f"Found FILE at position {first_file_idx} before FOLDER at position {first_folder_idx}.",
                     UserWarning,
                     stacklevel=3,
                 )
 
     def _validate_inclusive_ids(self) -> None:
         """
-        Validate Inclusive ID Rule: The folder with maximum non-padding IDs 
+        Validate Inclusive ID Rule: The folder with maximum non-padding IDs
         must contain ALL IDs from folders with fewer IDs (subset relationship).
-        
-        IDs starting with '__TACOPAD__' are IGNORED in validation as they 
+
+        IDs starting with '__TACOPAD__' are IGNORED in validation as they
         represent padding placeholders, not real data.
-        
-        This ensures that dataset.read("some_id") only fails if that ID 
+
+        This ensures that dataset.read("some_id") only fails if that ID
         doesn't exist in ANY folder, not just some.
-        
+
         Valid examples (inclusive subsets):
             Folder A: ["img_001", "img_002", "img_003"]
             Folder B: ["img_001", "img_002"]  # subset of A
-            
+
             Folder A: ["data", "mask", "thumbnail"]
             Folder B: ["data", "mask", "__TACOPAD__0"]  # "data", "mask" subset of A
-        
+
         Invalid example (non-inclusive):
             Folder A: ["img_001", "img_002"]
             Folder B: ["img_001", "img_003"]  # "img_003" not in A, "img_002" not in B
-        
+
         Raises:
             ValueError: If ID sets are not inclusive (not subset relationships)
         """
         # Collect FOLDER samples
         folder_samples = [s for s in self.samples if s.type == "FOLDER"]
-        
+
         # Skip validation if no folders or only one folder
         if len(folder_samples) <= 1:
             return
-        
+
         # Extract NON-PADDING child ID sets from each FOLDER
         id_sets: list[tuple[str, frozenset[str]]] = []
-        
+
         for folder in folder_samples:
-            if hasattr(folder.path, 'samples') and folder.path.samples:
+            if hasattr(folder.path, "samples") and folder.path.samples:
                 real_ids = frozenset(
-                    sample.id for sample in folder.path.samples
-                    if not sample.id.startswith("__TACOPAD__")
+                    sample.id
+                    for sample in folder.path.samples
+                    if not sample.id.startswith(PADDING_PREFIX)
                 )
                 id_sets.append((folder.id, real_ids))
-        
+
         # If only one folder has children, skip
         if len(id_sets) <= 1:
             return
-        
+
         # Find the folder with maximum IDs (the superset)
         max_folder_id, max_id_set = max(id_sets, key=lambda x: len(x[1]))
-        
+
         # Validate: ALL other folders must be SUBSETS of max_id_set
         for folder_id, child_set in id_sets:
             if folder_id == max_folder_id:
                 continue
-            
+
             if not child_set.issubset(max_id_set):
                 # Found IDs that are NOT in the maximum set
                 extra_ids = child_set - max_id_set
-                
+
                 # Build error message
                 error_parts = [
                     "Inclusive ID Rule violated:",
@@ -324,13 +336,13 @@ class Tortilla:
                     "",
                     "Invalid example:",
                     "  Folder A: ['cloudmask', 'data']",
-                    "  Folder B: ['cloudmask', 'thumbnail']  # 'thumbnail' not in A, FAIL"
+                    "  Folder B: ['cloudmask', 'thumbnail']  # 'thumbnail' not in A, FAIL",
                 ]
-                
+
                 raise ValueError("\n".join(error_parts))
 
     def _calculate_current_depth(self) -> int:
-        """Calculate current depth by examining first sample."""
+        """Calculate current depth by examining samples."""
         if not self.samples:
             return 0
 
@@ -381,18 +393,18 @@ class Tortilla:
         Export metadata with optional hierarchical expansion.
 
         Args:
-            deep: Expansion level (0-5 max)
+            deep: Expansion level (0-{SHARED_MAX_DEPTH} max)
                 - 0: Current level only (with extensions)
                 - >0: Expand N levels deep (base metadata only, adds internal:parent_id)
 
         Returns:
             DataFrame with sample metadata and optional position tracking
-        """
-        if deep < 0:
-            raise ValueError("Deep level must be non-negative")
 
-        if deep > 5:
-            raise ValueError("Maximum depth is 5")
+        Raises:
+            ValueError: If deep is negative or exceeds maximum depth
+        """
+        # Use centralized validation from _constants.py
+        validate_depth(deep, context="export_metadata")
 
         if deep == 0:
             return self._metadata_df.clone()
@@ -403,18 +415,25 @@ class Tortilla:
         """
         Build expanded DataFrame for hierarchical samples.
 
-        Adds internal:parent_id column to link children to their parent's index.
+        Adds internal:parent_id column to link children to their parent's GLOBAL index.
         This column is permanent and enables relational queries.
+
+        Uses cumulative global index tracking to ensure parent_id values
+        reference the correct row in the previous level's DataFrame.
 
         Args:
             target_deep: Target expansion depth
 
         Returns:
             DataFrame with expanded samples including internal:parent_id
+
+        Raises:
+            ValueError: If target_deep exceeds current structure depth
         """
         if target_deep > self._current_depth:
             raise ValueError(
-                f"Cannot expand to depth {target_deep}, current max depth is {self._current_depth}"
+                f"Cannot expand to depth {target_deep}: structure only has "
+                f"{self._current_depth} levels (0-{self._current_depth})."
             )
 
         current_samples = self.samples
@@ -424,21 +443,30 @@ class Tortilla:
             next_dfs = []
             next_samples = []
 
-            for parent_idx, sample in enumerate(current_samples):
-                if (
-                    hasattr(sample, "path")
-                    and hasattr(sample.path, "samples")
-                    and sample.path.samples
-                ):
+            # Track cumulative global index across all parents
+            # Ensures parent_id references the correct row in consolidated DataFrame
+            global_parent_idx = 0
+
+            for sample in current_samples:
+                if sample.type == "FOLDER" and sample.path.samples:
+                    # Sample has children - process them
                     for child_sample in sample.path.samples:
                         child_metadata_df = child_sample.export_metadata()
 
+                        # Use Int64 for parent_id consistency across ALL levels
+                        # This ensures level0 (Int64) and level1+ (Int64) match for JOINs
                         child_metadata_df = child_metadata_df.with_columns(
-                            pl.lit(parent_idx).alias("internal:parent_id")
+                            pl.lit(global_parent_idx, dtype=pl.Int64).alias(
+                                METADATA_PARENT_ID
+                            )
                         )
 
                         next_dfs.append(child_metadata_df)
                         next_samples.append(child_sample)
+
+                # Increment for every parent sample (FILE or FOLDER)
+                # Ensures parent_id mapping stays aligned with parent DataFrame indices
+                global_parent_idx += 1
 
             current_dfs = next_dfs
             current_samples = next_samples

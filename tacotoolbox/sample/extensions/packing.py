@@ -32,13 +32,13 @@ class Packing(SampleExtension):
     -------
     >>> # Basic scaling
     >>> packing = Packing(scale_factor=0.01, scale_offset=-273.15)
-    >>> 
+    >>>
     >>> # Per-band scaling
     >>> packing = Packing(
     ...     scale_factor=[0.0001, 0.0001, 0.0001],
     ...     scale_offset=[0.0, 0.0, 0.0]
     ... )
-    >>> 
+    >>>
     >>> # With padding
     >>> packing = Packing(
     ...     scale_factor=0.01,
@@ -57,7 +57,7 @@ class Packing(SampleExtension):
         """Ensure scale_factor is not zero when provided."""
         if v is None:
             return v
-        
+
         if isinstance(v, list):
             for factor in v:
                 if factor == 0.0:
@@ -74,7 +74,7 @@ class Packing(SampleExtension):
         """Ensure padding is a list of 4 integers when provided."""
         if v is None:
             return v
-        
+
         if len(v) != 4:
             raise ValueError(
                 "padding must be a list of 4 integers [top, right, bottom, left]"
@@ -84,32 +84,30 @@ class Packing(SampleExtension):
     def get_schema(self) -> dict[str, pl.DataType]:
         """Return the expected schema for this extension."""
         schema: dict[str, pl.DataType] = {}
-        
+
         # Determine if factor/offset are lists or scalars
-        has_list = (
-            isinstance(self.scale_factor, list) or 
-            isinstance(self.scale_offset, list)
+        has_list = isinstance(self.scale_factor, list) or isinstance(
+            self.scale_offset, list
         )
-        
+
         if has_list:
             schema["packing:scale_factor"] = pl.List(pl.Float32())
             schema["packing:scale_offset"] = pl.List(pl.Float32())
         else:
             schema["packing:scale_factor"] = pl.Float32()
             schema["packing:scale_offset"] = pl.Float32()
-        
+
         schema["packing:padding"] = pl.List(pl.Int32())
-        
+
         return schema
 
     def _compute(self, sample) -> pl.DataFrame:
         """Actual computation logic - only called when return_none=False."""
         # Determine output format based on inputs
-        has_list = (
-            isinstance(self.scale_factor, list) or 
-            isinstance(self.scale_offset, list)
+        has_list = isinstance(self.scale_factor, list) or isinstance(
+            self.scale_offset, list
         )
-        
+
         if has_list:
             # Convert to lists for consistency
             factor = (
@@ -122,7 +120,7 @@ class Packing(SampleExtension):
                 if isinstance(self.scale_offset, list)
                 else ([self.scale_offset] if self.scale_offset is not None else None)
             )
-            
+
             return pl.DataFrame(
                 {
                     "packing:scale_factor": [factor],

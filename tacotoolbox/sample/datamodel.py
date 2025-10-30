@@ -1,3 +1,16 @@
+"""
+Sample datamodel for TACO framework.
+
+The Sample is the fundamental data unit, combining raw data with structured metadata
+for training, validation, and testing workflows.
+
+Key features:
+- Supports FILE and FOLDER asset types
+- Dynamic extension system for adding metadata
+- Format validation via validators (TacotiffValidator, etc.)
+- Automatic cleanup of temporary files from bytes
+"""
+
 import pathlib
 import re
 import tempfile
@@ -9,7 +22,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import polars as pl
 import pydantic
 
-# Dependencies
+from tacotoolbox._constants import SHARED_CORE_FIELDS, SHARED_PROTECTED_FIELDS
 from tacotoolbox.tortilla.datamodel import Tortilla
 
 if TYPE_CHECKING:
@@ -20,9 +33,6 @@ AssetType = Literal["FILE", "FOLDER"]
 
 # Key validation pattern
 VALID_KEY_PATTERN = re.compile(r"^[a-zA-Z0-9_]+(?:[:][\w]+)?$")
-
-# Core fields that cannot be overwritten by extensions
-PROTECTED_CORE_FIELDS = {"id", "type", "path"}
 
 
 class SampleExtension(ABC, pydantic.BaseModel):
@@ -81,6 +91,9 @@ class Sample(pydantic.BaseModel):
     directory. For large datasets with many samples, the temp directory may fill
     up quickly. Use temp_dir parameter to specify a directory with adequate space.
 
+    Temporary files are automatically cleaned up when the Sample is
+    garbage collected or when cleanup() is called explicitly.
+
     Example:
         >>> from tacotoolbox import Sample
         >>> from tacotoolbox.sample.validators import TacotiffValidator
@@ -95,13 +108,17 @@ class Sample(pydantic.BaseModel):
         >>> # Validate with TACOTIFF format
         >>> sample.validate_with(TacotiffValidator())
         >>>
-        >>> # Bytes support
+        >>> # Bytes support with auto cleanup
         >>> sample = Sample(
         ...     id="bytesample",
         ...     path=image_bytes,
         ...     type="FILE",
         ...     temp_dir="/data/workspace"
         ... )
+        >>> # Temporary file created automatically
+        >>> # ... use sample ...
+        >>> sample.cleanup()  # Explicit cleanup
+        >>> # Or let garbage collector do it automatically
         >>>
         >>> # Extensions
         >>> sample.extend_with(stac_obj)
@@ -123,6 +140,9 @@ class Sample(pydantic.BaseModel):
     )  # Location of data (file, container, or bytes)
     type: AssetType  # Type of geospatial data asset
 
+    # Private attribute to store temp files for cleanup
+    _temp_files: list[pathlib.Path] = pydantic.PrivateAttr(default_factory=list)
+
     # Private attribute to store extension schemas
     _extension_schemas: dict[str, pl.DataType] = pydantic.PrivateAttr(
         default_factory=dict
@@ -134,7 +154,13 @@ class Sample(pydantic.BaseModel):
     )
 
     def __init__(self, temp_dir: pathlib.Path | None = None, **data):
-        """Initialize Sample with optional temp_dir that doesn't get stored."""
+        """
+        Initialize Sample with optional temp_dir for bytes conversion.
+
+        Args:
+            temp_dir: Directory for temporary files (if path is bytes)
+            **data: Sample fields (id, path, type, extensions, etc.)
+        """
         # Handle temp_dir for bytes conversion without storing it
         if "path" in data and isinstance(data["path"], bytes):
             temp_dir = (
@@ -150,15 +176,20 @@ class Sample(pydantic.BaseModel):
             temp_filename = uuid.uuid4().hex
             temp_path = temp_dir / temp_filename
 
-            # Write bytes to temp file
+            # Write bytes to temp file (even if empty - needed for padding samples)
+            # Empty bytes create 0-byte files that can be copied to ZIP/FOLDER
             with open(temp_path, "wb") as f:
                 f.write(data["path"])
 
             # Replace bytes with path
             data["path"] = temp_path.absolute()
 
+            # Initialize _temp_files BEFORE super().__init__
+            # This ensures it's available when pydantic validates
+            object.__setattr__(self, "_temp_files", [temp_path])
+
         # Extract extension fields (anything not a core field)
-        core_fields = {"id", "path", "type"}
+        core_fields = SHARED_CORE_FIELDS
         extension_fields = {k: v for k, v in data.items() if k not in core_fields}
 
         # Initialize with all fields (Pydantic accepts them due to extra="allow")
@@ -168,7 +199,151 @@ class Sample(pydantic.BaseModel):
         if extension_fields:
             self.extend_with(extension_fields)
 
+    @classmethod
+    def _create_padding(
+        cls, index: int, temp_dir: pathlib.Path | None = None
+    ) -> "Sample":
+        """
+        Internal factory for creating padding samples.
+        Bypasses ID validation for __TACOPAD__ prefix.
+
+        Padding samples use empty bytes (b"") which creates a 0-byte temporary file.
+        This file can be copied to ZIP/FOLDER containers like any other file.
+
+        Args:
+            index: Padding sample index (e.g., 0 for __TACOPAD__0)
+            temp_dir: Optional temp directory (defaults to system temp)
+
+        Returns:
+            Sample with __TACOPAD__ ID and empty temp file
+
+        Example:
+            >>> # Internal use only - called by Tortilla
+            >>> padding = Sample._create_padding(index=0)
+            >>> padding.id
+            '__TACOPAD__0'
+            >>> padding.path.stat().st_size
+            0  # 0-byte file
+        """
+        # Create temp directory
+        temp_dir = (
+            pathlib.Path(tempfile.gettempdir())
+            if temp_dir is None
+            else pathlib.Path(temp_dir)
+        )
+        temp_dir.mkdir(parents=True, exist_ok=True)
+
+        # Generate UUID-based filename for 0-byte file
+        temp_filename = uuid.uuid4().hex
+        temp_path = temp_dir / temp_filename
+
+        # Write empty bytes to create 0-byte temp file
+        with open(temp_path, "wb") as f:
+            f.write(b"")
+
+        # Use model_construct to bypass validators
+        sample = cls.model_construct(
+            id=f"__TACOPAD__{index}",
+            type="FILE",
+            path=temp_path.absolute()
+        )
+
+        # Manually initialize private attributes (model_construct doesn't do this)
+        object.__setattr__(sample, "_temp_files", [temp_path])
+        object.__setattr__(sample, "_extension_schemas", {})
+
+        return sample
+
+    def cleanup(self) -> None:
+        """
+        Clean up temporary files created from bytes.
+
+        This method can be called explicitly to clean up temporary files
+        immediately instead of waiting for garbage collection.
+
+        Example:
+            >>> sample = Sample(id="test", path=image_bytes, type="FILE")
+            >>> # ... use sample ...
+            >>> sample.cleanup()  # Explicit cleanup
+        """
+        if not self._temp_files:
+            return
+
+        for temp_file in self._temp_files:
+            try:
+                if temp_file.exists():
+                    temp_file.unlink()
+            except Exception:
+                # Silently ignore cleanup errors
+                pass
+
+        self._temp_files.clear()
+
+    def __del__(self):
+        """
+        Cleanup on garbage collection.
+
+        Automatically removes temporary files when the Sample object
+        is destroyed by the garbage collector.
+        """
+        try:
+            self.cleanup()
+        except Exception:
+            # Silently ignore cleanup errors during garbage collection
+            pass
+
+    @pydantic.field_validator("id")
+    @classmethod
+    def validate_id(cls, v: str) -> str:
+        r"""
+        Validate sample ID format.
+
+        Rules:
+        - NO slashes (/, \) - breaks file paths in ZIP and FOLDER containers
+        - NO colons (:) - invalid on Windows, conflicts with extension namespaces
+        - NO double underscore prefix (__) - reserved for __TACOPAD__ system
+
+        Args:
+            v: Sample ID to validate
+
+        Returns:
+            Validated ID
+
+        Raises:
+            ValueError: If ID format is invalid
+
+        Example:
+            >>> Sample(id="sample_001", path=b"", type="FILE")  # OK
+            >>> Sample(id="IMG-2024", path=b"", type="FILE")    # OK
+            >>> Sample(id="file/path", path=b"", type="FILE")   # FAIL - slash
+            >>> Sample(id="img:rgb", path=b"", type="FILE")     # FAIL - colon
+            >>> Sample(id="__private", path=b"", type="FILE")   # FAIL - reserved
+        """
+        # Check for slashes
+        if "/" in v or "\\" in v:
+            raise ValueError(
+                f"Sample ID cannot contain slashes: '{v}'\n"
+                f"Slashes break file paths in ZIP and FOLDER containers."
+            )
+
+        # Check for colons
+        if ":" in v:
+            raise ValueError(
+                f"Sample ID cannot contain colons: '{v}'\n"
+                f"Colons are invalid in Windows filenames and conflict with namespace syntax."
+            )
+
+        # Check for double underscore prefix (reserved for internal use)
+        if v.startswith("__"):
+            raise ValueError(
+                f"Sample ID cannot start with '__': '{v}'\n"
+                f"Double underscore prefix is reserved for internal use (__TACOPAD__)."
+            )
+
+        return v
+
     @pydantic.field_validator("path")
+    @classmethod
     def validate_path(
         cls, v: pathlib.Path | Tortilla | bytes
     ) -> pathlib.Path | Tortilla:
@@ -300,7 +475,7 @@ class Sample(pydantic.BaseModel):
         """Add metadata fields to the sample with validation."""
         for key, value in metadata_dict.items():
             self._validate_key(key)
-            if key in PROTECTED_CORE_FIELDS:
+            if key in SHARED_PROTECTED_FIELDS:
                 raise ValueError(f"Cannot override core field: {key}")
             setattr(self, key, value)
 
