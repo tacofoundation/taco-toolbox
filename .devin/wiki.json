@@ -1,0 +1,281 @@
+{
+  "repo_notes": [
+    {
+      "content": ""
+    }
+  ],
+  "pages": [
+    {
+      "title": "Overview",
+      "purpose": "Introduce tacotoolbox, its purpose as a tool for creating TACO-compliant geospatial datasets, high-level architecture, and key concepts.",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Getting Started",
+      "purpose": "Installation instructions, project dependencies from pyproject.toml, basic usage examples, and quick start guide",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Core Data Models",
+      "purpose": "Overview of the three-tier hierarchical data model (Sample → Tortilla → Taco) and how they relate to create TACO datasets",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Sample",
+      "purpose": "Detailed documentation of the Sample class, its fields (id, path, type), validation, creating samples from files or bytes, and the extend_with mechanism",
+      "parent": "Core Data Models",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Tortilla",
+      "purpose": "Detailed documentation of the Tortilla class, managing sample collections, metadata aggregation, hierarchical expansion, and padding mechanisms",
+      "parent": "Core Data Models",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Taco",
+      "purpose": "Documentation of the Taco class as the complete dataset container, its relationship to Tortillas, and overall dataset structure",
+      "parent": "Core Data Models",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Extension System",
+      "purpose": "Overview of the plugin-style extension architecture that allows dynamic metadata augmentation for both Samples and Tortillas",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Sample Extensions",
+      "purpose": "Documentation of SampleExtension base class, the get_schema/_compute/_call pattern, and overview of available sample extensions",
+      "parent": "Extension System",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "STAC Extension",
+      "purpose": "Documentation of the STAC extension for regular raster spatiotemporal metadata including CRS, geotransform, tensor shape, and timestamps",
+      "parent": "Extension System",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "ISTAC Extension",
+      "purpose": "Documentation of the ISTAC extension for irregular spatiotemporal data (satellite swaths, flight paths, vector data) with WKB geometries",
+      "parent": "Extension System",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "GeotiffStats Extension",
+      "purpose": "Documentation of the GeotiffStats extension for extracting categorical and continuous statistics from GeoTIFF bands using GDAL",
+      "parent": "Extension System",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "TACOTIFFHeader Extension",
+      "purpose": "Documentation of the Header extension for extracting optimized binary headers from TACOTIFF files",
+      "parent": "Extension System",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Tortilla Extensions",
+      "purpose": "Documentation of TortillaExtension base class and available extensions for enriching sample collections with computed metadata",
+      "parent": "Extension System",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Territorial Extension",
+      "purpose": "Documentation of the Territorial extension for Earth Engine-based enrichment with geospatial, climatic, socioeconomic, and administrative data",
+      "parent": "Extension System",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "MajorTOM Extension",
+      "purpose": "Documentation of the MajorTOM extension for spherical grid indexing, coordinate-to-grid conversion, and spatial organization",
+      "parent": "Extension System",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Dataset Creation and Management",
+      "purpose": "Overview of creating, editing, and managing TACO datasets including output formats and metadata generation",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Creating Datasets",
+      "purpose": "Detailed guide on using the create() function, output formats (zip vs folder), split_size parameter, and the creation pipeline",
+      "parent": "Dataset Creation and Management",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Editing Datasets",
+      "purpose": "Guide on using edit_collection() to modify COLLECTION.json metadata in .tacozip archives while preserving the taco:pit_schema field",
+      "parent": "Dataset Creation and Management",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Metadata Generation and PIT Schema",
+      "purpose": "Technical documentation on MetadataGenerator, Position-Isomorphic Tree schema generation, validation at each hierarchy level, and deterministic navigation",
+      "parent": "Dataset Creation and Management",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Validation",
+      "purpose": "Overview of validation systems including SampleValidator for format-specific checks and dataset-level validation during creation",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Sample Validation",
+      "purpose": "Documentation of SampleValidator abstract base class, ValidationError exceptions, and implementing format-specific validators",
+      "parent": "Validation",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Dataset Validation",
+      "purpose": "Documentation of TacoValidationError, validation during create() including path checks, format compatibility, and size constraints",
+      "parent": "Validation",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Advanced Topics",
+      "purpose": "Advanced usage patterns, internal architecture details, technical deep-dives, and specialized workflows",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Position-Isomorphic Trees (PIT)",
+      "purpose": "Technical deep-dive into PIT schema structure, homogeneity requirements, isomorphic patterns, validation rules, and how deterministic navigation works",
+      "parent": "Advanced Topics",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Archive Format Specifications",
+      "purpose": "Technical documentation of .tacozip format structure, TACO_HEADER, Parquet vs Avro metadata serialization, and internal offset management",
+      "parent": "Advanced Topics",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Dataset Splitting",
+      "purpose": "Guide on splitting large datasets into multiple .tacozip parts using split_size, chunk validation, and handling multi-part archives",
+      "parent": "Advanced Topics",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Metadata Enrichment Patterns",
+      "purpose": "Advanced patterns for using extensions including offset enrichment, relative path enrichment, and custom extension development",
+      "parent": "Advanced Topics",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    },
+    {
+      "title": "Development and Contributing",
+      "purpose": "Information for contributors including project setup, Poetry configuration, testing with pytest, linting with ruff, type checking with mypy, and documentation",
+      "page_notes": [
+        {
+          "content": ""
+        }
+      ]
+    }
+  ]
+}
