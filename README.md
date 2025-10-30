@@ -1,5 +1,5 @@
 # tacotoolbox
-
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/tacofoundation/taco-toolbox)
 [![PyPI](https://img.shields.io/pypi/v/tacotoolbox.svg)](https://pypi.python.org/pypi/tacotoolbox)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![BlueSky](https://img.shields.io/badge/bluesky-tacofoundation-1185fe?labelColor=000000&logo=bluesky)](https://bsky.app/profile/tacofoundation.bsky.social)
