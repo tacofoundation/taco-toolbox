@@ -1,15 +1,23 @@
+# Site Configuration
 site_name: tacotoolbox
-repo_url: https://github.com/csaybar/tacotoolbox
-site_url: https://csaybar.github.io/tacotoolbox
-site_description: A toolbox to create TACO compliant datasets
-site_author: Cesar Aybar
-edit_uri: edit/main/docs/
-repo_name: csaybar/tacotoolbox
-copyright: Maintained by <a href="https://csaybar.com">Florian</a>.
+site_url: https://tacofoundation.github.io/taco-toolbox
+site_author: TACO Foundation
+site_description: We make tacos 🌮
 
+# Repository
+repo_url: https://github.com/tacofoundation/taco-toolbox
+repo_name: tacofoundation/taco-toolbox
+edit_uri: edit/master/docs/  # Using 'master' to match your repo's branch
+
+# Copyright
+copyright: Maintained by TACO Foundation
+
+# Navigation
 nav:
   - Home: index.md
   - Modules: modules.md
+
+# Plugins
 plugins:
   - search
   - mkdocstrings:
@@ -18,11 +26,20 @@ plugins:
           setup_commands:
             - import sys
             - sys.path.append('../')
+
+# Theme (mkdocs-material)
 theme:
   name: material
-  feature:
-    tabs: true
+  
+  # Features (Updated syntax)
+  features:
+    - navigation.tabs           # Use tabs for top-level navigation
+    - navigation.top            # Add a "Back to top" button
+    - content.code.copy       # Add a copy button to code blocks
+
+  # Color Palette (Dual Light/Dark mode)
   palette:
+    # Light Mode (default)
     - media: "(prefers-color-scheme: light)"
       scheme: default
       primary: white
@@ -30,6 +47,8 @@ theme:
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
+    
+    # Dark Mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
       primary: black
@@ -37,18 +56,28 @@ theme:
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
+
+  # Repository icon
   icon:
     repo: fontawesome/brands/github
 
+# Extra info (e.g., social links)
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/csaybar/tacotoolbox
+      link: https://github.com/tacofoundation/taco-toolbox
     - icon: fontawesome/brands/python
       link: https://pypi.org/project/tacotoolbox
 
+# Markdown Extensions
 markdown_extensions:
   - toc:
       permalink: true
   - pymdownx.arithmatex:
       generic: true
+  - admonition               # For note, warning, info boxes
+  - pymdownx.details           # For collapsible blocks
+  - pymdownx.highlight:        # Code syntax highlighting
+      anchor_linenums: true
+  - pymdownx.inlinehilite      # Inline syntax highlighting
+  - pymdownx.supserscript      # For superscripts
