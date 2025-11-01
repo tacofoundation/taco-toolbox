@@ -80,6 +80,7 @@ import tacozip
 
 from tacotoolbox._constants import (
     TACOCAT_DEFAULT_PARQUET_CONFIG,
+    TACOCAT_FILENAME,
     TACOCAT_MAGIC,
     TACOCAT_MAX_LEVELS,
     TACOCAT_TOTAL_HEADER_SIZE,
@@ -110,47 +111,67 @@ def create_tacocat(
 
     Args:
         tacozips: List of .tacozip file paths to consolidate
-        output_path: Output path for .tacocat file
+        output_path: Output directory where __TACOCAT__ will be created
         parquet_kwargs: Custom Parquet writer parameters (overrides defaults)
         validate_schema: If True, validate all datasets have same schema per level
         quiet: If True, suppress progress output
 
     Raises:
         TacoCatError: If no datasets provided or file operations fail
+        ValueError: If output_path is a file or has a file extension
         SchemaValidationError: If validate_schema=True and schemas don't match
 
     Default parquet_kwargs (optimized for DuckDB):
         compression: "zstd"
-        compression_level: 19
+        compression_level: 13
         row_group_size: 122_880
         statistics: True
 
     Example:
         >>> create_tacocat(
         ...     tacozips=["dataset1.tacozip", "dataset2.tacozip"],
-        ...     output_path="consolidated.tacocat"
+        ...     output_path="/data/archive/"
         ... )
 
         >>> create_tacocat(
         ...     tacozips=list(Path("data/").glob("*.tacozip")),
-        ...     output_path="archive.tacocat",
+        ...     output_path="/output/consolidated/",
         ...     parquet_kwargs={"compression_level": 22}
         ... )
 
         >>> create_tacocat(
         ...     tacozips=my_datasets,
-        ...     output_path="quick.tacocat",
+        ...     output_path="/quick/dir/",
         ...     parquet_kwargs={"compression_level": 3}
         ... )
     """
+    output_dir = Path(output_path)
+    
+    if output_dir.exists() and output_dir.is_file():
+        raise ValueError(
+            f"output_path must be a directory, not a file: {output_path}\n"
+            f"Example: create_tacocat(datasets, '/data/output_dir/')"
+        )
+    
+    if output_dir.suffix:
+        raise ValueError(
+            f"output_path should not have a file extension: {output_path}\n"
+            f"The file will be automatically named '{TACOCAT_FILENAME}'\n"
+            f"Example: create_tacocat(datasets, '/data/output_dir/')"
+        )
+    
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    final_output = output_dir / TACOCAT_FILENAME
+    
     writer = TacoCatWriter(
-        output_path=output_path,
+        output_path=final_output,
         parquet_kwargs=parquet_kwargs,
         quiet=quiet,
     )
 
-    for tacozip in tacozips:
-        writer.add_dataset(tacozip)
+    for tacozip_path in tacozips:
+        writer.add_dataset(tacozip_path)
 
     writer.write(validate_schema=validate_schema)
 
@@ -168,7 +189,7 @@ class TacoCatWriter:
         Initialize TacoCat writer.
 
         Args:
-            output_path: Output path for .tacocat file
+            output_path: Full path to __TACOCAT__ file (typically set by create_tacocat)
             parquet_kwargs: Custom Parquet writer parameters
             quiet: Suppress progress output
         """
