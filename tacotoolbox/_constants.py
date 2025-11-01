@@ -21,15 +21,20 @@ METADATA_PARENT_ID = "internal:parent_id"
 """Parent sample index in previous level DataFrame (enables relational queries)."""
 
 METADATA_OFFSET = "internal:offset"
-"""Byte offset in container file where data starts."""
+"""Byte offset in container file where data starts. Only for zip containers."""
 
 METADATA_SIZE = "internal:size"
-"""Size in bytes of the data."""
+"""Size in bytes of the data. Only for zip containers."""
+
+METADATA_RELATIVE_PATH = "internal:relative_path"
+"""Relative path from DATA/ directory (for consolidated metadata only)."""
+
 
 METADATA_COLUMNS_ORDER = [
     METADATA_PARENT_ID,
     METADATA_OFFSET,
     METADATA_SIZE,
+    METADATA_RELATIVE_PATH,
 ]
 """Preferred order for internal:* columns at end of DataFrames."""
 
@@ -37,6 +42,7 @@ METADATA_PROTECTED_COLUMNS = {
     METADATA_PARENT_ID,
     METADATA_OFFSET,
     METADATA_SIZE,
+    METADATA_RELATIVE_PATH,
 }
 """
 Protected internal:* columns that should not be dropped during cleaning.

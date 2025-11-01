@@ -6,13 +6,15 @@ This module generates the dual metadata system used by both ZIP and FOLDER conta
 1. CONSOLIDATED METADATA (METADATA/levelX files):
    - One file per hierarchy level (level0.parquet, level1.parquet, etc.)
    - Contains ALL samples at that level across the entire dataset
-   - Includes internal:parent_id for relational queries
+   - Includes internal:parent_id for relational queries (all levels)
+   - Includes internal:relative_path for fast SQL queries (level 1+ only)
    - Used for: sql, queries, navigation, statistics
    
 2. LOCAL METADATA (DATA/folder/__meta__ files):
    - One file per FOLDER (only for level 1+)
    - Contains only the direct children of that specific folder
    - Does NOT include internal:parent_id (navigation via folder structure)
+   - Does NOT include internal:relative_path (path is implicit from location)
    - Used for: efficient/lazy folder-level access
 
 CRITICAL DESIGN PRINCIPLES:
@@ -41,6 +43,7 @@ import polars as pl
 from tacotoolbox._column_utils import remove_empty_columns, reorder_internal_columns
 from tacotoolbox._constants import (
     METADATA_PARENT_ID,
+    METADATA_RELATIVE_PATH,
     is_padding_id,
 )
 
@@ -64,41 +67,52 @@ class MetadataPackage:
     - Schema information (PIT + field schemas)
 
     The internal:parent_id column enables hierarchical navigation via SQL JOINs.
+    The internal:relative_path column enables fast queries without JOINs.
     Level 0 uses row index as parent_id, while level 1+ link to parent rows.
 
-    Example hierarchy with parent_id:
+    Example hierarchy with parent_id and relative_path:
 
-        level0 (parent_id = row index):
+        level0 (parent_id = row index, NO relative_path):
         ┌─────┬──────────┬──────────────────────┐
         │ id  │ type     │ internal:parent_id   │
         ├─────┼──────────┼──────────────────────┤
-        │ A   │ FOLDER   │ 0                    │  <-- parent_id = row 0
-        │ B   │ FOLDER   │ 1                    │  <-- parent_id = row 1
+        │ A   │ FOLDER   │ 0                    │
+        │ B   │ FOLDER   │ 1                    │
         └─────┴──────────┴──────────────────────┘
 
-        level1 (parent_id links to level0 row):
-        ┌─────┬──────────┬──────────────────────┐
-        │ id  │ type     │ internal:parent_id   │
-        ├─────┼──────────┼──────────────────────┤
-        │ f1  │ FILE     │ 0                    │  <-- parent is row 0 in level0 (folder A)
-        │ f2  │ FILE     │ 0                    │  <-- parent is row 0 in level0 (folder A)
-        │ f3  │ FILE     │ 1                    │  <-- parent is row 1 in level0 (folder B)
-        └─────┴──────────┴──────────────────────┘
+        level1 (parent_id links to level0 row, HAS relative_path):
+        ┌─────┬──────────┬──────────────────────┬─────────────────────────────────┐
+        │ id  │ type     │ internal:parent_id   │ internal:relative_path          │
+        ├─────┼──────────┼──────────────────────┼─────────────────────────────────┤
+        │ f1  │ FILE     │ 0                    │ A/f1                            │
+        │ f2  │ FILE     │ 0                    │ A/f2                            │
+        │ f3  │ FILE     │ 1                    │ B/f3                            │
+        └─────┴──────────┴──────────────────────┴─────────────────────────────────┘
 
-        SQL JOIN example:
+        SQL examples:
+            # Level 0: Use 'id' directly (no relative_path)
+            SELECT * FROM level0 WHERE id = 'A'
+            
+            # Level 1+: Use relative_path (fast, no JOIN needed)
+            SELECT * FROM level1 
+            WHERE "internal:relative_path" LIKE 'A/%'
+            
+            # Traditional JOIN approach (works but slower):
             SELECT l1.id, l0.id as parent_folder
             FROM level0 l0
             JOIN level1 l1 ON l1."internal:parent_id" = l0."internal:parent_id"
             WHERE l0.id = 'A'
-            -- Returns: f1, f2 (children of folder A)
 
     Attributes:
         levels: List of DataFrames, one per level (0-5)
                 Each DataFrame contains ALL samples at that level
-                WITHOUT offset/size (added by zip_writer if needed)
+                Level 0: Has parent_id, NO relative_path (use 'id' directly)
+                Level 1+: Has parent_id AND relative_path for fast queries
+                NO offset/size (added by zip_writer if needed)
 
         local_metadata: Dict mapping folder_path -> DataFrame
                        Contains metadata for direct children of each folder
+                       WITHOUT parent_id or relative_path (path implicit, navigation via folder)
                        Example: {"DATA/folder_A/": df_with_4_children}
 
         collection: Dictionary with COLLECTION.json content
@@ -130,13 +144,16 @@ class MetadataPackage:
         >>> pit = package.pit_schema
         >>> fields = package.field_schema
 
-        >>> # SQL navigation using parent_id
+        >>> # SQL navigation using relative_path (FAST - no JOINs, level 1+ only)
         >>> import duckdb
         >>> duckdb.sql('''
-        ...     SELECT l1.id, l1.type, l0.id as parent_folder
-        ...     FROM level0 l0
-        ...     JOIN level1 l1 ON l1."internal:parent_id" = l0."internal:parent_id"
-        ...     WHERE l0.id = 'A'
+        ...     SELECT * FROM level1 
+        ...     WHERE "internal:relative_path" LIKE 'A/%'
+        ... ''')
+        >>>
+        >>> # Level 0: Use 'id' directly (no relative_path column)
+        >>> duckdb.sql('''
+        ...     SELECT * FROM level0 WHERE id = 'A'
         ... ''')
     """
 
@@ -202,9 +219,10 @@ class MetadataGenerator:
         2. Clean DataFrames (remove empty columns, container-irrelevant fields)
         3. Add internal:parent_id for relational queries
         4. Validate PIT constraints (homogeneity, structure)
-        5. Generate PIT schema and field schema
-        6. Generate local metadata for each folder
-        7. Generate collection metadata
+        5. Add internal:relative_path for fast queries (level 1+ only, consolidated metadata)
+        6. Generate PIT schema and field schema
+        7. Generate local metadata for each folder
+        8. Generate collection metadata
 
         Returns:
             MetadataPackage with all metadata components
@@ -238,6 +256,9 @@ class MetadataGenerator:
             else:
                 self._validate_pit_depth(df, dataframes[depth - 1], depth)
 
+        # Add internal:relative_path for fast SQL queries
+        dataframes = self._add_relative_paths(dataframes)
+
         # Generate schemas
         pit_schema = generate_pit_schema(dataframes, quiet=self.quiet)
         field_schema = generate_field_schema(dataframes)
@@ -268,6 +289,82 @@ class MetadataGenerator:
             field_schema=field_schema,
             max_depth=self.max_depth,
         )
+
+    def _add_relative_paths(self, levels: list[pl.DataFrame]) -> list[pl.DataFrame]:
+        """
+        Add internal:relative_path to level 1+ (consolidated metadata only).
+
+        Level 0 does NOT get relative_path - just use 'id' directly.
+        Level 1+ gets full relative paths built from parent paths.
+
+        Path format:
+        - Relative to DATA/ directory (no DATA/ prefix)
+        - FOLDERs end with "/"
+        - FILEs have no trailing slash
+
+        Uses internal:parent_id to lookup parent paths for level 1+.
+
+        Args:
+            levels: List of DataFrames, one per level
+
+        Returns:
+            List of DataFrames with internal:relative_path added (level 1+ only)
+
+        Example:
+            Level 0: NO relative_path column (use id directly)
+            Level 1: "Landslide_001/imagery/" (FOLDER), "Landslide_001/label.json" (FILE)
+            Level 2: "Landslide_001/imagery/before.tif" (FILE)
+        """
+        result_levels = []
+
+        for depth, df in enumerate(levels):
+            if depth == 0:
+                # Level 0: NO relative_path - just use id directly
+                result_levels.append(df)
+                continue
+
+            if len(df) == 0:
+                # Empty DataFrame - just add empty column
+                df = df.with_columns(
+                    pl.lit(None, dtype=pl.Utf8).alias(METADATA_RELATIVE_PATH)
+                )
+                result_levels.append(reorder_internal_columns(df))
+                continue
+
+            # Level 1+: Build relative path from parent's id (level 0) or relative_path (level 1+)
+            parent_df = result_levels[depth - 1]
+
+            # For level 1, parent is level 0, use 'id'
+            # For level 2+, parent has relative_path, use that
+            if depth == 1:
+                # Parent is level 0 - use 'id' + '/' for FOLDERs
+                parent_ids = parent_df["id"].to_list()
+                parent_types = parent_df["type"].to_list()
+                parent_paths = [
+                    f"{pid}/" if ptype == "FOLDER" else pid
+                    for pid, ptype in zip(parent_ids, parent_types)
+                ]
+            else:
+                # Parent is level 1+ - already has relative_path
+                parent_paths = parent_df[METADATA_RELATIVE_PATH].to_list()
+
+            # Build paths for current level
+            relative_paths = []
+            for row in df.iter_rows(named=True):
+                parent_id = row[METADATA_PARENT_ID]
+                parent_path = parent_paths[parent_id]
+
+                if row["type"] == "FOLDER":
+                    relative_paths.append(f"{parent_path}{row['id']}/")
+                else:
+                    relative_paths.append(f"{parent_path}{row['id']}")
+
+            # Add column and reorder
+            df = df.with_columns(pl.Series(METADATA_RELATIVE_PATH, relative_paths))
+            df = reorder_internal_columns(df)
+            result_levels.append(df)
+
+        return result_levels
 
     def _generate_folder_metadata(self, folder_sample: "Sample") -> pl.DataFrame:
         """
@@ -567,6 +664,7 @@ def generate_field_schema(levels: list[pl.DataFrame]) -> dict[str, Any]:
                 ["id", "string"],
                 ["type", "string"],
                 ["internal:parent_id", "int64"],
+                ["internal:relative_path", "string"],
                 ["custom_field", "float64"]
             ]
         }
