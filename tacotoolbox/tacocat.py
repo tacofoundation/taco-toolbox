@@ -54,6 +54,18 @@ consolidates all datasets into a single file with optimal query performance.
 │  │ COLLECTION.json              │  Merged collection metadata         │     │
 │  └────────────────────────────────────────────────────────────────────┘     │
 │                                                                             │
+│  METADATA COLUMNS (all levels):                                             │
+│  ┌────────────────────────────────────────────────────────────────────┐     │
+│  │ Standard columns from original tacozip files, plus:                │     │
+│  │ internal:source_file : str  │  Source tacozip filename             │     │
+│  │                                                                     │     │
+│  │ Original internal:offset and internal:size are preserved.          │     │
+│  │ GDAL VSI construction:                                              │     │
+│  │ /vsisubfile/{offset}_{size},{base_path}/{internal:source_file}     │     │
+│  │                                                                     │     │
+│  │ Example:                                                            │     │
+│  │ /vsisubfile/1024_5000,/vsis3/bucket/base_dir/part0001.tacozip      │     │
+│  └────────────────────────────────────────────────────────────────────┘     │
 └─────────────────────────────────────────────────────────────────────────────┘
 """
 
@@ -74,10 +86,6 @@ from tacotoolbox._constants import (
     TACOCAT_VERSION,
 )
 
-# ============================================================================
-# EXCEPTIONS
-# ============================================================================
-
 
 class TacoCatError(Exception):
     """Base exception for TacoCat operations."""
@@ -85,11 +93,6 @@ class TacoCatError(Exception):
 
 class SchemaValidationError(TacoCatError):
     """Raised when dataset schemas don't match."""
-
-
-# ============================================================================
-# MAIN API
-# ============================================================================
 
 
 def create_tacocat(
@@ -118,25 +121,22 @@ def create_tacocat(
 
     Default parquet_kwargs (optimized for DuckDB):
         compression: "zstd"
-        compression_level: 19  # High compression for archival
-        row_group_size: 122_880  # DuckDB default
-        statistics: True  # Enable for pushdown optimization
+        compression_level: 19
+        row_group_size: 122_880
+        statistics: True
 
     Example:
-        >>> # Basic usage with defaults
         >>> create_tacocat(
         ...     tacozips=["dataset1.tacozip", "dataset2.tacozip"],
         ...     output_path="consolidated.tacocat"
         ... )
 
-        >>> # Maximum compression for cold storage
         >>> create_tacocat(
         ...     tacozips=list(Path("data/").glob("*.tacozip")),
         ...     output_path="archive.tacocat",
         ...     parquet_kwargs={"compression_level": 22}
         ... )
 
-        >>> # Faster writes, less compression
         >>> create_tacocat(
         ...     tacozips=my_datasets,
         ...     output_path="quick.tacocat",
@@ -153,11 +153,6 @@ def create_tacocat(
         writer.add_dataset(tacozip)
 
     writer.write(validate_schema=validate_schema)
-
-
-# ============================================================================
-# WRITER CLASS
-# ============================================================================
 
 
 class TacoCatWriter:
@@ -182,7 +177,6 @@ class TacoCatWriter:
         self.max_depth = 0
         self.quiet = quiet
 
-        # Merge user kwargs with defaults
         self.parquet_config = TACOCAT_DEFAULT_PARQUET_CONFIG.copy()
         if parquet_kwargs:
             self.parquet_config.update(parquet_kwargs)
@@ -209,7 +203,6 @@ class TacoCatWriter:
         if path.stat().st_size == 0:
             raise TacoCatError(f"Dataset file is empty: {path}")
 
-        # Try to read header to validate it's a proper TACO file
         try:
             tacozip.read_header(str(path))
         except Exception as e:
@@ -236,16 +229,9 @@ class TacoCatWriter:
         if not self.quiet:
             print(f"Consolidating {len(self.datasets)} TACO datasets into TacoCat...")
 
-        # Step 1: Consolidate Parquet files per level
         levels_bytes = self._consolidate_parquet_files(validate_schema)
-
-        # Step 2: Merge collection metadata
         collection_bytes = self._merge_collections()
-
-        # Step 3: Calculate offsets
         offsets = self._calculate_offsets(levels_bytes, collection_bytes)
-
-        # Step 4: Write TacoCat file
         self._write_file(offsets, levels_bytes, collection_bytes)
 
         if not self.quiet:
@@ -260,6 +246,7 @@ class TacoCatWriter:
         Consolidate Parquet files from all datasets by level using direct reads.
 
         Uses tacozip.read_header() to get offsets, then reads directly from file.
+        Adds internal:source_file column to track original tacozip.
 
         Returns:
             Dictionary mapping level -> consolidated parquet bytes
@@ -273,31 +260,28 @@ class TacoCatWriter:
                     f"  [{idx+1}/{len(self.datasets)}] Processing {dataset_path.name}"
                 )
 
-            # Read TACO_HEADER to get offsets
             try:
                 entries = tacozip.read_header(str(dataset_path))
             except Exception as e:
                 raise TacoCatError(f"Failed to read header from {dataset_path}: {e}")
 
-            # Read parquet files directly using offsets
-            # NOTE: Last entry is COLLECTION.json, so iterate entries[:-1]
             with open(dataset_path, "rb") as f:
                 for level_idx, (offset, size) in enumerate(entries[:-1]):
                     level = level_idx
 
-                    # Skip if size is 0 (level doesn't exist)
                     if size == 0:
                         continue
 
-                    # Update max depth
                     self.max_depth = max(self.max_depth, level)
 
-                    # Read parquet bytes directly
                     f.seek(offset)
                     parquet_bytes = f.read(size)
                     df = pl.read_parquet(BytesIO(parquet_bytes))
 
-                    # Schema validation
+                    df = df.with_columns(
+                        pl.lit(dataset_path.name).alias("internal:source_file")
+                    )
+
                     if validate_schema:
                         current_schema = dict(df.schema)
 
@@ -311,13 +295,11 @@ class TacoCatWriter:
                         else:
                             reference_schemas[level] = current_schema
 
-                    # Store DataFrame
                     if level not in levels_data:
                         levels_data[level] = []
 
                     levels_data[level].append(df)
 
-        # Consolidate DataFrames per level and write to bytes
         levels_bytes = {}
 
         for level in sorted(levels_data.keys()):
@@ -326,10 +308,8 @@ class TacoCatWriter:
                     f"  Consolidating level {level} ({len(levels_data[level])} DataFrames)..."
                 )
 
-            # Concatenate all DataFrames for this level
             consolidated_df = pl.concat(levels_data[level], how="vertical")
 
-            # Write to bytes with optimized Parquet config
             buffer = BytesIO()
             consolidated_df.write_parquet(buffer, **self.parquet_config)
             levels_bytes[level] = buffer.getvalue()
@@ -363,13 +343,11 @@ class TacoCatWriter:
                 if len(entries) == 0:
                     raise TacoCatError(f"Empty header in {dataset_path.name}")
 
-                # COLLECTION.json is always the LAST entry
                 collection_offset, collection_size = entries[-1]
 
                 if collection_size == 0:
                     raise TacoCatError(f"Empty collection in {dataset_path.name}")
 
-                # Read COLLECTION.json directly
                 with open(dataset_path, "rb") as f:
                     f.seek(collection_offset)
                     collection_bytes = f.read(collection_size)
@@ -383,10 +361,8 @@ class TacoCatWriter:
         if not collections:
             raise TacoCatError("No valid collections found in any dataset")
 
-        # Take first collection as base
         merged_collection = collections[0]
 
-        # Add consolidation metadata
         merged_collection["_tacocat"] = {
             "version": TACOCAT_VERSION,
             "num_datasets": len(self.datasets),
@@ -409,19 +385,16 @@ class TacoCatWriter:
             Dictionary mapping level/collection -> (offset, size)
         """
         offsets = {}
-        current_offset = TACOCAT_TOTAL_HEADER_SIZE  # Start at byte 128
+        current_offset = TACOCAT_TOTAL_HEADER_SIZE
 
-        # Calculate offsets for each level (0-5)
         for level in range(TACOCAT_MAX_LEVELS):
             if level in levels_bytes:
                 size = len(levels_bytes[level])
                 offsets[level] = (current_offset, size)
                 current_offset += size
             else:
-                # Level doesn't exist - mark as FREE
                 offsets[level] = (0, 0)
 
-        # Collection offset (always present)
         offsets["collection"] = (current_offset, len(collection_bytes))
 
         return offsets
@@ -441,27 +414,20 @@ class TacoCatWriter:
             collection_bytes: Collection JSON bytes
         """
         with open(self.output_path, "wb") as f:
-            # ===== HEADER (16 bytes) =====
-            f.write(TACOCAT_MAGIC)  # 8 bytes
-            f.write(struct.pack("<I", TACOCAT_VERSION))  # 4 bytes
-            f.write(struct.pack("<I", self.max_depth))  # 4 bytes
+            f.write(TACOCAT_MAGIC)
+            f.write(struct.pack("<I", TACOCAT_VERSION))
+            f.write(struct.pack("<I", self.max_depth))
 
-            # ===== INDEX BLOCK (112 bytes) =====
-            # Write 7 entries: level0-5 + collection (each 16 bytes)
             for level in range(TACOCAT_MAX_LEVELS):
                 offset, size = offsets[level]
-                f.write(struct.pack("<Q", offset))  # 8 bytes - offset
-                f.write(struct.pack("<Q", size))  # 8 bytes - size
+                f.write(struct.pack("<Q", offset))
+                f.write(struct.pack("<Q", size))
 
-            # Collection entry
             offset, size = offsets["collection"]
-            f.write(struct.pack("<Q", offset))  # 8 bytes
-            f.write(struct.pack("<Q", size))  # 8 bytes
+            f.write(struct.pack("<Q", offset))
+            f.write(struct.pack("<Q", size))
 
-            # ===== DATA SECTION (variable) =====
-            # Write consolidated Parquet files in order
             for level in sorted(levels_bytes.keys()):
                 f.write(levels_bytes[level])
 
-            # Write collection JSON
             f.write(collection_bytes)
