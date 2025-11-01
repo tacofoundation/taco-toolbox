@@ -92,11 +92,11 @@ class MetadataPackage:
         SQL examples:
             # Level 0: Use 'id' directly (no relative_path)
             SELECT * FROM level0 WHERE id = 'A'
-            
+
             # Level 1+: Use relative_path (fast, no JOIN needed)
-            SELECT * FROM level1 
+            SELECT * FROM level1
             WHERE "internal:relative_path" LIKE 'A/%'
-            
+
             # Traditional JOIN approach (works but slower):
             SELECT l1.id, l0.id as parent_folder
             FROM level0 l0
@@ -147,7 +147,7 @@ class MetadataPackage:
         >>> # SQL navigation using relative_path (FAST - no JOINs, level 1+ only)
         >>> import duckdb
         >>> duckdb.sql('''
-        ...     SELECT * FROM level1 
+        ...     SELECT * FROM level1
         ...     WHERE "internal:relative_path" LIKE 'A/%'
         ... ''')
         >>>
@@ -342,7 +342,7 @@ class MetadataGenerator:
                 parent_types = parent_df["type"].to_list()
                 parent_paths = [
                     f"{pid}/" if ptype == "FOLDER" else pid
-                    for pid, ptype in zip(parent_ids, parent_types)
+                    for pid, ptype in zip(parent_ids, parent_types, strict=False)
                 ]
             else:
                 # Parent is level 1+ - already has relative_path

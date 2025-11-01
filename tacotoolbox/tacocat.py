@@ -146,24 +146,24 @@ def create_tacocat(
         ... )
     """
     output_dir = Path(output_path)
-    
+
     if output_dir.exists() and output_dir.is_file():
         raise ValueError(
             f"output_path must be a directory, not a file: {output_path}\n"
             f"Example: create_tacocat(datasets, '/data/output_dir/')"
         )
-    
+
     if output_dir.suffix:
         raise ValueError(
             f"output_path should not have a file extension: {output_path}\n"
             f"The file will be automatically named '{TACOCAT_FILENAME}'\n"
             f"Example: create_tacocat(datasets, '/data/output_dir/')"
         )
-    
+
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     final_output = output_dir / TACOCAT_FILENAME
-    
+
     writer = TacoCatWriter(
         output_path=final_output,
         parquet_kwargs=parquet_kwargs,

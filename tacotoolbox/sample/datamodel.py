@@ -243,9 +243,7 @@ class Sample(pydantic.BaseModel):
 
         # Use model_construct to bypass validators
         sample = cls.model_construct(
-            id=f"__TACOPAD__{index}",
-            type="FILE",
-            path=temp_path.absolute()
+            id=f"__TACOPAD__{index}", type="FILE", path=temp_path.absolute()
         )
 
         # Manually initialize private attributes (model_construct doesn't do this)
