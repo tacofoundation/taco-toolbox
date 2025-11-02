@@ -250,8 +250,10 @@ class TacoCatWriter:
         if not self.quiet:
             print(f"Consolidating {len(self.datasets)} TACO datasets into TacoCat...")
 
-        levels_bytes = self._consolidate_parquet_files(validate_schema)
-        collection_bytes = self._merge_collections()
+        levels_bytes, consolidated_counts = self._consolidate_parquet_files(
+            validate_schema
+        )
+        collection_bytes = self._merge_collections(consolidated_counts)
         offsets = self._calculate_offsets(levels_bytes, collection_bytes)
         self._write_file(offsets, levels_bytes, collection_bytes)
 
@@ -262,7 +264,9 @@ class TacoCatWriter:
             print(f"   Max depth: {self.max_depth}")
             print(f"   File size: {file_size_gb:.2f} GB")
 
-    def _consolidate_parquet_files(self, validate_schema: bool) -> dict[int, bytes]:
+    def _consolidate_parquet_files(
+        self, validate_schema: bool
+    ) -> tuple[dict[int, bytes], dict[int, int]]:
         """
         Consolidate Parquet files from all datasets by level using direct reads.
 
@@ -270,7 +274,9 @@ class TacoCatWriter:
         Adds internal:source_file column to track original tacozip.
 
         Returns:
-            Dictionary mapping level -> consolidated parquet bytes
+            Tuple of:
+            - Dictionary mapping level -> consolidated parquet bytes
+            - Dictionary mapping level -> total row count
         """
         levels_data: dict[int, list[pl.DataFrame]] = {}
         reference_schemas: dict[int, dict] = {}
@@ -322,6 +328,7 @@ class TacoCatWriter:
                     levels_data[level].append(df)
 
         levels_bytes = {}
+        consolidated_counts = {}
 
         for level in sorted(levels_data.keys()):
             if not self.quiet:
@@ -330,6 +337,7 @@ class TacoCatWriter:
                 )
 
             consolidated_df = pl.concat(levels_data[level], how="vertical")
+            consolidated_counts[level] = len(consolidated_df)
 
             buffer = BytesIO()
             consolidated_df.write_parquet(buffer, **self.parquet_config)
@@ -341,13 +349,16 @@ class TacoCatWriter:
                     f"     Level {level}: {len(consolidated_df)} rows, {size_mb:.2f} MB"
                 )
 
-        return levels_bytes
+        return levels_bytes, consolidated_counts
 
-    def _merge_collections(self) -> bytes:
+    def _merge_collections(self, consolidated_counts: dict[int, int]) -> bytes:
         """
         Merge COLLECTION.json from all datasets using direct reads.
 
-        COLLECTION.json is always the last entry in TACO_HEADER.
+        Updates the PIT schema counts to reflect the consolidated data.
+
+        Args:
+            consolidated_counts: Dictionary mapping level -> total row count after consolidation
 
         Returns:
             JSON bytes for merged collection
@@ -382,7 +393,20 @@ class TacoCatWriter:
         if not collections:
             raise TacoCatError("No valid collections found in any dataset")
 
-        merged_collection = collections[0]
+        merged_collection = collections[0].copy()
+
+        if "taco:pit_schema" in merged_collection:
+            pit_schema = merged_collection["taco:pit_schema"]
+
+            if 0 in consolidated_counts:
+                pit_schema["root"]["n"] = consolidated_counts[0]
+
+            if "hierarchy" in pit_schema:
+                for depth_str, patterns in pit_schema["hierarchy"].items():
+                    depth = int(depth_str)
+                    if depth in consolidated_counts:
+                        for pattern in patterns:
+                            pattern["n"] = consolidated_counts[depth]
 
         merged_collection["_tacocat"] = {
             "version": TACOCAT_VERSION,
