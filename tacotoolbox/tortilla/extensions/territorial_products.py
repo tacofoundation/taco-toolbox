@@ -1,10 +1,25 @@
-import ee
+def _import_earth_engine():
+    """Lazy import of Earth Engine."""
+    try:
+        import ee
+        return ee
+    except ImportError as e:
+        raise ImportError(
+            "Google Earth Engine API is required for the Territorial extension. "
+            "Please install it with:\n"
+            "  pip install earthengine-api\n"
+            "or\n"
+            "  conda install -c conda-forge earthengine-api\n"
+            "Then authenticate with: earthengine authenticate"
+        ) from e
 
 
 def create_single_product(
     name, path, reducer, band=None, collection_type="Image", unmask_value=0
 ):
     """Create a single territorial product."""
+    ee = _import_earth_engine()
+    
     if collection_type == "ImageCollection":
         image = ee.ImageCollection(path).mosaic().unmask(unmask_value)
     else:
@@ -20,6 +35,8 @@ def create_single_product(
 
 def create_soil_products():
     """Create all soil-related products."""
+    ee = _import_earth_engine()
+    
     soil_datasets = {
         "soil_clay": "OpenLandMap/SOL/SOL_CLAY-WFRACTION_USDA-3A1A1A_M/v02",
         "soil_sand": "OpenLandMap/SOL/SOL_SAND-WFRACTION_USDA-3A1A1A_M/v02",
@@ -40,6 +57,8 @@ def create_soil_products():
 
 def create_admin_products():
     """Create administrative boundary products."""
+    ee = _import_earth_engine()
+    
     admin_datasets = {
         "admin_countries": "projects/ee-csaybar-real/assets/admin0",
         "admin_states": "projects/ee-csaybar-real/assets/admin1",
@@ -58,6 +77,8 @@ def create_admin_products():
 
 def get_territorial_products():
     """Returns list of all territorial products."""
+    ee = _import_earth_engine()
+    
     products = []
 
     # 1. Physical/topographic features
