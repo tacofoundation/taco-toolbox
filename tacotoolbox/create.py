@@ -3,6 +3,7 @@ TACO container creation.
 
 This module provides the main create() function for generating TACO containers
 in ZIP or FOLDER format. It handles:
+
 - Single container creation
 - Dataset splitting (multi-part ZIPs)
 - Metadata generation
@@ -58,6 +59,7 @@ def create(
     output: str | pathlib.Path,
     output_format: Literal["zip", "folder"] = "zip",
     split_size: str | None = None,
+    sort_by: str | None = None,
     temp_dir: str | pathlib.Path | None = None,
     quiet: bool = True,
     **kwargs: Any,
@@ -68,16 +70,18 @@ def create(
     This is the main entry point for creating TACO containers. It supports:
     - ZIP format (.tacozip) with optional splitting
     - FOLDER format (directory structure)
+    - Spatial sorting for geographic clustering in splits
 
     Temporary files created from bytes (via Sample(path=bytes))
     are ALWAYS cleaned up automatically after successful container creation.
-    This prevents disk space issues with large datasets.
 
     Args:
         taco: TACO object with tortilla and metadata
         output: Output path for container
         output_format: "zip" or "folder" (default: "zip")
         split_size: Optional size limit for splitting (ZIP only, e.g., "4GB")
+        sort_by: Optional column name to sort samples before splitting.
+                Useful for spatial clustering (e.g., "majortom:code")
         temp_dir: Temporary directory for ZIP creation
         quiet: If True, suppress progress messages (default: True)
         **kwargs: Additional arguments passed to writers
@@ -94,17 +98,25 @@ def create(
         >>> sample = Sample(id="s1", path=image_bytes, type="FILE")
         >>> taco = Taco(tortilla=Tortilla(samples=[sample]), ...)
         >>> paths = create(taco, "output.tacozip")
-        >>> # Temp files automatically cleaned
 
-        >>> # With splitting
-        >>> paths = create(taco, "output.tacozip", split_size="4GB")
-        >>> # Creates: output_part0001.tacozip, output_part0002.tacozip, ...
-        >>> # All temp files cleaned
+        >>> # With spatial sorting and splitting
+        >>> majortom = MajorTOM(dist_km=100)
+        >>> tortilla.extend_with(majortom)
+        >>> taco = Taco(tortilla=tortilla, ...)
+        >>> paths = create(
+        ...     taco,
+        ...     "output.tacozip",
+        ...     split_size="4GB",
+        ...     sort_by="majortom:code"
+        ... )
+        >>> # Creates chunks with spatial clustering:
+        >>> # - output_part0001.tacozip: Europe samples
+        >>> # - output_part0002.tacozip: Asia samples
+        >>> # - output_part0003.tacozip: Americas samples
 
-        >>> # FOLDER format
-        >>> paths = create(taco, "output_folder", output_format="folder")
-        >>> # Creates: output_folder/ with DATA/, METADATA/, COLLECTION.json
-        >>> # Temp files cleaned
+        >>> # Multiple sort strategies
+        >>> create(taco, "out.tacozip", sort_by="stac:time_start")  # Temporal
+        >>> create(taco, "out.tacozip", sort_by="custom:priority")  # Custom field
     """
     output_path = pathlib.Path(output)
     validate_format_value(output_format)
@@ -117,6 +129,12 @@ def create(
     if output_format == "folder":
         split_size = None
         temp_dir = None
+
+    # Sort samples if requested
+    if sort_by is not None:
+        if not quiet:
+            print(f"Sorting samples by '{sort_by}'...")
+        taco = _sort_taco_samples(taco, sort_by, quiet)
 
     try:
         if split_size is not None:
@@ -137,6 +155,80 @@ def create(
     except Exception:
         # On error, don't cleanup - files may be needed for debugging/retry
         raise
+
+
+def _sort_taco_samples(taco: Taco, sort_column: str, quiet: bool) -> Taco:
+    """
+    Sort taco samples according to metadata column.
+
+    Creates a new Taco object with samples reordered based on the specified
+    metadata column. This enables spatial/temporal clustering when creating
+    split containers.
+
+    Common use cases:
+    - "majortom:code": Geographic clustering (nearby samples together)
+    - "stac:time_start": Temporal ordering
+    - "custom:priority": User-defined ordering
+
+    Args:
+        taco: Original Taco object
+        sort_column: Metadata column name to sort by
+        quiet: Suppress messages
+
+    Returns:
+        New Taco object with sorted samples
+
+    Raises:
+        TacoCreationError: If sort column doesn't exist or sorting fails
+
+    Example:
+        >>> # Spatial clustering
+        >>> sorted_taco = _sort_taco_samples(taco, "majortom:code", False)
+        >>> # Now samples from same geographic region are consecutive
+    """
+    try:
+        # Export metadata to get sort column
+        df = taco.tortilla.export_metadata(deep=0)
+
+        # Validate sort column exists
+        if sort_column not in df.columns:
+            available = sorted(df.columns)
+            raise TacoCreationError(
+                f"Sort column '{sort_column}' not found in metadata.\n"
+                f"Available columns: {available}"
+            )
+
+        # Sort by column
+        df_sorted = df.sort(sort_column)
+
+        # Get sorted IDs
+        sorted_ids = df_sorted["id"].to_list()
+
+        # Create ID -> Sample mapping
+        sample_map = {s.id: s for s in taco.tortilla.samples}
+
+        # Reorder samples
+        sorted_samples = [sample_map[sid] for sid in sorted_ids]
+
+        if not quiet:
+            print(f"   Sorted {len(sorted_samples)} samples")
+            # Show first and last values for context
+            first_val = df_sorted[sort_column][0]
+            last_val = df_sorted[sort_column][-1]
+            print(f"   Range: {first_val} → {last_val}")
+
+        # Create new Tortilla with sorted samples
+        sorted_tortilla = Tortilla(samples=sorted_samples)
+
+        # Create new Taco with sorted tortilla (preserve all other metadata)
+        taco_data = taco.model_dump()
+        taco_data["tortilla"] = sorted_tortilla
+        return Taco(**taco_data)
+
+    except KeyError as e:
+        raise TacoCreationError(f"Failed to sort samples: {e}") from e
+    except Exception as e:
+        raise TacoCreationError(f"Failed to sort samples: {e}") from e
 
 
 def _extract_files_with_ids(samples: list, path_prefix: str = "") -> dict[str, Any]:
@@ -242,23 +334,26 @@ def _group_samples_by_size(samples: list, max_size: int) -> list[list]:
     - Start new chunk when adding next sample would exceed limit
     - Each chunk contains complete samples (no partial splits)
 
+    IMPORTANT: Samples should be pre-sorted (e.g., by majortom:code) before
+    calling this function to ensure geographic/temporal clustering in chunks.
+
     Note: Individual samples larger than max_size will be placed alone
     in their own chunk (cannot split a single sample).
 
     Args:
-        samples: List of Sample objects to group
+        samples: List of Sample objects to group (should be pre-sorted)
         max_size: Maximum size per chunk in bytes
 
     Returns:
         List of sample chunks, each under max_size (if possible)
 
     Example:
-        >>> samples = [s1, s2, s3, s4]  # s1=10MB, s2=5MB, s3=8MB, s4=12MB
+        >>> # With spatial pre-sorting
+        >>> samples = [eu1, eu2, eu3, asia1, asia2, us1, us2]
         >>> chunks = _group_samples_by_size(samples, max_size=20_000_000)
-        >>> len(chunks)
-        2
-        >>> # Chunk 1: [s1, s2] = 15MB
-        >>> # Chunk 2: [s3, s4] = 20MB
+        >>> # Chunk 1: [eu1, eu2, eu3]
+        >>> # Chunk 2: [asia1, asia2]
+        >>> # Chunk 3: [us1, us2]
     """
     chunks = []
     current_chunk = []
@@ -434,8 +529,11 @@ def _create_with_splitting(
 
     Chunk naming: base_part0001.tacozip, base_part0002.tacozip, etc.
 
+    Note: Samples should be pre-sorted (via sort_by parameter in create())
+    to ensure spatial/temporal clustering in chunks.
+
     Args:
-        taco: TACO object
+        taco: TACO object (potentially with pre-sorted samples)
         output_path: Base output path
         max_size: Maximum size per chunk in bytes
         quiet: Suppress messages
@@ -473,6 +571,9 @@ def _create_with_splitting(
             # Generate chunk filename
             chunk_filename = f"{base_name}_part{i:04d}{extension}"
             chunk_path = parent_dir / chunk_filename
+
+            if not quiet:
+                print(f"Creating chunk {i}/{len(sample_chunks)}: {chunk_filename}")
 
             # Create chunk ZIP
             created_path = _create_zip(
