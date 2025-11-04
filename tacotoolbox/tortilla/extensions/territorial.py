@@ -260,6 +260,11 @@ class Territorial(TortillaExtension):
         Returns:
             List of property dictionaries, one per input point, containing
             all requested variable values plus the original row index.
+            
+        Note:
+            When a single product uses mode() reducer, Earth Engine returns
+            "mode" instead of the renamed band name. This function handles
+            that case by renaming "mode" to the expected variable name.
         """
         # Create Earth Engine FeatureCollection from coordinate points
         fc = ee.FeatureCollection(
@@ -290,7 +295,18 @@ class Territorial(TortillaExtension):
             # Combine properties from all reducer results for this point
             for feature_list in all_results:
                 props.update(feature_list[i].get("properties", {}))
+            
+            # Fix: When there's only one product with mode() reducer,
+            # Earth Engine returns "mode" instead of the renamed band name.
+            # Rename it to the expected variable name.
+            for reducer, products in reducer_groups.items():
+                if str(reducer) == "Reducer.mode()" and len(products) == 1:
+                    # Single mode product - rename "mode" to actual variable name
+                    if "mode" in props:
+                        props[products[0]["name"]] = props.pop("mode")
+            
             merged.append(props)
+        
         return merged
 
     def _reduce_chunk_with_retry(
