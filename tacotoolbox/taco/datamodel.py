@@ -14,11 +14,12 @@ Main components:
 """
 
 from abc import ABC, abstractmethod
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Literal
 
 import polars as pl
 import pydantic
+from shapely.wkb import loads as wkb_loads
 
 from tacotoolbox.tortilla.datamodel import Tortilla
 
@@ -170,7 +171,7 @@ class Extent(TacoExtension):
                 f"Invalid datetime format. Use ISO 8601 format (e.g., '2023-01-01T00:00:00Z'): {e}"
             ) from e
 
-        if start_dt >= end_dt:
+        if start_dt > end_dt:
             raise ValueError("Start datetime must be before end datetime")
 
         return v
@@ -197,7 +198,6 @@ class Taco(pydantic.BaseModel):
         dataset_version: Version string (e.g., "1.0.0")
         description: Dataset description
         licenses: License identifiers (e.g., ["CC-BY-4.0"])
-        extent: Spatial/temporal boundaries
         providers: Dataset creators (Contact list)
         tasks: ML task types
 
@@ -206,6 +206,7 @@ class Taco(pydantic.BaseModel):
         title: Human-friendly title (max 250 chars)
         curators: Dataset curators (Contact list)
         keywords: Searchable tags
+        extent: Spatial/temporal boundaries (auto-calculated from STAC/ISTAC)
     """
 
     # Required core fields
@@ -214,7 +215,6 @@ class Taco(pydantic.BaseModel):
     dataset_version: str
     description: str
     licenses: list[str]
-    extent: Extent
     providers: list[Contact]
     tasks: list[TaskType]
 
@@ -223,6 +223,7 @@ class Taco(pydantic.BaseModel):
     title: str | None = None
     curators: list[Contact] | None = None
     keywords: list[str] | None = None
+    extent: Extent | None = None
 
     model_config = pydantic.ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
@@ -247,6 +248,55 @@ class Taco(pydantic.BaseModel):
         if value and len(value) > 250:
             raise ValueError("Title must be less than 250 characters")
         return value
+
+    @pydantic.model_validator(mode="after")
+    def auto_calculate_extent(self) -> "Taco":
+        """
+        Calculate extent automatically from STAC/ISTAC metadata in samples.
+
+        Searches incrementally through hierarchy levels (0, 1, 2...) until finding
+        STAC or ISTAC columns. Uses that level's DataFrame to compute spatial and
+        temporal extents.
+
+        Priority: STAC > ISTAC
+
+        Defaults if no spatiotemporal metadata found:
+        - spatial: [-180, -90, 180, 90] (global)
+        - temporal: None (atemporal dataset)
+        """
+        max_depth = self.tortilla._current_depth
+
+        for depth in range(max_depth + 1):
+            df = self.tortilla.export_metadata(deep=depth)
+
+            has_stac = "stac:centroid" in df.columns and "stac:time_start" in df.columns
+            has_istac = (
+                "istac:centroid" in df.columns and "istac:time_start" in df.columns
+            )
+
+            if has_stac or has_istac:
+                if has_stac:
+                    spatial = _calculate_spatial_extent(df, "stac:centroid")
+                    temporal = _calculate_temporal_extent(
+                        df,
+                        "stac:time_start",
+                        "stac:time_end" if "stac:time_end" in df.columns else None,
+                        "stac:time_middle" if "stac:time_middle" in df.columns else None,
+                    )
+                else:
+                    spatial = _calculate_spatial_extent(df, "istac:centroid")
+                    temporal = _calculate_temporal_extent(
+                        df,
+                        "istac:time_start",
+                        "istac:time_end" if "istac:time_end" in df.columns else None,
+                        "istac:time_middle" if "istac:time_middle" in df.columns else None,
+                    )
+
+                self.extent = Extent(spatial=spatial, temporal=temporal)
+                return self
+
+        self.extent = Extent(spatial=[-180.0, -90.0, 180.0, 90.0], temporal=None)
+        return self
 
     def extend_with(self, extension):
         """
@@ -330,3 +380,79 @@ class Taco(pydantic.BaseModel):
                 metadata[key] = value
 
         return pl.DataFrame([metadata])
+
+
+def _calculate_spatial_extent(df: pl.DataFrame, centroid_col: str) -> list[float]:
+    """
+    Calculate spatial bounding box from centroid geometries.
+
+    Parses WKB binary centroids and computes [min_lon, min_lat, max_lon, max_lat].
+    Skips None values (padding samples).
+
+    Args:
+        df: DataFrame with centroid column
+        centroid_col: Column name containing WKB binary centroids
+
+    Returns:
+        Bounding box as [min_lon, min_lat, max_lon, max_lat]
+    """
+    centroids = [
+        wkb_loads(wkb) for wkb in df[centroid_col].to_list() if wkb is not None
+    ]
+
+    if not centroids:
+        return [-180.0, -90.0, 180.0, 90.0]
+
+    lons = [point.x for point in centroids]
+    lats = [point.y for point in centroids]
+
+    return [min(lons), min(lats), max(lons), max(lats)]
+
+
+def _calculate_temporal_extent(
+    df: pl.DataFrame,
+    time_start_col: str,
+    time_end_col: str | None,
+    time_middle_col: str | None,
+) -> list[str] | None:
+    """
+    Calculate temporal interval from timestamp columns.
+
+    Converts integer timestamps to ISO 8601 datetime strings.
+    Skips None values (padding samples).
+
+    Priority cascade: time_middle > time_start > time_end
+
+    Args:
+        df: DataFrame with time columns
+        time_start_col: Column name for start timestamps
+        time_end_col: Optional column name for end timestamps
+        time_middle_col: Optional column name for middle timestamps
+
+    Returns:
+        Temporal interval as [start_iso, end_iso] or None if no valid timestamps
+    """
+    time_values = []
+
+    if time_middle_col and time_middle_col in df.columns:
+        time_values = [t for t in df[time_middle_col].to_list() if t is not None]
+
+    if not time_values:
+        time_values = [t for t in df[time_start_col].to_list() if t is not None]
+
+    if not time_values and time_end_col and time_end_col in df.columns:
+        time_values = [t for t in df[time_end_col].to_list() if t is not None]
+
+    if not time_values:
+        return None
+
+    min_time = min(time_values)
+    max_time = max(time_values)
+
+    start_dt = datetime.fromtimestamp(min_time, tz=timezone.utc)
+    end_dt = datetime.fromtimestamp(max_time, tz=timezone.utc)
+
+    return [
+        start_dt.isoformat().replace("+00:00", "Z"),
+        end_dt.isoformat().replace("+00:00", "Z"),
+    ]

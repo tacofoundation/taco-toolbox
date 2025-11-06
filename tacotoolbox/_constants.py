@@ -285,6 +285,30 @@ def validate_depth(depth: int, context: str = "operation") -> None:
 
 
 # =============================================================================
+# AVRO SERIALIZATION (SHARED)
+# =============================================================================
+
+AVRO_COLON_REPLACEMENT = "_COLON_"
+"""
+Replacement string for colons in Avro column names.
+
+CRITICAL: Avro specification does not allow colons (:) in field names.
+We must replace them during serialization and restore during deserialization.
+
+This affects all internal:* columns and any custom columns with colons
+(e.g., 'stac:crs', 'territorial:admin_states').
+
+Serialization flow:
+    Write: "internal:parent_id" → "internal_COLON_parent_id"
+    Read:  "internal_COLON_parent_id" → "internal:parent_id"
+
+Used in:
+    - FOLDER container local metadata (__meta__ files)
+    - Consolidated metadata files (METADATA/levelX.avro)
+    - TacoCat index serialization
+"""
+
+# =============================================================================
 # VERSION INFO
 # =============================================================================
 
