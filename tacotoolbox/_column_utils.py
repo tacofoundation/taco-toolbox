@@ -9,11 +9,17 @@ Functions:
     - reorder_internal_columns: Place internal:* columns at end of DataFrame
     - remove_empty_columns: Remove columns with all null/empty values
     - validate_schema_consistency: Check schema compatibility across DataFrames
+    - sanitize_avro_columns: Replace colons for Avro serialization
+    - desanitize_avro_columns: Restore colons after Avro deserialization
+    - read_metadata_file: Read Parquet or Avro with auto-format detection
 """
+
+from pathlib import Path
 
 import polars as pl
 
 from tacotoolbox._constants import (
+    AVRO_COLON_REPLACEMENT,
     METADATA_COLUMNS_ORDER,
     SHARED_CORE_FIELDS,
     is_internal_column,
@@ -360,3 +366,160 @@ def get_column_statistics(df: pl.DataFrame) -> dict[str, dict]:
         stats[col] = col_stats
 
     return stats
+
+
+def sanitize_avro_columns(df: pl.DataFrame) -> pl.DataFrame:
+    """
+    Sanitize DataFrame column names for Avro serialization.
+
+    Replaces colons with AVRO_COLON_REPLACEMENT since Avro specification
+    does not allow colons in field names. This affects all columns with
+    colons including internal:* columns and STAC/custom metadata fields.
+
+    Args:
+        df: DataFrame with potentially colons in column names
+
+    Returns:
+        DataFrame with sanitized column names safe for Avro
+
+    Example:
+        >>> df = pl.DataFrame({
+        ...     "id": ["a"],
+        ...     "internal:parent_id": [0],
+        ...     "stac:crs": ["EPSG:4326"]
+        ... })
+        >>> sanitized = sanitize_avro_columns(df)
+        >>> sanitized.columns
+        ['id', 'internal_COLON_parent_id', 'stac_COLON_crs']
+    """
+    return df.rename(
+        {col: col.replace(":", AVRO_COLON_REPLACEMENT) for col in df.columns}
+    )
+
+
+def desanitize_avro_columns(df: pl.DataFrame) -> pl.DataFrame:
+    """
+    Restore original column names after Avro deserialization.
+
+    Replaces AVRO_COLON_REPLACEMENT back with colons to restore
+    original column names after reading from Avro files. This is the
+    inverse operation of sanitize_avro_columns().
+
+    Args:
+        df: DataFrame with sanitized column names from Avro
+
+    Returns:
+        DataFrame with restored original column names
+
+    Example:
+        >>> df = pl.DataFrame({
+        ...     "id": ["a"],
+        ...     "internal_COLON_parent_id": [0],
+        ...     "stac_COLON_crs": ["EPSG:4326"]
+        ... })
+        >>> restored = desanitize_avro_columns(df)
+        >>> restored.columns
+        ['id', 'internal:parent_id', 'stac:crs']
+    """
+    return df.rename(
+        {col: col.replace(AVRO_COLON_REPLACEMENT, ":") for col in df.columns}
+    )
+
+
+def read_metadata_file(file_path: Path | str) -> pl.DataFrame:
+    """
+    Read metadata file in Parquet or Avro format with automatic format detection.
+
+    Handles Avro column name desanitization automatically. Parquet files
+    preserve colons in column names, but Avro requires sanitization/desanitization.
+
+    Supported formats:
+        - .parquet: Read directly (colons preserved)
+        - .avro: Read and desanitize column names (restore colons)
+
+    Args:
+        file_path: Path to metadata file (.parquet or .avro)
+
+    Returns:
+        DataFrame with proper column names (colons restored if from Avro)
+
+    Raises:
+        ValueError: If file format is not .parquet or .avro
+
+    Example:
+        >>> # Reading Avro (auto-desanitizes column names)
+        >>> df = read_metadata_file("METADATA/level0.avro")
+        >>> "internal:parent_id" in df.columns
+        True
+        >>>
+        >>> # Reading Parquet (no changes needed)
+        >>> df = read_metadata_file("METADATA/level0.parquet")
+        >>> "internal:parent_id" in df.columns
+        True
+    """
+    file_path = Path(file_path)
+
+    if file_path.suffix == ".parquet":
+        return pl.read_parquet(file_path)
+    elif file_path.suffix == ".avro":
+        df = pl.read_avro(file_path)
+        return desanitize_avro_columns(df)
+    else:
+        raise ValueError(
+            f"Unsupported metadata format: {file_path.suffix}\n"
+            f"Expected .parquet or .avro, got {file_path}"
+        )
+
+
+def write_avro_file(df: pl.DataFrame, output_path: Path | str) -> None:
+    """
+    Write DataFrame to Avro file with automatic column name sanitization.
+
+    Sanitizes column names (replaces : with _COLON_) before writing since
+    Avro specification does not allow colons in field names. The output
+    file can later be read with read_metadata_file() which will automatically
+    restore the original column names.
+
+    Args:
+        df: DataFrame to write
+        output_path: Target path for .avro file
+
+    Example:
+        >>> df = pl.DataFrame({
+        ...     "id": ["a", "b"],
+        ...     "internal:parent_id": [0, 1],
+        ...     "stac:crs": ["EPSG:4326", "EPSG:32633"]
+        ... })
+        >>> write_avro_file(df, "metadata.avro")
+        # File contains: id, internal_COLON_parent_id, stac_COLON_crs
+        >>>
+        >>> # Read it back with automatic desanitization
+        >>> df_read = read_metadata_file("metadata.avro")
+        >>> df_read.columns
+        ['id', 'internal:parent_id', 'stac:crs']
+    """
+    sanitized_df = sanitize_avro_columns(df)
+    sanitized_df.write_avro(output_path, name="TacoMetadata")
+
+
+def write_parquet_file(df: pl.DataFrame, output_path: Path | str) -> None:
+    """
+    Write DataFrame to Parquet file.
+    
+    Parquet natively supports colons in column names, no sanitization needed.
+    Used for local metadata (__meta__) in FOLDER containers.
+    
+    Args:
+        df: DataFrame to write
+        output_path: Target path for .parquet file
+        
+    Example:
+        >>> df = pl.DataFrame({
+        ...     "id": ["a", "b"],
+        ...     "internal:parent_id": [0, 1],
+        ...     "stac:crs": ["EPSG:4326", "EPSG:32633"]
+        ... })
+        >>> write_parquet_file(df, "metadata.parquet")
+        # Colons preserved directly in column names
+    """
+    df.write_parquet(output_path, compression="zstd")

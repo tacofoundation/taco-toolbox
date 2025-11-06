@@ -2,6 +2,7 @@ from tacotoolbox import datamodel, validator
 from tacotoolbox.create import create
 from tacotoolbox.tacocat import create_tacocat
 from tacotoolbox.tacollection import create_tacollection
+from tacotoolbox.extract import extract
 
 
 def _get_version() -> str:
@@ -17,4 +18,4 @@ def _get_version() -> str:
 __version__ = _get_version()
 
 
-__all__ = ["create", "create_tacocat", "create_tacollection", "datamodel", "validator"]
+__all__ = ["create", "create_tacocat", "create_tacollection", "datamodel", "validator", "extract"]

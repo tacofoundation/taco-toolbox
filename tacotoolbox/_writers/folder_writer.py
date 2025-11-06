@@ -3,13 +3,14 @@ Folder Writer - Create TACO datasets in FOLDER format.
 
 This module handles the creation of FOLDER-format TACO containers with
 dual metadata system:
-- Local metadata: __meta__ files in each DATA/ subfolder
+- Local metadata: __meta__ files in each DATA/ subfolder (PARQUET format)
 - Consolidated metadata: level*.avro files in METADATA/ directory
 
 The FOLDER format provides:
 - Direct filesystem access to individual files
 - Human-readable directory structure
-- Avro metadata for efficient queries
+- Parquet __meta__ for local access (avoids Polars Avro bugs with small files)
+- Avro consolidated metadata for efficient queries
 - Preserved internal:parent_id for hierarchical navigation
 
 Structure example (level 0 = FILEs only):
@@ -77,11 +78,10 @@ import pathlib
 import shutil
 from typing import Any
 
-import fastavro
 import polars as pl
-import pyarrow as pa
 
 from tacotoolbox._constants import (
+    AVRO_COLON_REPLACEMENT,
     FOLDER_COLLECTION_FILENAME,
     FOLDER_DATA_DIR,
     FOLDER_META_FILENAME,
@@ -122,11 +122,11 @@ class FolderWriter:
 
             if not self.quiet:
                 print("Writing local metadata...")
-            self._write_local_metadata_avro(metadata_package, **kwargs)
+            self._write_local_metadata(metadata_package, **kwargs)
 
             if not self.quiet:
                 print("Writing consolidated metadata...")
-            self._write_consolidated_metadata_avro(metadata_package, **kwargs)
+            self._write_consolidated_metadata(metadata_package, **kwargs)
 
             if not self.quiet:
                 print("Writing COLLECTION.json...")
@@ -169,28 +169,31 @@ class FolderWriter:
 
                 shutil.copy2(src_path, dst_path)
 
-    def _write_local_metadata_avro(
+    def _write_local_metadata(
         self,
         metadata_package: MetadataPackage,
         **kwargs: Any,
     ) -> None:
         """
-        Write local __meta__ files for each folder.
+        Write local __meta__ files for each folder in PARQUET format.
 
         These files do NOT contain internal:parent_id (navigation is implicit
         via folder structure), but they preserve all other metadata fields.
+        
+        Uses Parquet to avoid Polars Avro bugs with small files.
         """
         for folder_path, local_df in metadata_package.local_metadata.items():
             meta_path = self.output_dir / f"{folder_path}{FOLDER_META_FILENAME}"
 
             meta_path.parent.mkdir(parents=True, exist_ok=True)
 
-            self._write_avro_file(local_df, meta_path, **kwargs)
+            # Write as Parquet (no Avro bugs with small files)
+            self._write_parquet_file(local_df, meta_path)
 
             if not self.quiet:
                 print(f"  Created {folder_path}{FOLDER_META_FILENAME}")
 
-    def _write_consolidated_metadata_avro(
+    def _write_consolidated_metadata(
         self,
         metadata_package: MetadataPackage,
         **kwargs: Any,
@@ -203,15 +206,15 @@ class FolderWriter:
 
         Example query enabled by parent_id:
           SELECT * FROM level0 l0
-          LEFT JOIN level1 l1 ON l1."internal:parent_id" = l0."internal:id"
+          LEFT JOIN level1 l1 ON l1."internal:parent_id" = l0."internal:parent_id"
 
         FolderWriter does NOT modify the DataFrames, so parent_id is preserved.
         """
         for i, level_df in enumerate(metadata_package.levels):
             output_path = self.metadata_dir / f"level{i}.avro"
 
-            # Direct write - preserves all columns including internal:parent_id
-            self._write_avro_file(level_df, output_path, **kwargs)
+            # Write consolidated as Avro (large files work fine)
+            self._write_avro_file(level_df, output_path)
 
             if not self.quiet:
                 has_parent_id = METADATA_PARENT_ID in level_df.columns
@@ -220,77 +223,17 @@ class FolderWriter:
                     f"({len(level_df)} rows, parent_id={has_parent_id})"
                 )
 
-    def _write_avro_file(
-        self,
-        df: pl.DataFrame,
-        output_path: pathlib.Path,
-        **kwargs: Any,
-    ) -> None:
-        """Write DataFrame to Avro file, preserving all columns and types."""
-        arrow_table = df.to_arrow()
-        avro_schema = self._arrow_schema_to_avro(arrow_table.schema)
-        records = arrow_table.to_pylist()
+    def _write_parquet_file(self, df: pl.DataFrame, output_path: pathlib.Path) -> None:
+        """Write Parquet file for __meta__ (no sanitization needed)."""
+        df.write_parquet(output_path, compression="zstd")
 
-        with open(output_path, "wb") as f:
-            fastavro.writer(f, avro_schema, records, **kwargs)
-
-    def _arrow_schema_to_avro(self, arrow_schema: pa.Schema) -> dict[str, Any]:
-        fields = []
-
-        for field in arrow_schema:
-            avro_type = self._arrow_type_to_avro(field.type)
-            fields.append({"name": field.name, "type": ["null", avro_type]})
-
-        return {"type": "record", "name": "TacoMetadata", "fields": fields}
-
-    def _arrow_type_to_avro(self, arrow_type: pa.DataType) -> Any:
-        simple_type = self._convert_simple_type(arrow_type)
-        if simple_type:
-            return simple_type
-
-        if pa.types.is_list(arrow_type) or pa.types.is_large_list(arrow_type):
-            return self._convert_list_type(arrow_type)
-
-        if pa.types.is_struct(arrow_type):
-            return self._convert_struct_type(arrow_type)
-
-        return "string"
-
-    def _convert_simple_type(self, arrow_type: pa.DataType) -> str | None:
-        if pa.types.is_int64(arrow_type):
-            return "long"
-        if (
-            pa.types.is_int32(arrow_type)
-            or pa.types.is_int16(arrow_type)
-            or pa.types.is_int8(arrow_type)
-        ):
-            return "int"
-        if pa.types.is_float64(arrow_type):
-            return "double"
-        if pa.types.is_float32(arrow_type):
-            return "float"
-        if pa.types.is_boolean(arrow_type):
-            return "boolean"
-        if pa.types.is_string(arrow_type) or pa.types.is_large_string(arrow_type):
-            return "string"
-        if pa.types.is_binary(arrow_type) or pa.types.is_large_binary(arrow_type):
-            return "bytes"
-        return None
-
-    def _convert_list_type(self, arrow_type: pa.DataType) -> dict[str, Any]:
-        value_type = arrow_type.value_type
-        avro_value_type = self._arrow_type_to_avro(value_type)
-        return {"type": "array", "items": avro_value_type}
-
-    def _convert_struct_type(self, arrow_type: pa.DataType) -> dict[str, Any]:
-        struct_fields = []
-        for i in range(arrow_type.num_fields):
-            struct_field = arrow_type.field(i)
-            avro_field_type = self._arrow_type_to_avro(struct_field.type)
-            struct_fields.append(
-                {"name": struct_field.name, "type": ["null", avro_field_type]}
-            )
-        return {"type": "record", "name": "StructField", "fields": struct_fields}
+    def _write_avro_file(self, df: pl.DataFrame, output_path: pathlib.Path) -> None:
+        """Write Avro file for consolidated metadata (with column sanitization)."""
+        # Sanitize colons for Avro
+        sanitized_df = df.rename(
+            {col: col.replace(":", AVRO_COLON_REPLACEMENT) for col in df.columns}
+        )
+        sanitized_df.write_avro(output_path, name="TacoMetadata")
 
     def _write_collection_json(self, metadata_package: MetadataPackage) -> None:
         """Write COLLECTION.json with pit_schema embedded."""
