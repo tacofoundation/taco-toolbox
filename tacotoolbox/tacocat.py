@@ -356,6 +356,7 @@ class TacoCatWriter:
         Merge COLLECTION.json from all datasets using direct reads.
 
         Updates the PIT schema counts to reflect the consolidated data.
+        Stores dataset_sources (original .tacozip filenames) for provenance tracking.
 
         Args:
             consolidated_counts: Dictionary mapping level -> total row count after consolidation
@@ -408,10 +409,15 @@ class TacoCatWriter:
                         for pattern in patterns:
                             pattern["n"] = consolidated_counts[depth]
 
+        # Store source filenames for provenance tracking
+        # Maps directly to internal:source_file column in metadata
+        # Sorted alphabetically for consistency
         merged_collection["_tacocat"] = {
             "version": TACOCAT_VERSION,
             "num_datasets": len(self.datasets),
-            "dataset_ids": [c.get("id", "unknown") for c in collections],
+            "dataset_sources": sorted(
+                [dataset_path.name for dataset_path in self.datasets]
+            ),
         }
 
         return json.dumps(merged_collection, indent=2).encode("utf-8")

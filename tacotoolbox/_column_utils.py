@@ -12,6 +12,7 @@ Functions:
     - sanitize_avro_columns: Replace colons for Avro serialization
     - desanitize_avro_columns: Restore colons after Avro deserialization
     - read_metadata_file: Read Parquet or Avro with auto-format detection
+    - cast_dataframe_to_schema: Cast columns to match schema spec
 """
 
 from pathlib import Path
@@ -523,3 +524,74 @@ def write_parquet_file(df: pl.DataFrame, output_path: Path | str) -> None:
         # Colons preserved directly in column names
     """
     df.write_parquet(output_path, compression="zstd")
+
+
+def cast_dataframe_to_schema(df: pl.DataFrame, schema_spec: list) -> pl.DataFrame:
+    """
+    Cast DataFrame columns to match schema specification from taco:field_schema.
+
+    Converts DataFrame types to match the expected schema defined in
+    collection["taco:field_schema"]["levelX"]. Handles Null columns gracefully
+    by adding missing columns and coercing type mismatches.
+
+    This function ensures all DataFrames have identical schemas before concatenation,
+    preventing "type X is incompatible with expected type Y" errors.
+
+    Args:
+        df: Polars DataFrame with potentially inconsistent types
+        schema_spec: List of [column_name, type_string] from taco:field_schema
+                     Example: [["id", "string"], ["internal:parent_id", "int64"], ...]
+
+    Returns:
+        DataFrame with all columns cast to correct types and all schema columns present
+
+    Example:
+        >>> schema = [
+        ...     ["id", "string"],
+        ...     ["type", "string"],
+        ...     ["internal:parent_id", "int64"],
+        ...     ["stac:time_start", "int64"],
+        ...     ["stac:centroid", "binary"]
+        ... ]
+        >>> df = cast_dataframe_to_schema(df, schema)
+        >>> # All columns present with correct types
+    """
+    type_mapping = {
+        "string": pl.Utf8,
+        "int64": pl.Int64,
+        "int32": pl.Int32,
+        "float64": pl.Float64,
+        "float32": pl.Float32,
+        "binary": pl.Binary,
+        "bool": pl.Boolean,
+        "list(int64)": pl.List(pl.Int64),
+        "list(float32)": pl.List(pl.Float32),
+        "list(float64)": pl.List(pl.Float64),
+    }
+
+    for col_name, type_str in schema_spec:
+        target_type = type_mapping.get(type_str)
+        if target_type is None:
+            continue
+
+        # Add missing column as Null with target type
+        if col_name not in df.columns:
+            df = df.with_columns(pl.lit(None, dtype=target_type).alias(col_name))
+            continue
+
+        current_type = df[col_name].dtype
+
+        # Skip if already correct type
+        if current_type == target_type:
+            continue
+
+        # ALWAYS cast to target type (handles Null -> Int64, Int64 -> Null, etc.)
+        try:
+            df = df.with_columns(pl.col(col_name).cast(target_type))
+        except Exception:
+            # If cast fails, fill nulls first then cast
+            df = df.with_columns(
+                pl.col(col_name).fill_null(pl.lit(None)).cast(target_type)
+            )
+
+    return df

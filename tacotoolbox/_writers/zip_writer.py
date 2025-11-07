@@ -92,7 +92,7 @@ import polars as pl
 import pyarrow.parquet as pq
 import tacozip
 
-from tacotoolbox._column_utils import reorder_internal_columns
+from tacotoolbox._column_utils import reorder_internal_columns, cast_dataframe_to_schema
 from tacotoolbox._constants import (
     METADATA_OFFSET,
     METADATA_PARENT_ID,
@@ -303,10 +303,22 @@ class ZipWriter:
                     # Original DataFrame (HAS parent_id, NO offset/size)
                     original_level = metadata_package.levels[depth]
 
-                    # Concatenated DataFrame (HAS offset/size, NO parent_id)
-                    concatenated = pl.concat(
-                        enriched_metadata_by_depth[depth], how="vertical"
+                    # Extract field schema for this level from collection
+                    field_schema = metadata_package.collection.get(
+                        "taco:field_schema", {}
                     )
+                    level_schema = field_schema.get(f"level{depth}", [])
+
+                    # Cast all DataFrames to match schema before concatenating
+                    enriched_dfs = enriched_metadata_by_depth[depth]
+                    if level_schema:
+                        enriched_dfs = [
+                            cast_dataframe_to_schema(df, level_schema)
+                            for df in enriched_dfs
+                        ]
+
+                    # Concatenated DataFrame (HAS offset/size, NO parent_id)
+                    concatenated = pl.concat(enriched_dfs, how="vertical")
 
                     # Extract only offset/size columns
                     offset_size_cols = [METADATA_OFFSET, METADATA_SIZE]
@@ -340,7 +352,7 @@ class ZipWriter:
                         has_parent_id = METADATA_PARENT_ID in cols_info
                         print(
                             f"  Level {depth}: {len(metadata_package.levels[depth])} samples "
-                            f"(rebuilt from {len(enriched_metadata_by_depth[depth])} folders, "
+                            f"(rebuilt from {len(enriched_dfs)} folders, "
                             f"parent_id={has_parent_id})"
                         )
                 else:

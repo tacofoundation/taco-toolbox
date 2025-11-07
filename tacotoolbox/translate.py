@@ -92,7 +92,7 @@ def zip2folder(
 def folder2zip(
     folder_path: str | Path,
     zip_output: str | Path,
-    quiet: bool = False,
+    quiet: bool = True,
     temp_dir: str | Path | None = None,
     **kwargs,
 ) -> Path:
