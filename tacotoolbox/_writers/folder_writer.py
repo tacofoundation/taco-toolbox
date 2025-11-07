@@ -179,7 +179,7 @@ class FolderWriter:
 
         These files do NOT contain internal:parent_id (navigation is implicit
         via folder structure), but they preserve all other metadata fields.
-        
+
         Uses Parquet to avoid Polars Avro bugs with small files.
         """
         for folder_path, local_df in metadata_package.local_metadata.items():
@@ -236,11 +236,12 @@ class FolderWriter:
         sanitized_df.write_avro(output_path, name="TacoMetadata")
 
     def _write_collection_json(self, metadata_package: MetadataPackage) -> None:
-        """Write COLLECTION.json with pit_schema embedded."""
+        """Write COLLECTION.json with pit_schema and field_schema embedded."""
         collection_path = self.output_dir / FOLDER_COLLECTION_FILENAME
 
         collection_with_schema = metadata_package.collection.copy()
         collection_with_schema["taco:pit_schema"] = metadata_package.pit_schema
+        collection_with_schema["taco:field_schema"] = metadata_package.field_schema
 
         with open(collection_path, "w", encoding="utf-8") as f:
             json.dump(collection_with_schema, f, indent=4, ensure_ascii=False)

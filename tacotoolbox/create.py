@@ -221,7 +221,7 @@ def _sort_taco_samples(taco: Taco, sort_column: str, quiet: bool) -> Taco:
         sorted_tortilla = Tortilla(samples=sorted_samples)
 
         # Preserve all extension metadata from original tortilla
-        sorted_tortilla._metadata_df = df_sorted        
+        sorted_tortilla._metadata_df = df_sorted
 
         # Create new Taco with sorted tortilla (preserve all other metadata)
         taco_data = taco.model_dump()

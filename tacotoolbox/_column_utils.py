@@ -505,14 +505,14 @@ def write_avro_file(df: pl.DataFrame, output_path: Path | str) -> None:
 def write_parquet_file(df: pl.DataFrame, output_path: Path | str) -> None:
     """
     Write DataFrame to Parquet file.
-    
+
     Parquet natively supports colons in column names, no sanitization needed.
     Used for local metadata (__meta__) in FOLDER containers.
-    
+
     Args:
         df: DataFrame to write
         output_path: Target path for .parquet file
-        
+
     Example:
         >>> df = pl.DataFrame({
         ...     "id": ["a", "b"],

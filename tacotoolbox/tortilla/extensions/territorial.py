@@ -69,6 +69,7 @@ def _import_tqdm():
     try:
         from tqdm.auto import tqdm
     except ImportError:
+
         class DummyTqdm:
             def __init__(
                 self, iterable=None, total=None, desc=None, disable=None, **kwargs
@@ -259,7 +260,7 @@ class Territorial(TortillaExtension):
         Returns:
             List of property dictionaries, one per input point, containing
             all requested variable values plus the original row index.
-            
+
         Note:
             When using mode() reducer, Earth Engine may return "mode", "mode_1", "mode_2"
             instead of the renamed band names. This function handles renaming them back
@@ -285,7 +286,7 @@ class Territorial(TortillaExtension):
                 reducer=reducer,
                 scale=self.scale_m,
             ).getInfo()
-            
+
             # Handle mode() reducer: EE returns "mode", "mode_1", "mode_2" instead of band names
             if "Reducer.mode" in str(reducer):
                 mode_cols = ["mode"] + [f"mode_{j}" for j in range(1, len(products))]
@@ -295,7 +296,7 @@ class Territorial(TortillaExtension):
                         mode_col = mode_cols[j]
                         if mode_col in props:
                             props[product["name"]] = props.pop(mode_col)
-            
+
             all_results.append(data["features"])
 
         # Merge results from different reducers by feature index
@@ -306,7 +307,7 @@ class Territorial(TortillaExtension):
             for feature_list in all_results:
                 props.update(feature_list[i].get("properties", {}))
             merged.append(props)
-        
+
         return merged
 
     def _reduce_chunk_with_retry(

@@ -281,7 +281,11 @@ class Taco(pydantic.BaseModel):
                         df,
                         "stac:time_start",
                         "stac:time_end" if "stac:time_end" in df.columns else None,
-                        "stac:time_middle" if "stac:time_middle" in df.columns else None,
+                        (
+                            "stac:time_middle"
+                            if "stac:time_middle" in df.columns
+                            else None
+                        ),
                     )
                 else:
                     spatial = _calculate_spatial_extent(df, "istac:centroid")
@@ -289,7 +293,11 @@ class Taco(pydantic.BaseModel):
                         df,
                         "istac:time_start",
                         "istac:time_end" if "istac:time_end" in df.columns else None,
-                        "istac:time_middle" if "istac:time_middle" in df.columns else None,
+                        (
+                            "istac:time_middle"
+                            if "istac:time_middle" in df.columns
+                            else None
+                        ),
                     )
 
                 self.extent = Extent(spatial=spatial, temporal=temporal)

@@ -1,10 +1,10 @@
 [tool.poetry]
 name = "tacotoolbox"
-version = "0.15.8"
+version = "0.15.9"
 description = "We make tacos 🔨"
-authors = ["Cesar Aybar <cesar.aybar@uv.es>", "Ingrid Aybar <aybar.camacho@gmail.com>"]
-repository = "https://github.com/csaybar/tacotoolbox"
-documentation = "https://csaybar.github.io/tacotoolbox/"
+authors = ["Cesar Aybar <cesar.aybar@uv.es>"]
+repository = "https://github.com/taco-toolbox/tacotoolbox"
+documentation = "http://tacofoundation.github.io/taco-toolbox"
 readme = "README.md"
 packages = [
   {include = "tacotoolbox"}

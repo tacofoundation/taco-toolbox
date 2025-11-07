@@ -3,6 +3,7 @@ from tacotoolbox.create import create
 from tacotoolbox.tacocat import create_tacocat
 from tacotoolbox.tacollection import create_tacollection
 from tacotoolbox.extract import extract
+from tacotoolbox.translate import folder2zip, zip2folder
 
 
 def _get_version() -> str:
@@ -18,4 +19,13 @@ def _get_version() -> str:
 __version__ = _get_version()
 
 
-__all__ = ["create", "create_tacocat", "create_tacollection", "datamodel", "validator", "extract"]
+__all__ = [
+    "create",
+    "create_tacocat",
+    "create_tacollection",
+    "datamodel",
+    "validator",
+    "extract",
+    "zip2folder",
+    "folder2zip",
+]
