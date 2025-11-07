@@ -66,7 +66,6 @@ from tacotoolbox._column_utils import (
     read_metadata_file,
 )
 
-
 def extract(
     dataset: TacoDataset,
     output: str | Path,
@@ -241,7 +240,6 @@ def _copy_single_file(vsi_path: str, dest_path: Path) -> None:
         # Regular file copy
         shutil.copy2(vsi_path, dest_path)
 
-
 def _copy_folder_recursive(
     folder_row: dict,
     output: Path,
@@ -295,11 +293,22 @@ def _copy_folder_recursive(
         return
 
     # Query children from next level
-    children_df = pl.from_arrow(
-        dataset._duckdb.execute(
-            f'SELECT * FROM {view_name} WHERE "internal:parent_id" = ?', [parent_id]
-        ).fetch_arrow_table()
-    )
+    if "internal:source_file" in folder_row and folder_row["internal:source_file"]:
+        # TacoCat case: need to filter by both parent_id AND source_file
+        children_df = pl.from_arrow(
+            dataset._duckdb.execute(
+                f'SELECT * FROM {view_name} WHERE "internal:parent_id" = ? AND "internal:source_file" = ?',
+                [parent_id, folder_row["internal:source_file"]]
+            ).fetch_arrow_table()
+        )
+    else:
+        # Single TACO case: only filter by parent_id
+        children_df = pl.from_arrow(
+            dataset._duckdb.execute(
+                f'SELECT * FROM {view_name} WHERE "internal:parent_id" = ?',
+                [parent_id]
+            ).fetch_arrow_table()
+        )
 
     # Process each child
     for child_row in children_df.iter_rows(named=True):
