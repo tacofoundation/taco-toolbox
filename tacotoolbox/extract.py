@@ -436,6 +436,7 @@ def _generate_consolidated_metadata(dataset: TacoDataset, output: Path) -> None:
                 .cast(pl.Int64)
                 .alias("internal:parent_id")
             )
+            filtered_df = filtered_df.rechunk()
             filtered_df = reorder_internal_columns(filtered_df)
         else:
             # Filter to children of selected parents
@@ -452,6 +453,7 @@ def _generate_consolidated_metadata(dataset: TacoDataset, output: Path) -> None:
             filtered_df = filtered_df.with_columns(
                 pl.Series("internal:parent_id", new_parent_ids)
             )
+            filtered_df = filtered_df.rechunk()
             filtered_df = reorder_internal_columns(filtered_df)
 
         # Remove ZIP-specific columns (not used in FOLDER format)
