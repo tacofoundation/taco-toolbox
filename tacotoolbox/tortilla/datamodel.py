@@ -16,6 +16,7 @@ for better organization and readability.
 
 import warnings
 from abc import ABC, abstractmethod
+from collections import Counter
 from typing import TYPE_CHECKING, cast
 
 import polars as pl
@@ -107,7 +108,7 @@ class Tortilla:
 
         Raises:
             ValueError: If samples have inconsistent metadata schemas or empty list
-                       or if Inclusive ID Rule is violated
+                       or if Inclusive ID Rule is violated or if duplicate IDs found
         """
         if not samples:
             raise ValueError("Cannot create Tortilla with empty samples list")
@@ -117,6 +118,9 @@ class Tortilla:
             samples = self._create_padded_samples(samples, pad_to)
 
         self.samples = samples
+
+        # Validate unique IDs at this level
+        self._validate_unique_ids()
 
         # Check ordering best practice (only for mixed types)
         self._check_sample_ordering()
@@ -161,6 +165,34 @@ class Tortilla:
         # Concatenate DataFrames - all schemas are guaranteed to be consistent
         self._metadata_df = pl.concat(metadata_dfs, how="vertical")
         self._current_depth = self._calculate_current_depth()
+
+    def _validate_unique_ids(self) -> None:
+        """
+        Ensure all sample IDs are unique at this level.
+
+        Duplicate IDs cause silent failures in ZIP offset calculation because
+        offsets are stored in a dictionary keyed by archive path. When duplicate
+        IDs exist, later samples overwrite earlier ones in the offset map,
+        resulting in missing files in the final container.
+
+        Raises:
+            ValueError: If duplicate sample IDs found with details about the duplicates
+        """
+        ids = [s.id for s in self.samples]
+        duplicates = {id: count for id, count in Counter(ids).items() if count > 1}
+
+        if duplicates:
+            # Show first 10 duplicates for debugging
+            dup_list = ", ".join(
+                f"'{id}' ({count}x)" for id, count in list(duplicates.items())[:10]
+            )
+
+            raise ValueError(
+                f"Duplicate sample IDs found in Tortilla: {dup_list}\n"
+                f"Total unique IDs with duplicates: {len(duplicates)}\n"
+                f"Total samples: {len(ids)}\n"
+                f"Each sample at the same level must have a unique ID.\n"
+            )
 
     @staticmethod
     def _create_padded_samples(samples: list, pad_to: int) -> list:
