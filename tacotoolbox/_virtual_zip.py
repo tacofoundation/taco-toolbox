@@ -38,6 +38,13 @@ import pathlib
 
 import pydantic
 
+from tacotoolbox._constants import (
+    ZIP_LFH_BASE_SIZE,
+    ZIP_TACO_HEADER_TOTAL_SIZE,
+    ZIP_ZIP64_EXTRA_FIELD_SIZE,
+    ZIP_ZIP64_THRESHOLD,
+)
+
 
 class VirtualFile(pydantic.BaseModel):
     """
@@ -129,18 +136,6 @@ class VirtualTACOZIP:
         >>> # Write real ZIP using these exact offsets
     """
 
-    # ZIP format constants
-    LFH_BASE_SIZE = 30  # Local File Header base size
-    ZIP64_EXTRA_FIELD_SIZE = 20  # ZIP64 extension field
-    ZIP64_THRESHOLD = 4_294_967_295  # 4GB - 1 byte
-
-    # TACO_HEADER constants (fixed size)
-    TACO_HEADER_FILENAME = "TACO_HEADER"
-    TACO_HEADER_FILENAME_LEN = 11  # len("TACO_HEADER")
-    TACO_HEADER_LFH_SIZE = 30 + TACO_HEADER_FILENAME_LEN  # 41 bytes
-    TACO_HEADER_DATA_SIZE = 116  # Fixed payload size
-    TACO_HEADER_TOTAL_SIZE = TACO_HEADER_LFH_SIZE + TACO_HEADER_DATA_SIZE  # 157 bytes
-
     def __init__(self):
         """Initialize empty virtual ZIP structure."""
         self.files: list[VirtualFile] = []
@@ -172,7 +167,7 @@ class VirtualTACOZIP:
             >>> size
             157
         """
-        self.header_size = self.TACO_HEADER_TOTAL_SIZE
+        self.header_size = ZIP_TACO_HEADER_TOTAL_SIZE
         self.current_offset = self.header_size
         self._calculated = False
         return self.header_size
@@ -284,14 +279,14 @@ class VirtualTACOZIP:
 
         for i, vfile in enumerate(self.files):
             # Determine if ZIP64 needed for this file
-            vfile.needs_zip64 = vfile.file_size >= self.ZIP64_THRESHOLD
+            vfile.needs_zip64 = vfile.file_size >= ZIP_ZIP64_THRESHOLD
 
             # Calculate LFH size (base + filename + optional ZIP64 field)
             filename_len = len(vfile.arc_path.encode("utf-8"))
-            lfh_base = self.LFH_BASE_SIZE + filename_len
+            lfh_base = ZIP_LFH_BASE_SIZE + filename_len
 
             if vfile.needs_zip64:
-                vfile.lfh_size = lfh_base + self.ZIP64_EXTRA_FIELD_SIZE
+                vfile.lfh_size = lfh_base + ZIP_ZIP64_EXTRA_FIELD_SIZE
             else:
                 vfile.lfh_size = lfh_base
 
@@ -429,7 +424,7 @@ class VirtualTACOZIP:
         if self.files:
             last_file = self.files[-1]
             total_size = last_file.data_offset + last_file.file_size
-            if total_size > self.ZIP64_THRESHOLD:
+            if total_size > ZIP_ZIP64_THRESHOLD:
                 return True
 
         return False
