@@ -12,13 +12,8 @@ Key features:
 - Auto-detects output format from file extension (.zip/.tacozip → zip, else → folder)
 - Works with filtered TacoDataset (e.g., from .sql() queries)
 - Automatic temp folder cleanup for ZIP mode
-- Concurrent file copying for 9x+ performance improvement
-
-Main function:
-    export(): Export filtered TacoDataset to FOLDER or ZIP format
-
-Private function:
-    _detect_format(): Auto-detect format from extension
+- Concurrent file copying with progress bars
+- Auto-detects async context (works in both sync and async code)
 
 Example:
     >>> from tacoreader import TacoDataset
@@ -28,14 +23,14 @@ Example:
     >>> dataset = TacoDataset("big_dataset.tacozip")
     >>> filtered = dataset.sql("SELECT * FROM level0 WHERE country = 'ZA'")
     >>> 
-    >>> # Auto-detect format from extension
-    >>> await export(filtered, "south_africa.tacozip")  # ZIP format
-    >>> await export(filtered, "south_africa/")         # FOLDER format
+    >>> # Normal Python REPL (just works!)
+    >>> export(filtered, "south_africa.tacozip")
     >>> 
-    >>> # Explicit format override
-    >>> await export(filtered, "data", format="zip")    # Creates data.tacozip
+    >>> # Jupyter/IPython (also works!)
+    >>> export(filtered, "south_africa/")
 """
 
+import asyncio
 from pathlib import Path
 from typing import Literal
 import shutil
@@ -46,16 +41,67 @@ from tacotoolbox._writers.export_writer import ExportWriter
 from tacotoolbox.translate import folder2zip
 
 
-async def export(
+def export(
     dataset: TacoDataset,
     output: str | Path,
     format: Literal["zip", "folder"] | None = None,
     concurrency: int = 100,
     quiet: bool = False,
+    debug: bool = False,
     temp_dir: str | Path | None = None,
 ) -> Path:
     """
     Export filtered TacoDataset to FOLDER or ZIP format.
+
+    This function automatically handles async execution:
+    - In normal Python REPL: runs asyncio.run() internally
+    - In Jupyter/IPython: returns coroutine (auto-awaited by Jupyter)
+
+    Args:
+        dataset: TacoDataset with applied filters
+        output: Path to output file/folder
+        format: Output format ("zip", "folder", or None for auto-detect)
+        concurrency: Maximum concurrent async operations (default: 100)
+        quiet: If True, hide progress bars (default: False)
+        debug: If True, show detailed debug messages (default: False)
+        temp_dir: Temporary directory for ZIP creation
+
+    Returns:
+        Path to created output
+
+    Example:
+        >>> # Normal Python REPL - just works!
+        >>> export(dataset, "output.tacozip")
+        
+        >>> # Jupyter/IPython - also works!
+        >>> export(dataset, "output.tacozip")
+        >>> # OR explicitly:
+        >>> await export(dataset, "output.tacozip")
+    """
+    # Check if we're already in an async context
+    try:
+        asyncio.get_running_loop()
+        # We're in async context (Jupyter) - return coroutine
+        return _export_async(dataset, output, format, concurrency, quiet, debug, temp_dir)
+    except RuntimeError:
+        # No running loop - we're in sync context (normal REPL)
+        # Run asyncio.run() internally
+        return asyncio.run(
+            _export_async(dataset, output, format, concurrency, quiet, debug, temp_dir)
+        )
+
+
+async def _export_async(
+    dataset: TacoDataset,
+    output: str | Path,
+    format: Literal["zip", "folder"] | None = None,
+    concurrency: int = 100,
+    quiet: bool = False,
+    debug: bool = False,
+    temp_dir: str | Path | None = None,
+) -> Path:
+    """
+    Internal async implementation of export.
 
     Creates a new TACO container from a filtered TacoDataset. Auto-detects
     output format from file extension if not explicitly specified.
@@ -77,7 +123,8 @@ async def export(
             - "folder": Creates directory structure
             - None: Auto-detect from output extension
         concurrency: Maximum concurrent async operations (default: 100)
-        quiet: If True, suppress progress messages
+        quiet: If True, hide progress bars (default: False - shows progress)
+        debug: If True, show detailed debug messages (default: False)
         temp_dir: Temporary directory for ZIP creation. If None, uses
             output.parent / f".{output.stem}_temp"
 
@@ -87,28 +134,13 @@ async def export(
     Raises:
         ValueError: If dataset has level1+ joins or is empty
         FileExistsError: If output path already exists
-
-    Example:
-        >>> # Auto-detect format from extension
-        >>> dataset = TacoDataset("global.tacozip")
-        >>> filtered = dataset.sql("SELECT * FROM level0 WHERE country='ES'")
-        >>> 
-        >>> await export(filtered, "spain.tacozip")  # ZIP (auto-detected)
-        PosixPath('spain.tacozip')
-        >>> 
-        >>> await export(filtered, "spain_data/")    # FOLDER (auto-detected)
-        PosixPath('spain_data')
-        >>> 
-        >>> # Explicit format override
-        >>> await export(filtered, "spain", format="zip", concurrency=200)
-        PosixPath('spain.tacozip')
     """
     output = Path(output)
 
     # Auto-detect format if not specified
     if format is None:
         format = _detect_format(output)
-        if not quiet:
+        if debug:
             print(f"Auto-detected format: {format}")
 
     if format == "folder":
@@ -118,6 +150,7 @@ async def export(
             output=output,
             concurrency=concurrency,
             quiet=quiet,
+            debug=debug,
         )
         return await writer.create_folder()
 
@@ -132,7 +165,7 @@ async def export(
 
         try:
             # Step 1: Create temp FOLDER using ExportWriter
-            if not quiet:
+            if debug:
                 print(f"Creating temporary FOLDER: {temp_folder}")
 
             writer = ExportWriter(
@@ -140,26 +173,28 @@ async def export(
                 output=temp_folder,
                 concurrency=concurrency,
                 quiet=quiet,
+                debug=debug,
             )
             await writer.create_folder()
 
             # Step 2: Convert FOLDER → ZIP (ZipWriter is sync)
-            if not quiet:
+            if debug:
                 print(f"Converting to ZIP: {output}")
 
             folder2zip(
                 folder_path=temp_folder,
                 zip_output=output,
                 quiet=quiet,
+                debug=debug,
                 temp_dir=temp_folder.parent,
             )
 
             # Step 3: Cleanup temp FOLDER
-            if not quiet:
+            if debug:
                 print(f"Cleaning up: {temp_folder}")
             shutil.rmtree(temp_folder)
 
-            if not quiet:
+            if debug:
                 print(f"Export complete: {output}")
 
             return output
