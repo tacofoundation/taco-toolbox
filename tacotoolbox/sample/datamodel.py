@@ -6,6 +6,7 @@ for training, validation, and testing workflows.
 
 Key features:
 - Supports FILE and FOLDER asset types
+- Automatic type inference from path (type="auto" default)
 - Dynamic extension system for adding metadata
 - Format validation via validators (TacotiffValidator, etc.)
 - Automatic cleanup of temporary files from bytes
@@ -81,6 +82,13 @@ class Sample(pydantic.BaseModel):
     - FILE: Any file-based format (e.g., GeoTIFF, NetCDF, HDF5, PDF, CSV, Zarr)
     - FOLDER: A nested collection of samples (Tortilla)
 
+    Type inference:
+    By default, type is automatically inferred from path:
+    - Path or bytes → FILE
+    - Tortilla → FOLDER
+
+    You can explicitly specify type for validation, but it's optional.
+
     Format-specific validation is handled by validators (applied via validate_with):
     - Use TacotiffValidator for TACOTIFF format validation
     - Use TacozarrValidator for TACOZARR format validation (future)
@@ -98,7 +106,14 @@ class Sample(pydantic.BaseModel):
         >>> from tacotoolbox import Sample
         >>> from tacotoolbox.sample.validators import TacotiffValidator
         >>>
-        >>> # Basic sample
+        >>> # Basic sample (type inferred automatically)
+        >>> sample = Sample(
+        ...     id="soyuntaco",
+        ...     path=Path("/home/lxlx/sentinel2.tif")
+        ... )
+        >>> sample.type  # "FILE" (inferred)
+        >>>
+        >>> # Explicit type (validated against path)
         >>> sample = Sample(
         ...     id="soyuntaco",
         ...     path=Path("/home/lxlx/sentinel2.tif"),
@@ -112,9 +127,9 @@ class Sample(pydantic.BaseModel):
         >>> sample = Sample(
         ...     id="bytesample",
         ...     path=image_bytes,
-        ...     type="FILE",
         ...     temp_dir="/data/workspace"
         ... )
+        >>> # type="FILE" inferred automatically
         >>> # Temporary file created automatically
         >>> # ... use sample ...
         >>> sample.cleanup()  # Explicit cleanup
@@ -125,12 +140,12 @@ class Sample(pydantic.BaseModel):
         >>> sample.extend_with({"s2:mgrs_tile": "T30UYA"})
         >>> sample.extend_with(scaling_extension)
         >>>
-        >>> # Nested samples (FOLDER)
+        >>> # Nested samples (FOLDER - type inferred)
         >>> nested = Sample(
         ...     id="multitemporal",
-        ...     path=Tortilla(samples=[s1, s2, s3]),
-        ...     type="FOLDER"
+        ...     path=Tortilla(samples=[s1, s2, s3])
         ... )
+        >>> nested.type  # "FOLDER" (inferred)
     """
 
     # Core attributes
@@ -138,7 +153,7 @@ class Sample(pydantic.BaseModel):
     path: (
         pathlib.Path | Tortilla | bytes
     )  # Location of data (file, container, or bytes)
-    type: AssetType  # Type of geospatial data asset
+    type: Literal["FILE", "FOLDER", "auto"] = "auto"  # Type of geospatial data asset (auto-inferred by default)
 
     # Private attribute to store temp files for cleanup
     _temp_files: list[pathlib.Path] = pydantic.PrivateAttr(default_factory=list)
@@ -189,7 +204,7 @@ class Sample(pydantic.BaseModel):
             object.__setattr__(self, "_temp_files", [temp_path])
 
         # Extract extension fields (anything not a core field)
-        core_fields = SHARED_CORE_FIELDS
+        core_fields = SHARED_CORE_FIELDS | {"type"}  # Include 'type' as core
         extension_fields = {k: v for k, v in data.items() if k not in core_fields}
 
         # Initialize with all fields (Pydantic accepts them due to extra="allow")
@@ -260,7 +275,7 @@ class Sample(pydantic.BaseModel):
         immediately instead of waiting for garbage collection.
 
         Example:
-            >>> sample = Sample(id="test", path=image_bytes, type="FILE")
+            >>> sample = Sample(id="test", path=image_bytes)
             >>> # ... use sample ...
             >>> sample.cleanup()  # Explicit cleanup
         """
@@ -311,11 +326,11 @@ class Sample(pydantic.BaseModel):
             ValueError: If ID format is invalid
 
         Example:
-            >>> Sample(id="sample_001", path=b"", type="FILE")  # OK
-            >>> Sample(id="IMG-2024", path=b"", type="FILE")    # OK
-            >>> Sample(id="file/path", path=b"", type="FILE")   # FAIL - slash
-            >>> Sample(id="img:rgb", path=b"", type="FILE")     # FAIL - colon
-            >>> Sample(id="__private", path=b"", type="FILE")   # FAIL - reserved
+            >>> Sample(id="sample_001", path=b"")  # OK
+            >>> Sample(id="IMG-2024", path=b"")    # OK
+            >>> Sample(id="file/path", path=b"")   # FAIL - slash
+            >>> Sample(id="img:rgb", path=b"")     # FAIL - colon
+            >>> Sample(id="__private", path=b"")   # FAIL - reserved
         """
         # Check for slashes
         if "/" in v or "\\" in v:
@@ -359,15 +374,34 @@ class Sample(pydantic.BaseModel):
         )
 
     @pydantic.model_validator(mode="after")
-    def global_validation(self):
-        """Cross-field validation ensuring path type matches asset type."""
-        # FOLDER type must have Tortilla path
-        if self.type == "FOLDER" and not isinstance(self.path, Tortilla):
-            raise ValueError("FOLDER type must have a Tortilla instance as path")
+    def infer_and_validate_type(self):
+        """
+        Infer type from path or validate explicit type.
 
-        # FILE type must have pathlib.Path (validated in validate_path)
-        if self.type == "FILE" and isinstance(self.path, Tortilla):
-            raise ValueError("FILE type must have a pathlib.Path, not Tortilla")
+        If type="auto" (default), infers type from path:
+        - Path or bytes → FILE
+        - Tortilla → FOLDER
+
+        If type is explicit ("FILE" or "FOLDER"), validates it matches path type.
+
+        After this validator, self.type is ALWAYS "FILE" or "FOLDER" (never "auto").
+        """
+        # Infer type from path
+        inferred_type: AssetType = (
+            "FOLDER" if isinstance(self.path, Tortilla) else "FILE"
+        )
+
+        if self.type == "auto":
+            # Auto mode - use inferred type
+            self.type = inferred_type
+        else:
+            # Explicit mode - validate consistency
+            if self.type != inferred_type:
+                path_type_str = "Tortilla" if isinstance(self.path, Tortilla) else "Path/bytes"
+                raise ValueError(
+                    f"Type mismatch: specified type='{self.type}' but path type ({path_type_str}) "
+                    f"implies type='{inferred_type}'"
+                )
 
         return self
 
@@ -387,7 +421,7 @@ class Sample(pydantic.BaseModel):
         Example:
             >>> from tacotoolbox.sample.validators import TacotiffValidator
             >>>
-            >>> sample = Sample(id="s2", path=Path("data.tif"), type="FILE")
+            >>> sample = Sample(id="s2", path=Path("data.tif"))
             >>> sample.validate_with(TacotiffValidator())  # Validates TACOTIFF format
         """
         validator.validate(self)
@@ -524,6 +558,9 @@ class Sample(pydantic.BaseModel):
         Core fields (id, type, path) always use String type for schema consistency,
         even when path is None (FOLDER samples). This ensures all samples have
         compatible schemas for concatenation.
+
+        The 'type' column always contains "FILE" or "FOLDER" (never "auto")
+        because type inference happens during validation.
 
         Returns:
             pl.DataFrame: Single-row DataFrame with complete sample metadata
