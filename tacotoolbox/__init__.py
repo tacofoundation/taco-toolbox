@@ -2,7 +2,7 @@ from tacotoolbox import datamodel, validator
 from tacotoolbox.create import create
 from tacotoolbox.tacocat import create_tacocat
 from tacotoolbox.tacollection import create_tacollection
-from tacotoolbox.extract import extract
+from tacotoolbox.export import export
 from tacotoolbox.translate import folder2zip, zip2folder
 
 
@@ -25,7 +25,7 @@ __all__ = [
     "create_tacollection",
     "datamodel",
     "validator",
-    "extract",
+    "export",
     "zip2folder",
     "folder2zip",
 ]

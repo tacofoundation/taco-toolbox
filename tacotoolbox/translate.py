@@ -12,17 +12,17 @@ Key features:
 - Supports all PIT schema patterns (FILES only, FOLDERs, mixed depths)
 
 Functions:
-    zip_to_folder(): Extract ZIP to FOLDER format
-    folder_to_zip(): Package FOLDER into ZIP format
+    zip2folder(): Extract ZIP to FOLDER format
+    folder2zip(): Package FOLDER into ZIP format
 
 Example:
-    >>> from tacotoolbox.translate import zip_to_folder, folder_to_zip
+    >>> from tacotoolbox.translate import zip2folder, folder2zip
     >>> 
     >>> # Convert ZIP to FOLDER
-    >>> zip_to_folder("dataset.tacozip", "dataset_folder/")
+    >>> zip2folder("dataset.tacozip", "dataset_folder/")
     >>> 
     >>> # Convert FOLDER to ZIP
-    >>> folder_to_zip("dataset_folder/", "dataset.tacozip")
+    >>> folder2zip("dataset_folder/", "dataset.tacozip")
 """
 
 import json
@@ -33,7 +33,7 @@ from tacoreader import TacoDataset
 
 from tacotoolbox._constants import AVRO_COLON_REPLACEMENT
 from tacotoolbox._metadata import MetadataPackage
-from tacotoolbox.extract import extract
+from tacotoolbox._writers.export_writer import ExportWriter
 from tacotoolbox._writers.zip_writer import ZipWriter
 
 
@@ -50,20 +50,18 @@ def zip2folder(
     zip_path: str | Path,
     folder_output: str | Path,
     nworkers: int = 4,
-    overwrite: bool = False,
     quiet: bool = False,
 ) -> Path:
     """
     Convert ZIP format TACO to FOLDER format.
 
-    This is a simple wrapper around extract() that converts a complete
+    This is a simple wrapper around ExportWriter that converts a complete
     ZIP container to FOLDER format without any filtering.
 
     Args:
         zip_path: Path to input .tacozip file
         folder_output: Path to output folder
         nworkers: Number of parallel workers for file copying
-        overwrite: If True, remove existing output folder
         quiet: If True, suppress progress messages
 
     Returns:
@@ -73,18 +71,21 @@ def zip2folder(
         TranslateError: If conversion fails
 
     Example:
-        >>> zip_to_folder("dataset.tacozip", "dataset_folder/")
+        >>> zip2folder("dataset.tacozip", "dataset_folder/")
         PosixPath('dataset_folder')
     """
     try:
         dataset = TacoDataset(str(zip_path))
-        return extract(
+        
+        writer = ExportWriter(
             dataset=dataset,
-            output=folder_output,
+            output=Path(folder_output),
             nworkers=nworkers,
-            overwrite=overwrite,
             quiet=quiet,
         )
+        
+        return writer.create_folder()
+        
     except Exception as e:
         raise TranslateError(f"Failed to convert ZIP to FOLDER: {e}") from e
 
@@ -124,7 +125,7 @@ def folder2zip(
         TranslateError: If conversion fails
 
     Example:
-        >>> folder_to_zip("dataset_folder/", "dataset.tacozip")
+        >>> folder2zip("dataset_folder/", "dataset.tacozip")
         PosixPath('dataset.tacozip')
     """
     folder_path = Path(folder_path)
