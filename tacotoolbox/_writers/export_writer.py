@@ -2,58 +2,26 @@
 Export Writer - Create FOLDER containers from filtered TacoDataset.
 
 This module handles the creation of FOLDER-format TACO containers from filtered
-TacoDataset instances (e.g., from .sql() queries). It differs from FolderWriter
-which creates containers from Tortilla/Sample objects during initial dataset
-creation.
+TacoDataset instances (e.g., from .sql() queries) using concurrent downloads
+for maximum throughput with remote data sources.
 
 Key features:
-- Parallel file copying from TacoDataset (local/remote sources)
+- Concurrent file downloading from TacoDataset (S3/HTTP/local)
 - Automatic parent_id reindexing for consistency
 - Recursive FOLDER handling with local metadata
-- ZIP-specific column removal (offset, size)
-- Collection metadata updates with subset provenance
-
-The ExportWriter handles three main scenarios:
-1. Direct dataset export (full or filtered)
-2. ZIP to FOLDER conversion (via translate module)
-3. Subset extraction with metadata reindexing
-
-FOLDER Structure example (level 0 = FILEs only):
-    dataset/
-    ├── DATA/
-    │   ├── sample_001.tif
-    │   ├── sample_002.tif
-    │   └── sample_003.tif
-    ├── METADATA/
-    │   └── level0.avro
-    └── COLLECTION.json
-
-FOLDER Structure example (level 0 = FOLDERs, level 1 = FILEs):
-    dataset/
-    ├── DATA/
-    │   ├── folder_A/
-    │   │   ├── __meta__
-    │   │   ├── nested_001.tif
-    │   │   └── nested_002.tif
-    │   └── folder_B/
-    │       ├── __meta__
-    │       ├── nested_001.tif
-    │       └── nested_002.tif
-    ├── METADATA/
-    │   ├── level0.avro
-    │   └── level1.avro
-    └── COLLECTION.json
+- Zero-copy data transfer with obstore
+- High-performance concurrent downloads with progress bars
 """
 
+import asyncio
 import json
 import pathlib
-import shutil
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import obstore as obs
 import polars as pl
 from tacoreader import TacoDataset
 from tacoreader.utils.vsi import create_obstore_from_url, strip_vsi_prefix
+from tqdm.asyncio import tqdm as tqdm_asyncio
 
 from tacotoolbox._column_utils import (
     read_metadata_file,
@@ -73,16 +41,17 @@ class ExportWriter:
     Handle creation of FOLDER containers from filtered TacoDataset.
 
     This writer is specialized for exporting datasets that have been loaded
-    and potentially filtered via TacoDataset operations. It handles parallel
-    file copying, metadata reindexing, and collection updates.
+    and potentially filtered via TacoDataset operations. It uses concurrent
+    downloads for file copying, metadata reindexing, and collection updates.
     """
 
     def __init__(
         self,
         dataset: TacoDataset,
         output: pathlib.Path,
-        nworkers: int = 4,
+        concurrency: int = 100,
         quiet: bool = False,
+        debug: bool = False,
     ) -> None:
         """
         Initialize export writer.
@@ -90,25 +59,27 @@ class ExportWriter:
         Args:
             dataset: TacoDataset with applied filters (e.g., from .sql())
             output: Path to output folder
-            nworkers: Number of parallel workers for file copying
-            quiet: If True, suppress progress messages
+            concurrency: Maximum concurrent async operations (default: 100)
+            quiet: If True, hide progress bars (default: False - shows progress)
+            debug: If True, show detailed debug messages (default: False)
         """
         self.dataset = dataset
         self.output = pathlib.Path(output)
-        self.nworkers = nworkers
+        self.concurrency = concurrency
         self.quiet = quiet
+        self.debug = debug
 
         self.data_dir = self.output / FOLDER_DATA_DIR
         self.metadata_dir = self.output / FOLDER_METADATA_DIR
 
-    def create_folder(self) -> pathlib.Path:
+    async def create_folder(self) -> pathlib.Path:
         """
         Create complete FOLDER TACO from filtered dataset.
 
         Orchestrates the entire export process:
         1. Validates dataset (no level1+ joins, not empty)
         2. Creates FOLDER structure (DATA/, METADATA/)
-        3. Copies files in parallel (FILEs and FOLDERs)
+        3. Copies files concurrently (FILEs and FOLDERs) with progress bars
         4. Generates consolidated metadata with reindexed parent_id
         5. Creates COLLECTION.json with subset metadata
 
@@ -121,16 +92,13 @@ class ExportWriter:
             FileExistsError: If output already exists
         """
         try:
-            if not self.quiet:
-                print("Starting FOLDER export...")
-
             self._validate_dataset()
             self._create_folder_structure()
-            self._copy_all_bytes()
+            await self._copy_all_bytes()
             self._generate_consolidated_metadata()
             self._generate_collection_json()
 
-            if not self.quiet:
+            if self.debug:
                 print(f"FOLDER export complete: {self.output}")
 
             return self.output
@@ -169,101 +137,126 @@ class ExportWriter:
         self.data_dir.mkdir(parents=True)
         self.metadata_dir.mkdir(parents=True)
 
-        if not self.quiet:
-            print(f"  Created {FOLDER_DATA_DIR}/ and {FOLDER_METADATA_DIR}/")
+        if self.debug:
+            print(f"Created {FOLDER_DATA_DIR}/ and {FOLDER_METADATA_DIR}/")
 
-    def _copy_all_bytes(self) -> None:
+    async def _copy_all_bytes(self) -> None:
         """
         Copy all bytes from dataset to output/DATA/.
 
-        Uses parallel workers for FILE copying. FOLDER copying is recursive
-        and single-threaded per folder tree.
+        Uses concurrent downloads for FILEs with progress bar.
+        FOLDER copying is recursive and processes children concurrently.
         """
         df = self.dataset.data._data
 
         files_df = df.filter(pl.col("type") == "FILE")
         folders_df = df.filter(pl.col("type") == "FOLDER")
 
-        # Copy FILEs in parallel
+        semaphore = asyncio.Semaphore(self.concurrency)
+
+        # Copy FILEs concurrently with progress bar
         if len(files_df) > 0:
-            with ThreadPoolExecutor(max_workers=self.nworkers) as executor:
-                futures = []
-                for row in files_df.iter_rows(named=True):
-                    vsi_path = row["internal:gdal_vsi"]
+            tasks = []
+            for row in files_df.iter_rows(named=True):
+                vsi_path = row["internal:gdal_vsi"]
 
-                    if (
-                        "internal:relative_path" in row
-                        and row["internal:relative_path"]
-                    ):
-                        relative_path = row["internal:relative_path"]
-                    else:
-                        relative_path = row["id"]
+                if (
+                    "internal:relative_path" in row
+                    and row["internal:relative_path"]
+                ):
+                    relative_path = row["internal:relative_path"]
+                else:
+                    relative_path = row["id"]
 
-                    dest = self.data_dir / relative_path
+                dest = self.data_dir / relative_path
 
-                    future = executor.submit(self._copy_single_file, vsi_path, dest)
-                    futures.append(future)
+                task = self._copy_single_file(vsi_path, dest, semaphore)
+                tasks.append(task)
 
-                # Wait for all FILEs to complete
-                for future in as_completed(futures):
-                    future.result()  # Raises exception if copy failed
+            # Progress bar for FILE copying
+            await tqdm_asyncio.gather(
+                *tasks,
+                desc="Copying FILEs",
+                unit="file",
+                colour="green",
+                disable=self.quiet
+            )
 
-            if not self.quiet:
-                print(f"  Copied {len(files_df)} FILEs")
-
-        # Copy FOLDERs recursively (single-threaded per tree)
+        # Copy FOLDERs recursively with progress bar
         if len(folders_df) > 0:
+            tasks = []
             for row in folders_df.iter_rows(named=True):
-                self._copy_folder_recursive(row, level=0)
+                task = self._copy_folder_recursive(row, level=0, semaphore=semaphore)
+                tasks.append(task)
 
-            if not self.quiet:
-                print(f"  Copied {len(folders_df)} FOLDERs")
+            # Progress bar for FOLDER copying
+            await tqdm_asyncio.gather(
+                *tasks,
+                desc="Copying FOLDERs",
+                unit="folder",
+                colour="blue",
+                disable=self.quiet
+            )
 
-    def _copy_single_file(self, vsi_path: str, dest_path: pathlib.Path) -> None:
+    async def _copy_single_file(
+        self, vsi_path: str, dest_path: pathlib.Path, semaphore: asyncio.Semaphore
+    ) -> None:
         """
         Copy bytes from vsi_path to dest_path.
 
         Handles two types of source paths:
-        - /vsisubfile/... paths (ZIP entries): Extracts bytes from offset/size
+        - /vsisubfile/... paths (ZIP entries): Downloads bytes from offset/size using obstore
         - Regular filesystem paths: Direct file copy
 
-        For vsisubfile paths, supports both local and remote (S3, HTTP) sources
-        using obstore for efficient range reads.
+        Remote sources use obstore for concurrent downloads.
+        Local file I/O uses sync operations as they're fast and not the bottleneck.
 
         Args:
             vsi_path: Source path (may be /vsisubfile/... or regular path)
             dest_path: Destination path for copied file
+            semaphore: Asyncio semaphore to limit concurrency
         """
-        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        async with semaphore:
+            dest_path.parent.mkdir(parents=True, exist_ok=True)
 
-        if vsi_path.startswith("/vsisubfile/"):
-            # Parse vsisubfile format: /vsisubfile/offset_size,source_path
-            parts = vsi_path.replace("/vsisubfile/", "").split(",", 1)
-            offset, size = map(int, parts[0].split("_"))
-            zip_path = parts[1]
+            if vsi_path.startswith("/vsisubfile/"):
+                # Parse vsisubfile format: /vsisubfile/offset_size,source_path
+                parts = vsi_path.replace("/vsisubfile/", "").split(",", 1)
+                offset, size = map(int, parts[0].split("_"))
+                zip_path = parts[1]
 
-            clean_url = strip_vsi_prefix(zip_path)
+                clean_url = strip_vsi_prefix(zip_path)
 
-            if pathlib.Path(clean_url).exists():
-                # Local file: direct read
-                with open(clean_url, "rb") as f:
-                    f.seek(offset)
-                    data = f.read(size)
+                if pathlib.Path(clean_url).exists():
+                    # Local file: sync read (fast, not a bottleneck)
+                    with open(clean_url, "rb") as f:
+                        f.seek(offset)
+                        data = f.read(size)
+                else:
+                    # Remote file: use obstore async for concurrent downloads
+                    store = create_obstore_from_url(clean_url)
+                    # obstore returns Bytes (zero-copy), convert to bytes
+                    data = bytes(
+                        await obs.get_range_async(
+                            store, "", start=offset, end=offset + size
+                        )
+                    )
+
+                # Write to dest (sync is fine - local disk I/O is fast)
+                with open(dest_path, "wb") as f:
+                    f.write(data)
             else:
-                # Remote file: use obstore for range read
-                store = create_obstore_from_url(clean_url)
-                data = bytes(obs.get_range(store, "", start=offset, end=offset + size))
+                # Regular file copy (sync - both read and write are local and fast)
+                with open(vsi_path, "rb") as src:
+                    data = src.read()
+                with open(dest_path, "wb") as dest:
+                    dest.write(data)
 
-            with open(dest_path, "wb") as f:
-                f.write(data)
-        else:
-            # Regular file copy
-            shutil.copy2(vsi_path, dest_path)
-
-    def _copy_folder_recursive(
+    async def _copy_folder_recursive(
         self,
         folder_row: dict,
         level: int,
+        semaphore: asyncio.Semaphore,
     ) -> None:
         """
         Recursively copy a FOLDER and its children.
@@ -271,13 +264,13 @@ class ExportWriter:
         For each FOLDER:
         1. Create the folder directory in DATA/
         2. Query children from next level using parent_id
-        3. Recursively copy child FOLDERs
-        4. Copy child FILEs directly
-        5. Write local __meta__ file with children metadata (PARQUET format)
+        3. Process all children concurrently (both FOLDERs and FILEs)
+        4. Write local __meta__ file with children metadata (PARQUET format)
 
         Args:
             folder_row: Row from dataset.df for the FOLDER
             level: Current level of this folder (0, 1, 2, ...)
+            semaphore: Asyncio semaphore to limit concurrency
         """
         if level == 0:
             relative_path = folder_row["id"]
@@ -315,7 +308,8 @@ class ExportWriter:
                 ).fetch_arrow_table()
             )
 
-        # Process each child
+        # Process each child concurrently
+        tasks = []
         for child_row in children_df.iter_rows(named=True):
             child_type = child_row["type"]
             child_vsi = child_row["internal:gdal_vsi"]
@@ -332,9 +326,14 @@ class ExportWriter:
             child_dest = self.data_dir / child_rel
 
             if child_type == "FILE":
-                self._copy_single_file(child_vsi, child_dest)
+                task = self._copy_single_file(child_vsi, child_dest, semaphore)
+                tasks.append(task)
             elif child_type == "FOLDER":
-                self._copy_folder_recursive(child_row, next_level)
+                task = self._copy_folder_recursive(child_row, next_level, semaphore)
+                tasks.append(task)
+
+        # Wait for all children to complete
+        await asyncio.gather(*tasks)
 
         # Write local __meta__ for this folder in PARQUET format
         meta_path = folder_path / "__meta__"
@@ -347,15 +346,11 @@ class ExportWriter:
         Filters existing consolidated metadata to selected samples and reindexes
         internal:parent_id to maintain relational consistency in the new dataset.
 
-        The reindexing process:
-        1. Level0: Filter to selected samples, assign new parent_id = 0, 1, 2, ...
-        2. Level1+: Filter to children of selected parents, remap parent_id values
-
         Also removes ZIP-specific columns (internal:offset, internal:size) since
         FOLDER format doesn't use them.
         """
-        if not self.quiet:
-            print("  Generating consolidated metadata...")
+        if self.debug:
+            print("Generating consolidated metadata...")
 
         selected_ids = set(self.dataset.data._data["id"].to_list())
 
@@ -418,8 +413,8 @@ class ExportWriter:
             output_path = self.metadata_dir / f"{level_name}.avro"
             write_avro_file(filtered_df, output_path)
 
-            if not self.quiet:
-                print(f"    {level_name}.avro: {len(filtered_df)} samples")
+            if self.debug:
+                print(f"  {level_name}.avro: {len(filtered_df)} samples")
 
     def _generate_collection_json(self) -> None:
         """
@@ -430,8 +425,8 @@ class ExportWriter:
         - Adds taco:subset_of field with original dataset ID
         - Adds taco:subset_date with export timestamp
         """
-        if not self.quiet:
-            print("  Generating COLLECTION.json...")
+        if self.debug:
+            print("Generating COLLECTION.json...")
 
         collection = self.dataset.collection.copy()
 

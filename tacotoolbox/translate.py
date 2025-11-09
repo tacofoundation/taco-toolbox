@@ -19,7 +19,7 @@ Example:
     >>> from tacotoolbox.translate import zip2folder, folder2zip
     >>> 
     >>> # Convert ZIP to FOLDER
-    >>> zip2folder("dataset.tacozip", "dataset_folder/")
+    >>> await zip2folder("dataset.tacozip", "dataset_folder/")
     >>> 
     >>> # Convert FOLDER to ZIP
     >>> folder2zip("dataset_folder/", "dataset.tacozip")
@@ -46,10 +46,10 @@ class TranslateError(Exception):
 # =============================================================================
 
 
-def zip2folder(
+async def zip2folder(
     zip_path: str | Path,
     folder_output: str | Path,
-    nworkers: int = 4,
+    concurrency: int = 100,
     quiet: bool = False,
 ) -> Path:
     """
@@ -61,7 +61,7 @@ def zip2folder(
     Args:
         zip_path: Path to input .tacozip file
         folder_output: Path to output folder
-        nworkers: Number of parallel workers for file copying
+        concurrency: Maximum concurrent async operations (default: 100)
         quiet: If True, suppress progress messages
 
     Returns:
@@ -71,7 +71,7 @@ def zip2folder(
         TranslateError: If conversion fails
 
     Example:
-        >>> zip2folder("dataset.tacozip", "dataset_folder/")
+        >>> await zip2folder("dataset.tacozip", "dataset_folder/")
         PosixPath('dataset_folder')
     """
     try:
@@ -80,11 +80,11 @@ def zip2folder(
         writer = ExportWriter(
             dataset=dataset,
             output=Path(folder_output),
-            nworkers=nworkers,
+            concurrency=concurrency,
             quiet=quiet,
         )
         
-        return writer.create_folder()
+        return await writer.create_folder()
         
     except Exception as e:
         raise TranslateError(f"Failed to convert ZIP to FOLDER: {e}") from e
