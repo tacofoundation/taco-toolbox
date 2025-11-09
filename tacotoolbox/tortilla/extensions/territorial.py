@@ -8,6 +8,7 @@ import pydantic
 from pydantic import Field
 from shapely.geometry import Point
 from shapely.wkb import loads as wkb_loads
+from tqdm import tqdm
 
 from tacotoolbox.tortilla.datamodel import TortillaExtension
 from tacotoolbox.tortilla.extensions import territorial_products, territorial_utils
@@ -59,45 +60,6 @@ def _import_earth_engine():
         return ee
 
 
-def _import_tqdm():
-    """
-    Lazy import of tqdm with fallback to dummy progress bar.
-
-    Returns:
-        tuple: (tqdm_class, is_available)
-    """
-    try:
-        from tqdm.auto import tqdm
-    except ImportError:
-
-        class DummyTqdm:
-            def __init__(
-                self, iterable=None, total=None, desc=None, disable=None, **kwargs
-            ):
-                self.iterable = iterable
-                self.total = total or (len(iterable) if iterable else 0)
-                self.n = 0
-
-            def __enter__(self):
-                return self
-
-            def __exit__(self, *args):
-                pass
-
-            def update(self, n=1):
-                self.n += n
-
-            def __iter__(self):
-                if self.iterable:
-                    for item in self.iterable:
-                        yield item
-                        self.update()
-
-        return DummyTqdm, False
-    else:
-        return tqdm, True
-
-
 class Territorial(TortillaExtension):
     """
     Territorial data enrichment extension for TORTILLA.
@@ -112,10 +74,11 @@ class Territorial(TortillaExtension):
         - Support for multiple reducer types (mean, sum, mode)
         - Admin name resolution from local lookup tables
         - Retry logic for transient Earth Engine errors
+        - Progress bars via tqdm
 
     Requirements:
         - earthengine-api: Required for all functionality
-        - tqdm: Optional, for progress bars (fallback available)
+        - tqdm: Required for progress bars (official dependency)
 
     Example Usage:
         # All variables (default)
@@ -128,6 +91,10 @@ class Territorial(TortillaExtension):
             scale_m=1000.0,
             batch_size=50
         )
+        tortilla.extend_with(territorial)
+
+        # Disable progress bar
+        territorial = Territorial(show_progress=False)
         tortilla.extend_with(territorial)
 
         # Returns DataFrame with columns like:
@@ -169,7 +136,7 @@ class Territorial(TortillaExtension):
     )
     show_progress: bool = Field(
         True,
-        description="Whether to display progress bar during processing. Auto-disabled if tqdm not available.",
+        description="Whether to display progress bar during processing.",
     )
 
     def get_schema(self) -> dict[str, pl.DataType]:
@@ -450,12 +417,8 @@ class Territorial(TortillaExtension):
             >>> print(result.columns)
             ['territorial:elevation', 'territorial:gdp']
         """
-        # Lazy imports with proper error handling
+        # Lazy import Earth Engine with proper error handling
         ee = _import_earth_engine()
-        tqdm, tqdm_available = _import_tqdm()
-
-        # Disable progress bar if tqdm not available or explicitly disabled
-        show_progress = self.show_progress and tqdm_available
 
         # Get DataFrame from tortilla
         df = tortilla._metadata_df
@@ -491,9 +454,9 @@ class Territorial(TortillaExtension):
                 for chunk in territorial_utils._chunks(points, self.batch_size)
             }
 
-            # Collect results with progress bar (or dummy if tqdm not available)
+            # Collect results with progress bar
             with tqdm(
-                total=total_chunks, desc="Territorial", disable=not show_progress
+                total=total_chunks, desc="Territorial", disable=not self.show_progress
             ) as pbar:
                 for future in as_completed(futures):
                     rows.extend(future.result())
