@@ -39,8 +39,9 @@ VALID_KEY_PATTERN = re.compile(r"^[a-zA-Z0-9_]+(?:[:][\w]+)?$")
 class SampleExtension(ABC, pydantic.BaseModel):
     """Abstract base class for Sample extensions that compute metadata."""
 
-    return_none: bool = pydantic.Field(
-        False, description="If True, return None values while preserving schema"
+    schema_only: bool = pydantic.Field(
+        False,
+        description="If True, return None values while preserving schema (renamed from return_none)",
     )
 
     @abstractmethod
@@ -50,7 +51,7 @@ class SampleExtension(ABC, pydantic.BaseModel):
 
     @abstractmethod
     def _compute(self, sample: "Sample") -> pl.DataFrame:
-        """Actual computation logic - only called when return_none=False."""
+        """Actual computation logic - only called when schema_only=False."""
         pass
 
     def __call__(self, sample: "Sample") -> pl.DataFrame:
@@ -63,8 +64,8 @@ class SampleExtension(ABC, pydantic.BaseModel):
         Returns:
             pl.DataFrame: Single-row DataFrame with computed metadata
         """
-        # Check return_none FIRST for performance
-        if self.return_none:
+        # Check schema_only FIRST for performance
+        if self.schema_only:
             schema = self.get_schema()
             none_data = {col_name: [None] for col_name in schema}
             return pl.DataFrame(none_data, schema=schema)

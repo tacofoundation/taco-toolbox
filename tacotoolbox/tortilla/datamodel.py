@@ -9,6 +9,7 @@ Key features:
 - Position-Isomorphic Tree (PIT) validation
 - Auto-padding for homogeneous structures
 - Efficient DataFrame construction with schema validation
+- Configurable schema strictness (strict_schema parameter)
 
 Best Practice: When mixing FOLDERs and FILEs, place all FOLDERs before FILEs
 for better organization and readability.
@@ -35,8 +36,9 @@ if TYPE_CHECKING:
 class TortillaExtension(ABC, pydantic.BaseModel):
     """Abstract base class for Tortilla extensions that add computed columns."""
 
-    return_none: bool = pydantic.Field(
-        False, description="If True, return None values while preserving schema"
+    schema_only: bool = pydantic.Field(
+        False,
+        description="If True, return None values while preserving schema (renamed from return_none)",
     )
 
     @abstractmethod
@@ -46,7 +48,7 @@ class TortillaExtension(ABC, pydantic.BaseModel):
 
     @abstractmethod
     def _compute(self, tortilla: "Tortilla") -> pl.DataFrame:
-        """Actual computation logic - only called when return_none=False."""
+        """Actual computation logic - only called when schema_only=False."""
         pass
 
     def __call__(self, tortilla: "Tortilla") -> pl.DataFrame:
@@ -59,8 +61,8 @@ class TortillaExtension(ABC, pydantic.BaseModel):
         Returns:
             pl.DataFrame: DataFrame with computed metadata
         """
-        # Check return_none FIRST for performance
-        if self.return_none:
+        # Check schema_only FIRST for performance
+        if self.schema_only:
             schema = self.get_schema()
             none_data = {col_name: [None] for col_name in schema}
             return pl.DataFrame(none_data, schema=schema)
@@ -84,9 +86,16 @@ class Tortilla:
     tree structures. Padding samples have IDs starting with "__TACOPAD__" and
     preserve the schema of real samples with None values.
 
+    Schema Validation: By default (strict_schema=True), all samples must have
+    identical metadata schemas. Set strict_schema=False to allow heterogeneous
+    schemas with automatic None-filling for missing columns.
+
     Example:
-        >>> # Basic tortilla
+        >>> # Basic tortilla (strict schema - default)
         >>> tortilla = Tortilla(samples=[sample1, sample2, sample3])
+
+        >>> # Flexible schema (auto-fills missing columns with None)
+        >>> tortilla = Tortilla(samples=[s1, s2], strict_schema=False)
 
         >>> # With auto-padding
         >>> tortilla = Tortilla(samples=my_samples, pad_to=32)
@@ -97,7 +106,12 @@ class Tortilla:
         >>> level1 = tortilla.export_metadata(deep=1)  # One level deep
     """
 
-    def __init__(self, samples: list["Sample"], pad_to: int | None = None) -> None:
+    def __init__(
+        self,
+        samples: list["Sample"],
+        pad_to: int | None = None,
+        strict_schema: bool = True,
+    ) -> None:
         """
         Create Tortilla with eager DataFrame construction and schema validation.
 
@@ -105,10 +119,23 @@ class Tortilla:
             samples: List of Sample objects
             pad_to: Optional padding factor. If provided, adds dummy samples with
                    "__TACOPAD__" prefix to make len(samples) % pad_to == 0.
+            strict_schema: If True (default), all samples must have identical schemas.
+                          If False, allows heterogeneous schemas with auto-fill.
 
         Raises:
-            ValueError: If samples have inconsistent metadata schemas or empty list
-                       or if Inclusive ID Rule is violated or if duplicate IDs found
+            ValueError: If samples have inconsistent metadata schemas (strict_schema=True)
+                       or empty list or if Inclusive ID Rule is violated or duplicate IDs
+
+        Example:
+            >>> # Strict mode (default) - fails on schema mismatch
+            >>> tortilla = Tortilla(samples=[s1, s2])  # ValueError if schemas differ
+            
+            >>> # Flexible mode - auto-fills missing columns
+            >>> tortilla = Tortilla(samples=[s1, s2], strict_schema=False)
+            
+            >>> # Check resulting schema
+            >>> df = tortilla.export_metadata(deep=0)
+            >>> print(df.columns)  # See what columns exist
         """
         if not samples:
             raise ValueError("Cannot create Tortilla with empty samples list")
@@ -142,29 +169,101 @@ class Tortilla:
                 current_columns = set(sample_metadata_df.columns)
 
                 if current_columns != reference_columns:
-                    missing_columns = reference_columns - current_columns
-                    extra_columns = current_columns - reference_columns
-
-                    error_msg = (
-                        f"Schema inconsistency at sample {i} (id: {sample.id}):\n"
-                    )
-
-                    if missing_columns:
-                        error_msg += f"  Missing columns: {sorted(missing_columns)}\n"
-
-                    if extra_columns:
-                        error_msg += f"  Extra columns: {sorted(extra_columns)}\n"
-
-                    error_msg += f"  Expected schema: {sorted(reference_columns)}\n"
-                    error_msg += f"  Actual schema: {sorted(current_columns)}"
-
-                    raise ValueError(error_msg)
+                    if strict_schema:
+                        # STRICT MODE: fail with helpful error
+                        self._raise_schema_mismatch_error(
+                            i, sample, reference_columns, current_columns
+                        )
+                    else:
+                        # FLEXIBLE MODE: auto-fill missing columns with None
+                        sample_metadata_df = self._align_schema(
+                            sample_metadata_df, reference_columns
+                        )
+                        # Update reference columns to union of all columns seen
+                        reference_columns = reference_columns | current_columns
 
             metadata_dfs.append(sample_metadata_df)
+
+        # If flexible mode was used, ensure all DataFrames have all columns
+        if not strict_schema and reference_columns:
+            metadata_dfs = [
+                self._align_schema(df, reference_columns) for df in metadata_dfs
+            ]
 
         # Concatenate DataFrames - all schemas are guaranteed to be consistent
         self._metadata_df = pl.concat(metadata_dfs, how="vertical")
         self._current_depth = self._calculate_current_depth()
+
+    def _raise_schema_mismatch_error(
+        self,
+        sample_index: int,
+        sample: "Sample",
+        reference_columns: set[str],
+        current_columns: set[str],
+    ) -> None:
+        """
+        Raise helpful error when schema mismatch detected in strict mode.
+
+        Args:
+            sample_index: Index of the problematic sample
+            sample: The problematic sample
+            reference_columns: Expected columns from reference sample
+            current_columns: Actual columns in current sample
+        """
+        missing_columns = reference_columns - current_columns
+        extra_columns = current_columns - reference_columns
+
+        error_msg = (
+            f"Schema inconsistency detected at sample {sample_index} (id: '{sample.id}'):\n\n"
+        )
+
+        error_msg += (
+            f"  Reference sample columns: {sorted(reference_columns)}\n"
+            f"  Current sample columns: {sorted(current_columns)}\n\n"
+        )
+
+        if missing_columns:
+            error_msg += f"  Missing columns: {sorted(missing_columns)}\n"
+
+        if extra_columns:
+            error_msg += f"  Extra columns: {sorted(extra_columns)}\n"
+
+        error_msg += (
+            "\n"
+            "  💡 Hint: If you want to combine samples with different schemas, use:\n"
+            "      Tortilla(samples=[...], strict_schema=False)\n\n"
+            "  This will auto-fill missing columns with None values.\n\n"
+            "  To inspect sample schemas before creating Tortilla:\n"
+            "      df = sample.export_metadata()\n"
+            "      print(df.columns)  # See what columns exist\n"
+        )
+
+        raise ValueError(error_msg)
+
+    def _align_schema(
+        self, df: pl.DataFrame, target_columns: set[str]
+    ) -> pl.DataFrame:
+        """
+        Align DataFrame schema to match target columns by adding missing columns with None.
+
+        Args:
+            df: DataFrame to align
+            target_columns: Set of column names that should exist
+
+        Returns:
+            DataFrame with all target columns (missing ones filled with None)
+        """
+        current_columns = set(df.columns)
+        missing_columns = target_columns - current_columns
+
+        if not missing_columns:
+            return df
+
+        # Add missing columns with None values
+        for col_name in missing_columns:
+            df = df.with_columns(pl.lit(None).alias(col_name))
+
+        return df
 
     def _validate_unique_ids(self) -> None:
         """
