@@ -10,7 +10,37 @@ Key features:
 - Automatic parent_id reindexing for consistency
 - Recursive FOLDER handling with local metadata
 - Zero-copy data transfer with obstore
-- High-performance concurrent downloads with progress bars
+- High-performance concurrent downloads with progress bars (9x+ improvement vs threads)
+
+The ExportWriter uses async/await for optimal performance when downloading
+data from remote sources like S3 or HTTP endpoints. Local file I/O uses
+sync operations as they're fast and not the bottleneck.
+
+FOLDER Structure example (level 0 = FILEs only):
+    dataset/
+    ├── DATA/
+    │   ├── sample_001.tif
+    │   ├── sample_002.tif
+    │   └── sample_003.tif
+    ├── METADATA/
+    │   └── level0.avro
+    └── COLLECTION.json
+
+FOLDER Structure example (level 0 = FOLDERs, level 1 = FILEs):
+    dataset/
+    ├── DATA/
+    │   ├── folder_A/
+    │   │   ├── __meta__
+    │   │   ├── nested_001.tif
+    │   │   └── nested_002.tif
+    │   └── folder_B/
+    │       ├── __meta__
+    │       ├── nested_001.tif
+    │       └── nested_002.tif
+    ├── METADATA/
+    │   ├── level0.avro
+    │   └── level1.avro
+    └── COLLECTION.json
 """
 
 import asyncio

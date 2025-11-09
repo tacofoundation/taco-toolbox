@@ -9,16 +9,13 @@ Key features:
 - Preserves all metadata and hierarchical structure
 - Handles AVRO colon sanitization (_COLON_ ↔ :)
 - Regenerates __meta__ files with correct offsets for ZIP
-- Supports all PIT schema patterns (FILES only, FOLDERs, mixed depths)
-
-Functions:
-    zip2folder(): Extract ZIP to FOLDER format
-    folder2zip(): Package FOLDER into ZIP format
+- Supports all PIT schema patterns
+- Progress bars for file operations
 
 Example:
     >>> from tacotoolbox.translate import zip2folder, folder2zip
     >>> 
-    >>> # Convert ZIP to FOLDER
+    >>> # Convert ZIP to FOLDER (with progress bars)
     >>> await zip2folder("dataset.tacozip", "dataset_folder/")
     >>> 
     >>> # Convert FOLDER to ZIP
@@ -51,18 +48,20 @@ async def zip2folder(
     folder_output: str | Path,
     concurrency: int = 100,
     quiet: bool = False,
+    debug: bool = False,
 ) -> Path:
     """
     Convert ZIP format TACO to FOLDER format.
 
-    This is a simple wrapper around ExportWriter that converts a complete
+    This is a wrapper around ExportWriter that converts a complete
     ZIP container to FOLDER format without any filtering.
 
     Args:
         zip_path: Path to input .tacozip file
         folder_output: Path to output folder
         concurrency: Maximum concurrent async operations (default: 100)
-        quiet: If True, suppress progress messages
+        quiet: If True, hide progress bars (default: False - shows progress)
+        debug: If True, show detailed debug messages (default: False)
 
     Returns:
         Path to created FOLDER container
@@ -73,6 +72,9 @@ async def zip2folder(
     Example:
         >>> await zip2folder("dataset.tacozip", "dataset_folder/")
         PosixPath('dataset_folder')
+        
+        >>> # With debug
+        >>> await zip2folder("dataset.tacozip", "dataset_folder/", debug=True)
     """
     try:
         dataset = TacoDataset(str(zip_path))
@@ -82,6 +84,7 @@ async def zip2folder(
             output=Path(folder_output),
             concurrency=concurrency,
             quiet=quiet,
+            debug=debug,
         )
         
         return await writer.create_folder()
@@ -93,7 +96,8 @@ async def zip2folder(
 def folder2zip(
     folder_path: str | Path,
     zip_output: str | Path,
-    quiet: bool = True,
+    quiet: bool = False,
+    debug: bool = False,
     temp_dir: str | Path | None = None,
     **kwargs,
 ) -> Path:
@@ -114,7 +118,8 @@ def folder2zip(
     Args:
         folder_path: Path to input FOLDER container
         zip_output: Path to output .tacozip file
-        quiet: If True, suppress progress messages
+        quiet: If True, hide progress bars (default: False - shows progress)
+        debug: If True, show detailed debug messages (default: False)
         temp_dir: Temporary directory for ZIP creation
         **kwargs: Additional arguments passed to ZipWriter
 
@@ -127,32 +132,35 @@ def folder2zip(
     Example:
         >>> folder2zip("dataset_folder/", "dataset.tacozip")
         PosixPath('dataset.tacozip')
+        
+        >>> # With debug
+        >>> folder2zip("dataset_folder/", "dataset.tacozip", debug=True)
     """
     folder_path = Path(folder_path)
     zip_output = Path(zip_output)
 
     try:
-        if not quiet:
+        if debug:
             print("Converting FOLDER to ZIP...")
 
         # 1. Read COLLECTION.json
-        if not quiet:
-            print("  [1/5] Reading COLLECTION.json...")
+        if debug:
+            print("Reading COLLECTION.json...")
         collection = _read_collection(folder_path)
 
         # 2. Read consolidated metadata from METADATA/levelX.avro
-        if not quiet:
-            print("  [2/5] Reading consolidated metadata...")
+        if debug:
+            print("Reading consolidated metadata...")
         levels = _read_consolidated_metadata(folder_path)
 
         # 3. Reconstruct local_metadata from consolidated
-        if not quiet:
-            print("  [3/5] Reconstructing local metadata...")
+        if debug:
+            print("Reconstructing local metadata...")
         local_metadata = _reconstruct_local_metadata_from_levels(levels)
 
         # 4. Scan DATA/ for physical files
-        if not quiet:
-            print("  [4/5] Scanning data files...")
+        if debug:
+            print("Scanning data files...")
         src_files, arc_files = _scan_data_files(folder_path)
 
         # 5. Create MetadataPackage
@@ -166,9 +174,9 @@ def folder2zip(
         )
 
         # 6. Use ZipWriter to create ZIP (regenerates __meta__ with offsets)
-        if not quiet:
-            print("  [5/5] Creating ZIP container...")
-        writer = ZipWriter(output_path=zip_output, quiet=quiet, temp_dir=temp_dir)
+        if debug:
+            print("Creating ZIP container...")
+        writer = ZipWriter(output_path=zip_output, quiet=quiet, debug=debug, temp_dir=temp_dir)
         result = writer.create_complete_zip(
             src_files=src_files,
             arc_files=arc_files,
@@ -176,7 +184,7 @@ def folder2zip(
             **kwargs,
         )
 
-        if not quiet:
+        if debug:
             print(f"Conversion complete: {result}")
 
         return result
@@ -191,18 +199,7 @@ def folder2zip(
 
 
 def _read_collection(folder_path: Path) -> dict:
-    """
-    Read COLLECTION.json from FOLDER.
-
-    Args:
-        folder_path: Root path to FOLDER container
-
-    Returns:
-        Collection dictionary
-
-    Raises:
-        TranslateError: If COLLECTION.json missing or invalid
-    """
+    """Read COLLECTION.json from FOLDER."""
     collection_path = folder_path / "COLLECTION.json"
 
     if not collection_path.exists():
@@ -230,15 +227,6 @@ def _read_consolidated_metadata(folder_path: Path) -> list[pl.DataFrame]:
 
     CRITICAL: AVRO files use _COLON_ replacement for colons in column names.
     This function unsanitizes them back to standard format (internal:parent_id).
-
-    Args:
-        folder_path: Root path to FOLDER container
-
-    Returns:
-        List of DataFrames, one per level (sorted by level number)
-
-    Raises:
-        TranslateError: If metadata files missing or invalid
     """
     metadata_dir = folder_path / "METADATA"
 
@@ -273,12 +261,6 @@ def _unsanitize_colons(df: pl.DataFrame) -> pl.DataFrame:
     Example:
         internal_COLON_parent_id → internal:parent_id
         stac_COLON_crs → stac:crs
-
-    Args:
-        df: DataFrame with sanitized column names
-
-    Returns:
-        DataFrame with standard column names
     """
     rename_map = {
         col: col.replace(AVRO_COLON_REPLACEMENT, ":")
@@ -364,24 +346,6 @@ def _scan_data_files(folder_path: Path) -> tuple[list[str], list[str]]:
     Builds parallel lists of source paths (absolute filesystem paths) and
     archive paths (paths within ZIP container). Excludes __meta__ files
     since they're regenerated during ZIP creation.
-
-    Args:
-        folder_path: Root path to FOLDER container
-
-    Returns:
-        Tuple of (src_files, arc_files):
-            - src_files: List of absolute file paths
-            - arc_files: List of archive paths (e.g., "DATA/folder_A/file.tif")
-
-    Raises:
-        TranslateError: If DATA directory missing or empty
-
-    Example:
-        >>> src_files, arc_files = _scan_data_files(Path("dataset/"))
-        >>> src_files[0]
-        '/absolute/path/to/dataset/DATA/sample_001.tif'
-        >>> arc_files[0]
-        'DATA/sample_001.tif'
     """
     data_dir = folder_path / "DATA"
 

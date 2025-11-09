@@ -98,9 +98,23 @@ class FolderWriterError(Exception):
 class FolderWriter:
     """Handle creation of folder container structures with dual metadata."""
 
-    def __init__(self, output_dir: pathlib.Path, quiet: bool = True) -> None:
+    def __init__(
+        self, 
+        output_dir: pathlib.Path, 
+        quiet: bool = False, 
+        debug: bool = False
+    ) -> None:
+        """
+        Initialize folder writer.
+
+        Args:
+            output_dir: Output directory path
+            quiet: If True, hide progress bars (default: False)
+            debug: If True, show detailed debug messages (default: False)
+        """
         self.output_dir = output_dir
         self.quiet = quiet
+        self.debug = debug
         self.data_dir = output_dir / FOLDER_DATA_DIR
         self.metadata_dir = output_dir / FOLDER_METADATA_DIR
 
@@ -110,29 +124,28 @@ class FolderWriter:
         metadata_package: MetadataPackage,
         **kwargs: Any,
     ) -> pathlib.Path:
+        """
+        Create complete FOLDER TACO container.
+
+        Args:
+            samples: List of Sample objects
+            metadata_package: Complete metadata package
+            **kwargs: Additional arguments
+
+        Returns:
+            Path to created folder
+
+        Raises:
+            FolderWriterError: If folder creation fails
+        """
         try:
-            if not self.quiet:
-                print("Creating folder structure...")
-
             self._create_structure()
-
-            if not self.quiet:
-                print("Copying data files...")
             self._copy_data_files(samples)
-
-            if not self.quiet:
-                print("Writing local metadata...")
             self._write_local_metadata(metadata_package, **kwargs)
-
-            if not self.quiet:
-                print("Writing consolidated metadata...")
             self._write_consolidated_metadata(metadata_package, **kwargs)
-
-            if not self.quiet:
-                print("Writing COLLECTION.json...")
             self._write_collection_json(metadata_package)
 
-            if not self.quiet:
+            if self.debug:
                 print(f"Folder container created: {self.output_dir}/")
 
         except Exception as e:
@@ -141,15 +154,27 @@ class FolderWriter:
             return self.output_dir
 
     def _create_structure(self) -> None:
+        """Create base DATA/ and METADATA/ folders."""
         self.data_dir.mkdir(parents=True, exist_ok=False)
         self.metadata_dir.mkdir(parents=True, exist_ok=False)
 
+        if self.debug:
+            print(f"Created {FOLDER_DATA_DIR}/ and {FOLDER_METADATA_DIR}/")
+
     def _copy_data_files(self, samples: list[Any]) -> None:
+        """Copy data files recursively."""
         self._copy_samples_recursive(samples, path_prefix="")
 
     def _copy_samples_recursive(
         self, samples: list[Any], path_prefix: str = ""
     ) -> None:
+        """
+        Recursively copy samples to DATA/.
+
+        Args:
+            samples: List of Sample objects
+            path_prefix: Current path prefix in structure
+        """
         for sample in samples:
             if sample.type == "FOLDER":
                 new_prefix = (
@@ -179,19 +204,17 @@ class FolderWriter:
 
         These files do NOT contain internal:parent_id (navigation is implicit
         via folder structure), but they preserve all other metadata fields.
-
-        Uses Parquet to avoid Polars Avro bugs with small files.
         """
         for folder_path, local_df in metadata_package.local_metadata.items():
             meta_path = self.output_dir / f"{folder_path}{FOLDER_META_FILENAME}"
 
             meta_path.parent.mkdir(parents=True, exist_ok=True)
 
-            # Write as Parquet (no Avro bugs with small files)
+            # Write as Parquet
             self._write_parquet_file(local_df, meta_path)
 
-            if not self.quiet:
-                print(f"  Created {folder_path}{FOLDER_META_FILENAME}")
+            if self.debug:
+                print(f"Created {folder_path}{FOLDER_META_FILENAME}")
 
     def _write_consolidated_metadata(
         self,
@@ -201,25 +224,19 @@ class FolderWriter:
         """
         Write consolidated METADATA/levelX.avro files.
 
-        These files preserve ALL columns from metadata_package.levels,
-        including internal:parent_id for hierarchical navigation via JOINs.
-
-        Example query enabled by parent_id:
-          SELECT * FROM level0 l0
-          LEFT JOIN level1 l1 ON l1."internal:parent_id" = l0."internal:parent_id"
-
-        FolderWriter does NOT modify the DataFrames, so parent_id is preserved.
+        These files preserve ALL columns including internal:parent_id
+        for hierarchical navigation via JOINs.
         """
         for i, level_df in enumerate(metadata_package.levels):
             output_path = self.metadata_dir / f"level{i}.avro"
 
-            # Write consolidated as Avro (large files work fine)
+            # Write consolidated as Avro
             self._write_avro_file(level_df, output_path)
 
-            if not self.quiet:
+            if self.debug:
                 has_parent_id = METADATA_PARENT_ID in level_df.columns
                 print(
-                    f"  Created {FOLDER_METADATA_DIR}/level{i}.avro "
+                    f"Created {FOLDER_METADATA_DIR}/level{i}.avro "
                     f"({len(level_df)} rows, parent_id={has_parent_id})"
                 )
 
@@ -245,3 +262,6 @@ class FolderWriter:
 
         with open(collection_path, "w", encoding="utf-8") as f:
             json.dump(collection_with_schema, f, indent=4, ensure_ascii=False)
+
+        if self.debug:
+            print(f"Created {FOLDER_COLLECTION_FILENAME}")

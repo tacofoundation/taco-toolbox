@@ -8,7 +8,7 @@ This module generates the dual metadata system used by both ZIP and FOLDER conta
    - Contains ALL samples at that level across the entire dataset
    - Includes internal:parent_id for relational queries (all levels)
    - Includes internal:relative_path for fast SQL queries (level 1+ only)
-   - Used for: sql, queries, navigation, statistics
+   - Used for: sql queries, navigation, statistics
    
 2. LOCAL METADATA (DATA/folder/__meta__ files):
    - One file per FOLDER (only for level 1+)
@@ -24,22 +24,12 @@ CRITICAL DESIGN PRINCIPLES:
   * All folders at same level have SAME number of children
   * All folders at same level have SAME child IDs (with padding)
   * Padding (__TACOPAD__*) ensures structural uniformity
-
-Example structure:
-    Level 0: [folder_A, folder_B, folder_C]  (3 folders)
-    Level 1: Each folder has exactly 4 children (homogeneous):
-        folder_A: [file_1, file_2, __TACOPAD__0, __TACOPAD__1]
-        folder_B: [file_1, file_2, file_3, file_4]
-        folder_C: [file_1, file_2, file_3, __TACOPAD__2]
-    
-    Even with different real files, padding ensures ALL have 4 children.
 """
 
 from typing import TYPE_CHECKING, Any
 
 import polars as pl
 
-# Import from new modules
 from tacotoolbox._column_utils import remove_empty_columns, reorder_internal_columns
 from tacotoolbox._constants import (
     METADATA_PARENT_ID,
@@ -130,7 +120,7 @@ class MetadataPackage:
                   Example: depth=2 means 3 levels (0, 1, 2)
 
     Example usage:
-        >>> generator = MetadataGenerator(taco, quiet=True)
+        >>> generator = MetadataGenerator(taco, debug=False)
         >>> package = generator.generate_all_levels()
         >>>
         >>> # Access consolidated metadata
@@ -175,61 +165,22 @@ class MetadataPackage:
 
 
 class MetadataGenerator:
-    """
-    Generate complete metadata package for TACO containers.
+    """Generate complete metadata package for TACO containers."""
 
-    This generator creates all metadata needed for both ZIP and FOLDER containers:
-    - Consolidated metadata (METADATA/levelX) for all levels
-    - Local metadata (DATA/folder/__meta__) for each folder
-    - Collection metadata (COLLECTION.json)
-    - Schema information (PIT + field schemas)
-
-    The generator validates TACO's Position-Isomorphic Tree (PIT) constraints:
-    - All samples at same level have same type
-    - All folders at same level have same number of children
-    - All folders at same level have same child IDs (with padding)
-
-    Usage:
-        >>> taco = Taco(...)
-        >>> generator = MetadataGenerator(taco, quiet=False)
-        >>> package = generator.generate_all_levels()
-        >>>
-        >>> # Now use package.levels for consolidated metadata
-        >>> # Use package.local_metadata for folder-specific metadata
-    """
-
-    def __init__(self, taco: "Taco", quiet: bool = False) -> None:
+    def __init__(self, taco: "Taco", debug: bool = False) -> None:
         """
         Initialize metadata generator.
 
         Args:
             taco: TACO object containing tortilla with samples
-            quiet: If True, suppress progress messages
+            debug: If True, show detailed debug messages (default: False)
         """
         self.taco = taco
-        self.quiet = quiet
+        self.debug = debug
         self.max_depth = min(taco.tortilla._current_depth, 5)
 
     def generate_all_levels(self) -> MetadataPackage:
-        """
-        Generate complete metadata package for both ZIP and FOLDER containers.
-
-        Process:
-        1. Export metadata from tortilla for each level (0 to max_depth)
-        2. Clean DataFrames (remove empty columns, container-irrelevant fields)
-        3. Add internal:parent_id for relational queries
-        4. Validate PIT constraints (homogeneity, structure)
-        5. Add internal:relative_path for fast queries (level 1+ only, consolidated metadata)
-        6. Generate PIT schema and field schema
-        7. Generate local metadata for each folder
-        8. Generate collection metadata
-
-        Returns:
-            MetadataPackage with all metadata components
-
-        Raises:
-            PITValidationError: If TACO homogeneity constraints are violated
-        """
+        """Generate complete metadata package for both ZIP and FOLDER containers."""
         levels = []
         dataframes = []
 
@@ -239,13 +190,10 @@ class MetadataGenerator:
             df = self._clean_dataframe(df)
 
             # Add internal:parent_id for level 0 as row index
-            # This enables uniform JOIN queries across all levels
-            # Level 1+ already have parent_id from tortilla.export_metadata(deep=N)
             if depth == 0:
                 df = df.with_columns(
                     pl.arange(0, len(df)).cast(pl.Int64).alias(METADATA_PARENT_ID)
                 )
-                # Move internal:parent_id to end for consistency
                 df = reorder_internal_columns(df)
 
             dataframes.append(df)
@@ -260,7 +208,7 @@ class MetadataGenerator:
         dataframes = self._add_relative_paths(dataframes)
 
         # Generate schemas
-        pit_schema = generate_pit_schema(dataframes, quiet=self.quiet)
+        pit_schema = generate_pit_schema(dataframes, debug=self.debug)
         field_schema = generate_field_schema(dataframes)
 
         levels = dataframes
@@ -291,30 +239,7 @@ class MetadataGenerator:
         )
 
     def _add_relative_paths(self, levels: list[pl.DataFrame]) -> list[pl.DataFrame]:
-        """
-        Add internal:relative_path to level 1+ (consolidated metadata only).
-
-        Level 0 does NOT get relative_path - just use 'id' directly.
-        Level 1+ gets full relative paths built from parent paths.
-
-        Path format:
-        - Relative to DATA/ directory (no DATA/ prefix)
-        - FOLDERs end with "/"
-        - FILEs have no trailing slash
-
-        Uses internal:parent_id to lookup parent paths for level 1+.
-
-        Args:
-            levels: List of DataFrames, one per level
-
-        Returns:
-            List of DataFrames with internal:relative_path added (level 1+ only)
-
-        Example:
-            Level 0: NO relative_path column (use id directly)
-            Level 1: "Landslide_001/imagery/" (FOLDER), "Landslide_001/label.json" (FILE)
-            Level 2: "Landslide_001/imagery/before.tif" (FILE)
-        """
+        """Add internal:relative_path to level 1+ (consolidated metadata only)."""
         result_levels = []
 
         for depth, df in enumerate(levels):
@@ -367,18 +292,7 @@ class MetadataGenerator:
         return result_levels
 
     def _generate_folder_metadata(self, folder_sample: "Sample") -> pl.DataFrame:
-        """
-        Generate local metadata for a single folder.
-
-        This creates the DATA/folder/__meta__ file content containing
-        metadata for the direct children of this folder only.
-
-        Args:
-            folder_sample: Sample object of type FOLDER
-
-        Returns:
-            DataFrame with metadata for direct children
-        """
+        """Generate local metadata for a single folder."""
         samples = folder_sample.path.samples
         metadata_dfs = [s.export_metadata() for s in samples]
         df = pl.concat(metadata_dfs, how="vertical")
@@ -387,24 +301,7 @@ class MetadataGenerator:
     def _generate_nested_folders(
         self, parent_sample: "Sample", parent_path: str
     ) -> dict[str, pl.DataFrame]:
-        """
-        Recursively generate local metadata for nested folders.
-
-        Args:
-            parent_sample: Parent folder sample
-            parent_path: Path to parent folder (e.g., "DATA/folder_A/")
-
-        Returns:
-            Dictionary mapping nested folder paths to their metadata DataFrames
-
-        Example:
-            >>> nested = self._generate_nested_folders(folder_A, "DATA/folder_A/")
-            >>> nested
-            {
-                "DATA/folder_A/subfolder_B/": df_subfolder_B,
-                "DATA/folder_A/subfolder_B/deepfolder/": df_deepfolder,
-            }
-        """
+        """Recursively generate local metadata for nested folders."""
         result = {}
 
         for child in parent_sample.path.samples:
@@ -420,18 +317,7 @@ class MetadataGenerator:
         return result
 
     def _validate_pit_level0(self, df: pl.DataFrame) -> None:
-        """
-        Validate PIT constraint for level 0 (root).
-
-        Rule: All samples at root level must have the same type.
-        Either all FILE or all FOLDER (never mixed).
-
-        Args:
-            df: DataFrame with level 0 metadata
-
-        Raises:
-            PITValidationError: If multiple types found at root
-        """
+        """Validate PIT constraint for level 0 (root)."""
         if "type" not in df.columns:
             raise PITValidationError("Level 0 missing 'type' column")
 
@@ -442,29 +328,13 @@ class MetadataGenerator:
             raise PITValidationError(
                 f"PIT constraint violated at level 0:\n"
                 f"All nodes must have the same type (all FILE or all FOLDER).\n"
-                f"Found types: {unique_types}\n"
-                f"This violates TACO's homogeneity requirement."
+                f"Found types: {unique_types}"
             )
 
     def _validate_pit_depth(
         self, df: pl.DataFrame, parent_df: pl.DataFrame, depth: int
     ) -> None:
-        """
-        Validate PIT constraints for hierarchical levels (depth 1+).
-
-        Rules:
-        1. Parent level must contain at least one FOLDER
-        2. All folders at parent level must have same structure
-        3. Each folder position must have consistent pattern
-
-        Args:
-            df: DataFrame with current level metadata
-            parent_df: DataFrame with parent level metadata
-            depth: Current depth (1+)
-
-        Raises:
-            PITValidationError: If PIT constraints violated
-        """
+        """Validate PIT constraints for hierarchical levels (depth 1+)."""
         if "type" not in df.columns:
             raise PITValidationError(f"Depth {depth} missing 'type' column")
 
@@ -474,8 +344,7 @@ class MetadataGenerator:
 
         if not folder_positions:
             raise PITValidationError(
-                f"Depth {depth} exists but no FOLDERs at depth {depth - 1}.\n"
-                f"This is impossible in valid TACO structure."
+                f"Depth {depth} exists but no FOLDERs at depth {depth - 1}"
             )
 
         num_parents = len(parent_df)
@@ -490,8 +359,7 @@ class MetadataGenerator:
             if chunk_pattern is None:
                 raise PITValidationError(
                     f"PIT constraint violated at depth {depth}:\n"
-                    f"Cannot extract consistent pattern for FOLDER at position {position}.\n"
-                    f"All folders must have same structure (use pad_to to ensure homogeneity)."
+                    f"Cannot extract consistent pattern for FOLDER at position {position}"
                 )
 
             # Validate pattern consistency across all parents
@@ -507,29 +375,11 @@ class MetadataGenerator:
                         f"PIT constraint violated at depth {depth}:\n"
                         f"FOLDER at position {position}, parent {parent_idx} has different pattern.\n"
                         f"Expected: {chunk_pattern}\n"
-                        f"Actual: {actual_chunk}\n"
-                        f"All folders must have identical child structure."
+                        f"Actual: {actual_chunk}"
                     )
 
     def _infer_unique_pattern(self, types: list[str], depth: int) -> list[str]:
-        """
-        Infer the repeating pattern of types at a level.
-
-        TACO homogeneity means samples repeat in patterns.
-        Example: [FILE, FILE, FOLDER, FILE, FILE, FOLDER] has pattern [FILE, FILE, FOLDER]
-
-        Args:
-            types: List of types at a level
-            depth: Depth level (for error context)
-
-        Returns:
-            Shortest repeating pattern
-
-        Example:
-            >>> types = ["FILE", "FILE", "FOLDER"] * 3
-            >>> self._infer_unique_pattern(types, 0)
-            ["FILE", "FILE", "FOLDER"]
-        """
+        """Infer the repeating pattern of types at a level."""
         total = len(types)
 
         # Try to find shortest repeating pattern
@@ -557,22 +407,7 @@ class MetadataGenerator:
         num_folders_per_parent: int,
         folder_idx: int,
     ) -> list[str] | None:
-        """
-        Extract the pattern for a specific folder position.
-
-        When parent level has multiple folder positions, each position
-        can have different child patterns. This extracts the pattern
-        for one specific folder position.
-
-        Args:
-            types: All child types at current level
-            num_parents: Number of parent samples
-            num_folders_per_parent: Number of folders per parent pattern
-            folder_idx: Which folder position to extract (0-indexed)
-
-        Returns:
-            Pattern for this folder position, or None if inconsistent
-        """
+        """Extract the pattern for a specific folder position."""
         total_types = len(types)
         expected_total = num_parents * num_folders_per_parent
 
@@ -600,27 +435,7 @@ class MetadataGenerator:
         return pattern
 
     def _clean_dataframe(self, df: pl.DataFrame) -> pl.DataFrame:
-        """
-        Clean DataFrame by removing unnecessary columns.
-
-        Removes:
-        - Container-irrelevant columns (path - filesystem specific)
-        - Empty columns (all null or empty string)
-
-        Preserves:
-        - Core fields (id, type)
-        - All internal:* columns (even if empty)
-        - Any non-empty user columns
-
-        Args:
-            df: Raw metadata DataFrame
-
-        Returns:
-            Cleaned DataFrame
-
-        Raises:
-            ValueError: If cleaning results in no columns (should never happen)
-        """
+        """Clean DataFrame by removing unnecessary columns."""
         # Remove path column (filesystem-specific, not container-relevant)
         container_irrelevant_cols = ["path"]
         df = df.drop([col for col in container_irrelevant_cols if col in df.columns])
@@ -628,7 +443,6 @@ class MetadataGenerator:
         # Remove empty columns (preserves core + internal automatically)
         df = remove_empty_columns(df, preserve_core=True, preserve_internal=True)
 
-        # Safety check (should never happen due to preserve_core)
         if len(df.columns) == 0:
             raise ValueError(
                 "DataFrame cleaning resulted in no columns. "
@@ -639,36 +453,7 @@ class MetadataGenerator:
 
 
 def generate_field_schema(levels: list[pl.DataFrame]) -> dict[str, Any]:
-    """
-    Generate field schema describing columns at each level.
-
-    Creates a schema that lists all column names and their types
-    for each hierarchical level. Used for validation and documentation.
-
-    Args:
-        levels: List of DataFrames, one per level
-
-    Returns:
-        Dictionary mapping level -> list of [column_name, type] pairs
-
-    Example:
-        >>> field_schema = generate_field_schema([level0_df, level1_df])
-        >>> field_schema
-        {
-            "level0": [
-                ["id", "string"],
-                ["type", "string"],
-                ["internal:parent_id", "int64"]
-            ],
-            "level1": [
-                ["id", "string"],
-                ["type", "string"],
-                ["internal:parent_id", "int64"],
-                ["internal:relative_path", "string"],
-                ["custom_field", "float64"]
-            ]
-        }
-    """
+    """Generate field schema describing columns at each level."""
     field_schema = {}
 
     for i, level_df in enumerate(levels):
@@ -683,56 +468,9 @@ def generate_field_schema(levels: list[pl.DataFrame]) -> dict[str, Any]:
 
 
 def generate_pit_schema(
-    dataframes: list[pl.DataFrame], quiet: bool = True
+    dataframes: list[pl.DataFrame], debug: bool = False
 ) -> dict[str, Any]:
-    """
-    Generate Position-Isomorphic Tree (PIT) schema.
-
-    PIT schema describes the hierarchical structure of the dataset:
-    - Root level: type and count
-    - Each subsequent level: patterns of types and IDs
-
-    Relies on TACO's HOMOGENEITY guarantee:
-    - All folders at same level have SAME number of children
-    - All folders at same level have SAME child IDs (with padding)
-    - Padding (__TACOPAD__*) ensures structural uniformity
-
-    This allows us to describe the ENTIRE structure by examining
-    just ONE representative folder per level (the one with most
-    real samples to avoid describing padding-heavy folders).
-
-    Args:
-        dataframes: List of DataFrames, one per level (0 to max_depth)
-        quiet: If True, suppress debug messages
-
-    Returns:
-        Dictionary with PIT schema:
-        {
-            "root": {"n": count, "type": "FILE"|"FOLDER"},
-            "hierarchy": {
-                "1": [{"n": total_count, "type": [...], "id": [...]}],
-                "2": [{"n": total_count, "type": [...], "id": [...]}, ...],
-                ...
-            }
-        }
-
-    Raises:
-        PITValidationError: If DataFrames missing required columns
-
-    Example:
-        >>> pit_schema = generate_pit_schema([level0_df, level1_df])
-        >>> pit_schema
-        {
-            "root": {"n": 3, "type": "FOLDER"},
-            "hierarchy": {
-                "1": [{
-                    "n": 12,
-                    "type": ["FILE", "FILE", "FILE", "FILE"],
-                    "id": ["file_1", "file_2", "file_3", "file_4"]
-                }]
-            }
-        }
-    """
+    """Generate Position-Isomorphic Tree (PIT) schema."""
     if not dataframes:
         raise PITValidationError("Need at least one DataFrame to generate schema")
 
@@ -761,16 +499,9 @@ def generate_pit_schema(
 
         if depth == 1:
             # LEVEL 1: Find folder with MOST real (non-padding) samples
-            # This is the canonical representation of the structure
-
-            # TACO HOMOGENEITY: All folders have same number of children
             children_per_parent = len(df) // len(parent_df)
-
-            # Target: folder with ALL real samples (no padding)
-            # If we find one with children_per_parent real samples, that's perfect!
             target_real_count = children_per_parent
 
-            # Find the folder with maximum real samples
             max_real_count = 0
             best_group_ids = []
             best_group_types = []
@@ -783,7 +514,6 @@ def generate_pit_schema(
                 ids = group["id"].to_list()
                 types = group["type"].to_list()
 
-                # Count real (non-padding) samples
                 real_count = sum(1 for id_val in ids if not is_padding_id(id_val))
 
                 if real_count > max_real_count:
@@ -791,14 +521,12 @@ def generate_pit_schema(
                     best_group_ids = ids
                     best_group_types = types
 
-                # OPTIMIZATION: If we found a folder with ALL real samples, stop!
-                # This is the canonical representation - no need to continue
                 if real_count == target_real_count:
-                    if not quiet:
+                    if debug:
                         parent_id = parent_df["id"][parent_idx]
                         print(
-                            f"  ✓ Found canonical folder '{parent_id}' at depth {depth} "
-                            f"with {real_count}/{children_per_parent} real samples (early stop)"
+                            f"Found canonical folder '{parent_id}' at depth {depth} "
+                            f"with {real_count}/{children_per_parent} real samples"
                         )
                     break
 
@@ -822,13 +550,11 @@ def generate_pit_schema(
             all_patterns: list[dict] = []
 
             for position_idx in folder_positions:
-                # Get parent_ids for this folder position across all groups
                 parent_ids_for_position = [
                     group_idx * pattern_size + position_idx
                     for group_idx in range(num_groups)
                 ]
 
-                # Filter children by these parent_ids
                 position_children = df.filter(
                     pl.col(METADATA_PARENT_ID).is_in(parent_ids_for_position)
                 )
@@ -836,16 +562,12 @@ def generate_pit_schema(
                 if len(position_children) == 0:
                     continue
 
-                # TACO HOMOGENEITY: All parents have same number of children
                 samples_per_group = len(position_children) // num_groups
 
                 if samples_per_group == 0:
                     continue
 
-                # Target: group with ALL real samples (no padding)
                 target_real_count = samples_per_group
-
-                # Find the group with maximum REAL (non-padding) samples
                 max_real_count = 0
                 best_group_ids = []
                 best_group_types = []
@@ -858,7 +580,6 @@ def generate_pit_schema(
                     ids = group["id"].to_list()
                     types = group["type"].to_list()
 
-                    # Count real (non-padding) samples
                     real_count = sum(1 for id_val in ids if not is_padding_id(id_val))
 
                     if real_count > max_real_count:
@@ -866,20 +587,16 @@ def generate_pit_schema(
                         best_group_ids = ids
                         best_group_types = types
 
-                    # OPTIMIZATION: If we found a group with ALL real samples, stop!
-                    # This is the canonical representation - no need to continue
                     if real_count == target_real_count:
-                        if not quiet:
-                            # Get parent ID for logging
+                        if debug:
                             parent_row_idx = parent_ids_for_position[group_idx]
                             parent_id = parent_df["id"][parent_row_idx]
                             print(
-                                f"  ✓ Found canonical folder '{parent_id}' at depth {depth} position {position_idx} "
-                                f"with {real_count}/{samples_per_group} real samples (early stop)"
+                                f"Found canonical folder '{parent_id}' at depth {depth} "
+                                f"position {position_idx} with {real_count}/{samples_per_group} real samples"
                             )
                         break
 
-                # Calculate total nodes for this position
                 total_nodes = num_groups * len(best_group_types)
 
                 pattern_dict = {
@@ -895,19 +612,7 @@ def generate_pit_schema(
 
 
 def generate_collection_json(taco: "Taco") -> dict[str, Any]:
-    """
-    Generate COLLECTION.json content from TACO object.
-
-    Extracts all metadata from the TACO object except the tortilla
-    (which contains the hierarchical sample structure - not needed
-    in COLLECTION.json).
-
-    Args:
-        taco: TACO object with metadata
-
-    Returns:
-        Dictionary with collection metadata (without tortilla)
-    """
+    """Generate COLLECTION.json content from TACO object."""
     collection = taco.model_dump()
     collection.pop("tortilla", None)
     return collection
