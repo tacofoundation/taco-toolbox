@@ -27,9 +27,13 @@ from pathlib import Path
 import polars as pl
 from tacoreader import TacoDataset
 
+from tacotoolbox._logging import get_logger
 from tacotoolbox._metadata import MetadataPackage
+from tacotoolbox._progress import ProgressContext
 from tacotoolbox._writers.export_writer import ExportWriter
 from tacotoolbox._writers.zip_writer import ZipWriter
+
+logger = get_logger(__name__)
 
 
 class TranslateError(Exception):
@@ -59,10 +63,10 @@ async def zip2folder(
         folder_output: Path to output folder
         concurrency: Maximum concurrent async operations (default: 100)
         quiet: If True, hide progress bars (default: False - shows progress)
-        debug: If True, show detailed debug messages (default: False)
+        debug: If True, enable debug logging (default: False)
 
     Returns:
-        Path to created FOLDER container
+        Path: Path to created FOLDER container
 
     Raises:
         TranslateError: If conversion fails
@@ -75,6 +79,8 @@ async def zip2folder(
         >>> await zip2folder("dataset.tacozip", "dataset_folder/", debug=True)
     """
     try:
+        logger.info(f"Converting ZIP to FOLDER: {zip_path} → {folder_output}")
+        
         dataset = TacoDataset(str(zip_path))
         
         writer = ExportWriter(
@@ -85,9 +91,12 @@ async def zip2folder(
             debug=debug,
         )
         
-        return await writer.create_folder()
+        result = await writer.create_folder()
+        logger.info(f"Conversion complete: {result}")
+        return result
         
     except Exception as e:
+        logger.error(f"Failed to convert ZIP to FOLDER: {e}")
         raise TranslateError(f"Failed to convert ZIP to FOLDER: {e}") from e
 
 
@@ -117,12 +126,12 @@ def folder2zip(
         folder_path: Path to input FOLDER container
         zip_output: Path to output .tacozip file
         quiet: If True, hide progress bars (default: False - shows progress)
-        debug: If True, show detailed debug messages (default: False)
+        debug: If True, enable debug logging (default: False)
         temp_dir: Temporary directory for ZIP creation
         **kwargs: Additional arguments passed to ZipWriter
 
     Returns:
-        Path to created .tacozip file
+        Path: Path to created .tacozip file
 
     Raises:
         TranslateError: If conversion fails
@@ -138,27 +147,22 @@ def folder2zip(
     zip_output = Path(zip_output)
 
     try:
-        if debug:
-            print("Converting FOLDER to ZIP...")
+        logger.info(f"Converting FOLDER to ZIP: {folder_path} → {zip_output}")
 
         # 1. Read COLLECTION.json
-        if debug:
-            print("Reading COLLECTION.json...")
+        logger.debug("Reading COLLECTION.json")
         collection = _read_collection(folder_path)
 
         # 2. Read consolidated metadata from METADATA/levelX.parquet
-        if debug:
-            print("Reading consolidated metadata...")
+        logger.debug("Reading consolidated metadata")
         levels = _read_consolidated_metadata(folder_path)
 
         # 3. Reconstruct local_metadata from consolidated
-        if debug:
-            print("Reconstructing local metadata...")
+        logger.debug("Reconstructing local metadata")
         local_metadata = _reconstruct_local_metadata_from_levels(levels)
 
         # 4. Scan DATA/ for physical files
-        if debug:
-            print("Scanning data files...")
+        logger.debug("Scanning data files")
         src_files, arc_files = _scan_data_files(folder_path)
 
         # 5. Create MetadataPackage
@@ -172,22 +176,27 @@ def folder2zip(
         )
 
         # 6. Use ZipWriter to create ZIP (regenerates __meta__ with offsets)
-        if debug:
-            print("Creating ZIP container...")
-        writer = ZipWriter(output_path=zip_output, quiet=quiet, debug=debug, temp_dir=temp_dir)
-        result = writer.create_complete_zip(
-            src_files=src_files,
-            arc_files=arc_files,
-            metadata_package=metadata_package,
-            **kwargs,
-        )
+        logger.debug("Creating ZIP container")
+        
+        with ProgressContext(quiet=quiet):
+            writer = ZipWriter(
+                output_path=zip_output, 
+                quiet=quiet, 
+                debug=debug, 
+                temp_dir=temp_dir
+            )
+            result = writer.create_complete_zip(
+                src_files=src_files,
+                arc_files=arc_files,
+                metadata_package=metadata_package,
+                **kwargs,
+            )
 
-        if debug:
-            print(f"Conversion complete: {result}")
-
+        logger.info(f"Conversion complete: {result}")
         return result
 
     except Exception as e:
+        logger.error(f"Failed to convert FOLDER to ZIP: {e}")
         raise TranslateError(f"Failed to convert FOLDER to ZIP: {e}") from e
 
 
@@ -197,7 +206,18 @@ def folder2zip(
 
 
 def _read_collection(folder_path: Path) -> dict:
-    """Read COLLECTION.json from FOLDER."""
+    """
+    Read COLLECTION.json from FOLDER.
+    
+    Args:
+        folder_path: Path to FOLDER container
+    
+    Returns:
+        dict: Collection metadata dictionary
+    
+    Raises:
+        TranslateError: If COLLECTION.json missing or invalid
+    """
     collection_path = folder_path / "COLLECTION.json"
 
     if not collection_path.exists():
@@ -227,7 +247,7 @@ def _read_consolidated_metadata(folder_path: Path) -> list[pl.DataFrame]:
         folder_path: Path to FOLDER container
 
     Returns:
-        List of DataFrames (one per level)
+        list[pl.DataFrame]: List of DataFrames (one per level)
 
     Raises:
         TranslateError: If no metadata files found
@@ -243,11 +263,14 @@ def _read_consolidated_metadata(folder_path: Path) -> list[pl.DataFrame]:
     if not level_files:
         raise TranslateError(f"No level*.parquet files found in {metadata_dir}")
 
+    logger.debug(f"Found {len(level_files)} metadata files")
+    
     levels = []
     for level_file in level_files:
         try:
             df = pl.read_parquet(level_file)
             levels.append(df)
+            logger.debug(f"Read {level_file.name}: {len(df)} rows")
         except Exception as e:
             raise TranslateError(f"Failed to read {level_file}: {e}") from e
 
@@ -275,7 +298,7 @@ def _reconstruct_local_metadata_from_levels(
         levels: List of DataFrames (consolidated metadata per level)
 
     Returns:
-        Dictionary mapping folder_path → children DataFrame
+        dict[str, pl.DataFrame]: Dictionary mapping folder_path → children DataFrame
 
     Example:
         >>> levels = [level0_df, level1_df, level2_df]
@@ -317,6 +340,7 @@ def _reconstruct_local_metadata_from_levels(
 
             local_metadata[folder_path] = children
 
+    logger.debug(f"Reconstructed {len(local_metadata)} local metadata entries")
     return local_metadata
 
 
@@ -332,7 +356,7 @@ def _scan_data_files(folder_path: Path) -> tuple[list[str], list[str]]:
         folder_path: Path to FOLDER container
 
     Returns:
-        Tuple of (src_files, arc_files) lists
+        tuple[list[str], list[str]]: (src_files, arc_files) lists
 
     Raises:
         TranslateError: If DATA directory not found or empty
@@ -357,4 +381,5 @@ def _scan_data_files(folder_path: Path) -> tuple[list[str], list[str]]:
     if not src_files:
         raise TranslateError(f"No data files found in {data_dir}")
 
+    logger.debug(f"Scanned {len(src_files)} data files")
     return src_files, arc_files

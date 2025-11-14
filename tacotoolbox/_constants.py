@@ -184,7 +184,7 @@ TACOCAT_TOTAL_HEADER_SIZE = TACOCAT_HEADER_SIZE + TACOCAT_INDEX_SIZE  # 128
 TACOCAT_DEFAULT_PARQUET_CONFIG = {
     "compression": "zstd",
     "compression_level": 13,
-    "row_group_size": 32_768,
+    "row_group_size": 65_536,
     "statistics": True,
     "use_content_defined_chunking": True,
 }

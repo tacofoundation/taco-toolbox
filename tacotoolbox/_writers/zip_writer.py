@@ -86,6 +86,7 @@ import pathlib
 import tempfile
 import uuid
 import zipfile
+from contextlib import ExitStack
 from typing import Any
 
 import polars as pl
@@ -99,8 +100,12 @@ from tacotoolbox._constants import (
     METADATA_SIZE,
     is_padding_id,
 )
+from tacotoolbox._logging import get_logger
 from tacotoolbox._metadata import MetadataPackage
+from tacotoolbox._progress import ProgressContext
 from tacotoolbox._virtual_zip import VirtualTACOZIP
+
+logger = get_logger(__name__)
 
 
 class ZipWriterError(Exception):
@@ -113,6 +118,9 @@ class ZipWriter:
 
     The ZipWriter uses a sophisticated bottom-up approach to ensure all
     metadata files (__meta__) have correct offsets pointing to data files.
+    
+    All temporary files are automatically cleaned up via ExitStack, even
+    if errors occur during ZIP creation.
     """
 
     def __init__(
@@ -128,12 +136,11 @@ class ZipWriter:
         Args:
             output_path: Path for output .tacozip file
             quiet: If True, hide progress bars (default: False)
-            debug: If True, show detailed debug messages (default: False)
+            debug: If True, enable debug logging (default: False)
             temp_dir: Directory for temporary files (default: system temp)
         """
         self.output_path = output_path
         self.quiet = quiet
-        self.debug = debug
 
         if temp_dir is None:
             self.temp_dir = pathlib.Path(tempfile.gettempdir())
@@ -141,7 +148,11 @@ class ZipWriter:
             self.temp_dir = pathlib.Path(temp_dir)
 
         self.temp_dir.mkdir(parents=True, exist_ok=True)
-        self._temp_files: list[pathlib.Path] = []
+        
+        # Use ExitStack for robust cleanup
+        self._cleanup_stack = ExitStack()
+        
+        logger.debug(f"ZipWriter initialized: output={output_path}, temp_dir={self.temp_dir}")
 
     def create_complete_zip(
         self,
@@ -163,66 +174,51 @@ class ZipWriter:
             **parquet_kwargs: Additional arguments for Parquet writer
 
         Returns:
-            Path to created .tacozip file
+            pathlib.Path: Path to created .tacozip file
 
         Raises:
             ZipWriterError: If ZIP creation fails
         """
         try:
-            if self.debug:
-                print("Starting bottom-up __meta__ generation")
+            logger.info("Starting bottom-up __meta__ generation")
 
             # Step 1: Add data files to VirtualZIP
             virtual_zip = VirtualTACOZIP()
             num_entries = len(metadata_package.levels) + 1
             virtual_zip.add_header()
 
+            logger.debug(f"Adding {len(src_files)} data files to virtual ZIP")
             for src_path, arc_path in zip(src_files, arc_files, strict=False):
                 if pathlib.Path(src_path).exists():
                     virtual_zip.add_file(src_path, arc_path)
 
-            if self.debug:
-                print(f"Added {len(src_files)} data files to virtual ZIP")
-
             # Step 2: Calculate initial offsets
             virtual_zip.calculate_offsets()
             offsets_map = virtual_zip.get_all_offsets()
-
-            if self.debug:
-                print(f"Initial offsets calculated: {len(offsets_map)} entries")
+            logger.debug(f"Initial offsets calculated: {len(offsets_map)} entries")
 
             # Step 3: Analyze folder hierarchy
             folder_order = self._extract_folder_order(arc_files)
             folders_by_depth = self._group_folders_by_depth(folder_order)
 
-            if self.debug:
-                for depth in sorted(folders_by_depth.keys(), reverse=True):
-                    print(f"Depth {depth}: {len(folders_by_depth[depth])} folders")
+            for depth in sorted(folders_by_depth.keys(), reverse=True):
+                logger.debug(f"Depth {depth}: {len(folders_by_depth[depth])} folders")
 
             # Step 4: Generate __meta__ files (bottom-up)
-            # This is the critical bottom-up phase:
-            # - Start from deepest folders (max_depth)
-            # - Generate __meta__ for each folder with offset/size
-            # - Add __meta__ to virtual ZIP
-            # - Recalculate ALL offsets (because __meta__ shifts everything)
-            # - Move up one level and repeat
-            # This ensures each level's __meta__ has correct offsets for children
-            temp_parquet_meta_files = {}
+            temp_meta_files = {}
             enriched_metadata_by_depth = {}
             max_depth = max(folders_by_depth.keys()) if folders_by_depth else 0
 
             # Bottom-up: Start from deepest folders
             for depth in range(max_depth, 0, -1):
-                if self.debug:
-                    print(f"Processing depth {depth}...")
+                logger.debug(f"Processing depth {depth}...")
 
                 folders_at_depth = folders_by_depth[depth]
                 enriched_metadata_by_depth[depth] = []
 
                 for folder_path in folders_at_depth:
                     if folder_path not in metadata_package.local_metadata:
-                        if self.debug:
-                            print(f"  WARNING: {folder_path} not in local_metadata")
+                        logger.warning(f"{folder_path} not in local_metadata")
                         continue
 
                     local_df = metadata_package.local_metadata[folder_path]
@@ -234,7 +230,7 @@ class ZipWriter:
                     # Write __meta__ as Parquet
                     meta_arc_path = f"{folder_path}__meta__"
                     temp_parquet = self._write_single_parquet(enriched_df, folder_path)
-                    temp_parquet_meta_files[meta_arc_path] = temp_parquet
+                    temp_meta_files[meta_arc_path] = temp_parquet
 
                     # Add to virtual ZIP and recalculate offsets
                     real_size = temp_parquet.stat().st_size
@@ -246,8 +242,7 @@ class ZipWriter:
                 virtual_zip.calculate_offsets()
                 offsets_map = virtual_zip.get_all_offsets()
 
-            if self.debug:
-                print("Rebuilding consolidated metadata...")
+            logger.debug("Rebuilding consolidated metadata...")
 
             # Step 5: Rebuild consolidated metadata (METADATA/levelX.parquet)
             
@@ -274,8 +269,7 @@ class ZipWriter:
             else:
                 metadata_package.levels[0] = original_level0
 
-            if self.debug:
-                print(f"Level 0: {len(metadata_package.levels[0])} samples")
+            logger.debug(f"Level 0: {len(metadata_package.levels[0])} samples")
 
             # Level 1+: Preserve parent_id from original, add offsets from concatenated
             for depth in range(1, len(metadata_package.levels)):
@@ -326,15 +320,13 @@ class ZipWriter:
                     else:
                         metadata_package.levels[depth] = original_level
 
-                    if self.debug:
-                        has_parent_id = METADATA_PARENT_ID in metadata_package.levels[depth].columns
-                        print(
-                            f"Level {depth}: {len(metadata_package.levels[depth])} samples "
-                            f"(parent_id={has_parent_id})"
-                        )
+                    logger.debug(
+                        f"Level {depth}: {len(metadata_package.levels[depth])} samples "
+                        f"(parent_id={METADATA_PARENT_ID in metadata_package.levels[depth].columns})"
+                    )
 
             # Write consolidated METADATA/levelX.parquet files
-            temp_parquet_level_files = {}
+            temp_level_files = {}
             for i, level_df in enumerate(metadata_package.levels):
                 arc_path = f"METADATA/level{i}.parquet"
                 temp_path = self.temp_dir / f"{uuid.uuid4().hex}_level{i}.parquet"
@@ -342,11 +334,10 @@ class ZipWriter:
                 pq.write_table(arrow_table, temp_path, **parquet_kwargs)
                 real_size = temp_path.stat().st_size
                 virtual_zip.add_file(str(temp_path), arc_path, file_size=real_size)
-                temp_parquet_level_files[arc_path] = temp_path
-                self._temp_files.append(temp_path)
+                temp_level_files[arc_path] = temp_path
+                self._register_temp_file(temp_path)
 
-                if self.debug:
-                    print(f"Added {arc_path} ({real_size} bytes)")
+                logger.debug(f"Added {arc_path} ({real_size} bytes)")
 
             # Add COLLECTION.json
             collection = metadata_package.collection.copy()
@@ -359,13 +350,12 @@ class ZipWriter:
             virtual_zip.add_file(
                 str(temp_json), "COLLECTION.json", file_size=collection_size
             )
-            self._temp_files.append(temp_json)
+            self._register_temp_file(temp_json)
 
             # Final offset calculation
             virtual_zip.calculate_offsets()
 
-            if self.debug:
-                print("Preparing final file lists for ZIP creation...")
+            logger.debug("Preparing final file lists for ZIP creation")
 
             all_src_files = list(src_files)
             all_arc_files = list(arc_files)
@@ -374,15 +364,15 @@ class ZipWriter:
             for depth in range(max_depth, 0, -1):
                 for folder_path in folders_by_depth[depth]:
                     meta_arc_path = f"{folder_path}__meta__"
-                    if meta_arc_path in temp_parquet_meta_files:
-                        temp_path = temp_parquet_meta_files[meta_arc_path]
+                    if meta_arc_path in temp_meta_files:
+                        temp_path = temp_meta_files[meta_arc_path]
                         all_src_files.append(str(temp_path))
                         all_arc_files.append(meta_arc_path)
 
             # Add METADATA/levelX.parquet files
             for i in range(len(metadata_package.levels)):
                 arc_path = f"METADATA/level{i}.parquet"
-                temp_path = temp_parquet_level_files[arc_path]
+                temp_path = temp_level_files[arc_path]
                 all_src_files.append(str(temp_path))
                 all_arc_files.append(arc_path)
 
@@ -390,18 +380,18 @@ class ZipWriter:
             all_src_files.append(str(temp_json))
             all_arc_files.append("COLLECTION.json")
 
-            if self.debug:
-                print(f"Writing ZIP with {len(all_src_files)} total files...")
+            logger.info(f"Writing ZIP with {len(all_src_files)} total files")
 
             # Write ZIP with placeholder header
             header_entries = [(0, 0) for _ in range(num_entries)]
 
-            tacozip.create(
-                zip_path=str(self.output_path),
-                src_files=all_src_files,
-                arc_files=all_arc_files,
-                entries=header_entries,
-            )
+            with ProgressContext(quiet=self.quiet):
+                tacozip.create(
+                    zip_path=str(self.output_path),
+                    src_files=all_src_files,
+                    arc_files=all_arc_files,
+                    entries=header_entries,
+                )
 
             # Update TACO_HEADER with real offsets
             metadata_offsets, metadata_sizes = self._get_metadata_offsets()
@@ -414,22 +404,38 @@ class ZipWriter:
 
             tacozip.update_header(zip_path=str(self.output_path), entries=real_entries)
 
-            if self.debug:
-                print(f"ZIP created successfully: {self.output_path}")
+            logger.info(f"ZIP created successfully: {self.output_path}")
+            return self.output_path
 
         except Exception as e:
+            logger.error(f"Failed to create ZIP: {e}")
             raise ZipWriterError(f"Failed to create ZIP: {e}") from e
-        else:
-            return self.output_path
         finally:
             # CRITICAL: Always cleanup temporary files
             self._cleanup()
+
+    def _register_temp_file(self, path: pathlib.Path) -> None:
+        """
+        Register temporary file for automatic cleanup.
+        
+        Uses ExitStack to ensure cleanup even if exceptions occur.
+        
+        Args:
+            path: Path to temporary file
+        """
+        self._cleanup_stack.callback(path.unlink, missing_ok=True)
 
     def _extract_folder_order(self, arc_files: list[str]) -> list[str]:
         """
         Extract folder paths that need __meta__ files.
 
         Only includes Level 1+ folders (not DATA/ root).
+        
+        Args:
+            arc_files: List of archive file paths
+        
+        Returns:
+            list[str]: Sorted list of folder paths needing __meta__
         """
         folder_set = set()
 
@@ -444,7 +450,15 @@ class ZipWriter:
         return sorted(folder_set)
 
     def _group_folders_by_depth(self, folder_order: list[str]) -> dict[int, list[str]]:
-        """Group folders by depth for bottom-up processing."""
+        """
+        Group folders by depth for bottom-up processing.
+        
+        Args:
+            folder_order: List of folder paths
+        
+        Returns:
+            dict[int, list[str]]: Folders grouped by depth level
+        """
         by_depth: dict[int, list[str]] = {}
 
         for folder in folder_order:
@@ -457,7 +471,16 @@ class ZipWriter:
         return by_depth
 
     def _write_single_parquet(self, df: pl.DataFrame, folder_path: str) -> pathlib.Path:
-        """Write a single __meta__ Parquet file to temp directory."""
+        """
+        Write a single __meta__ Parquet file to temp directory.
+        
+        Args:
+            df: DataFrame to write
+            folder_path: Folder path (used for filename)
+        
+        Returns:
+            pathlib.Path: Path to created temp file
+        """
         identifier = folder_path.replace("/", "_").strip("_")
         temp_path = self.temp_dir / f"{uuid.uuid4().hex}_{identifier}.parquet"
 
@@ -465,17 +488,30 @@ class ZipWriter:
         arrow_table = filtered_df.to_arrow()
         pq.write_table(arrow_table, temp_path, compression="zstd")
 
-        self._temp_files.append(temp_path)
+        self._register_temp_file(temp_path)
         return temp_path
 
     def _filter_metadata_columns(self, df: pl.DataFrame) -> pl.DataFrame:
-        """Filter columns for __meta__ files (removes 'path' column)."""
+        """
+        Filter columns for __meta__ files (removes 'path' column).
+        
+        Args:
+            df: DataFrame to filter
+        
+        Returns:
+            pl.DataFrame: Filtered DataFrame
+        """
         exclude_columns = {"path"}
         cols_to_keep = [col for col in df.columns if col not in exclude_columns]
         return df.select(cols_to_keep) if cols_to_keep else df
 
     def _get_metadata_offsets(self) -> tuple[list[int], list[int]]:
-        """Get offsets and sizes for METADATA/levelX.parquet files."""
+        """
+        Get offsets and sizes for METADATA/levelX.parquet files.
+        
+        Returns:
+            tuple[list[int], list[int]]: (offsets, sizes) for metadata files
+        """
         offsets = []
         sizes = []
 
@@ -506,7 +542,12 @@ class ZipWriter:
         return offsets, sizes
 
     def _get_collection_offset(self) -> tuple[int, int]:
-        """Get offset and size for COLLECTION.json."""
+        """
+        Get offset and size for COLLECTION.json.
+        
+        Returns:
+            tuple[int, int]: (offset, size) for COLLECTION.json
+        """
         with zipfile.ZipFile(self.output_path, "r") as zf:
             with open(self.output_path, "rb") as f:
                 info = zf.getinfo("COLLECTION.json")
@@ -523,27 +564,13 @@ class ZipWriter:
                 return data_offset, data_size
 
     def _cleanup(self) -> None:
-        """Clean up all temporary files created during ZIP creation."""
-        if not self._temp_files:
-            return
-
-        cleaned = 0
-        failed = 0
-
-        for temp_file in self._temp_files:
-            try:
-                if temp_file.exists():
-                    temp_file.unlink()
-                    cleaned += 1
-            except Exception as e:
-                failed += 1
-                if self.debug:
-                    print(f"Warning: Failed to cleanup {temp_file}: {e}")
-
-        self._temp_files.clear()
-
-        if self.debug and (cleaned > 0 or failed > 0):
-            print(f"Cleanup: {cleaned} files removed, {failed} failed")
+        """
+        Clean up all temporary files created during ZIP creation.
+        
+        Uses ExitStack for robust cleanup that works even when exceptions occur.
+        """
+        logger.debug("Cleaning up temporary files")
+        self._cleanup_stack.close()
 
 
 def _add_zip_offsets(
@@ -566,7 +593,7 @@ def _add_zip_offsets(
         folder_path: Current folder path (e.g., "DATA/folder_A/")
 
     Returns:
-        DataFrame with added internal:offset and internal:size columns
+        pl.DataFrame: DataFrame with added internal:offset and internal:size columns
 
     Raises:
         ValueError: If offsets missing for non-padding samples

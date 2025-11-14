@@ -10,7 +10,7 @@ Key features:
 - Automatic parent_id reindexing for consistency
 - Recursive FOLDER handling with local metadata
 - Zero-copy data transfer with obstore
-- High-performance concurrent downloads with progress bars (9x+ improvement vs threads)
+- High-performance concurrent downloads with progress bars
 
 The ExportWriter uses async/await for optimal performance when downloading
 data from remote sources like S3 or HTTP endpoints. Local file I/O uses
@@ -51,7 +51,6 @@ import obstore as obs
 import polars as pl
 from tacoreader import TacoDataset
 from tacoreader.utils.vsi import create_obstore_from_url, strip_vsi_prefix
-from tqdm.asyncio import tqdm as tqdm_asyncio
 
 from tacotoolbox._column_utils import (
     read_metadata_file,
@@ -60,6 +59,10 @@ from tacotoolbox._column_utils import (
     write_parquet_file_with_cdc,
 )
 from tacotoolbox._constants import FOLDER_DATA_DIR, FOLDER_METADATA_DIR
+from tacotoolbox._logging import get_logger
+from tacotoolbox._progress import progress_gather
+
+logger = get_logger(__name__)
 
 
 class ExportWriterError(Exception):
@@ -91,16 +94,19 @@ class ExportWriter:
             output: Path to output folder
             concurrency: Maximum concurrent async operations (default: 100)
             quiet: If True, hide progress bars (default: False - shows progress)
-            debug: If True, show detailed debug messages (default: False)
+            debug: If True, enable debug logging (default: False)
         """
         self.dataset = dataset
         self.output = pathlib.Path(output)
         self.concurrency = concurrency
         self.quiet = quiet
-        self.debug = debug
 
         self.data_dir = self.output / FOLDER_DATA_DIR
         self.metadata_dir = self.output / FOLDER_METADATA_DIR
+        
+        logger.debug(
+            f"ExportWriter initialized: output={output}, concurrency={concurrency}"
+        )
 
     async def create_folder(self) -> pathlib.Path:
         """
@@ -114,7 +120,7 @@ class ExportWriter:
         5. Creates COLLECTION.json with subset metadata
 
         Returns:
-            Path to created FOLDER TACO
+            pathlib.Path: Path to created FOLDER TACO
 
         Raises:
             ExportWriterError: If export fails
@@ -122,18 +128,19 @@ class ExportWriter:
             FileExistsError: If output already exists
         """
         try:
+            logger.info(f"Starting FOLDER export: {self.output}")
+            
             self._validate_dataset()
             self._create_folder_structure()
             await self._copy_all_bytes()
             self._generate_consolidated_metadata()
             self._generate_collection_json()
 
-            if self.debug:
-                print(f"FOLDER export complete: {self.output}")
-
+            logger.info(f"FOLDER export complete: {self.output}")
             return self.output
 
         except Exception as e:
+            logger.error(f"Failed to export FOLDER: {e}")
             raise ExportWriterError(f"Failed to export FOLDER: {e}") from e
 
     def _validate_dataset(self) -> None:
@@ -161,14 +168,15 @@ class ExportWriter:
 
         if self.output.exists():
             raise FileExistsError(f"Output already exists: {self.output}")
+        
+        logger.debug(f"Dataset validated: {count} samples")
 
     def _create_folder_structure(self) -> None:
         """Create base DATA/ and METADATA/ folders."""
         self.data_dir.mkdir(parents=True)
         self.metadata_dir.mkdir(parents=True)
 
-        if self.debug:
-            print(f"Created {FOLDER_DATA_DIR}/ and {FOLDER_METADATA_DIR}/")
+        logger.debug(f"Created {FOLDER_DATA_DIR}/ and {FOLDER_METADATA_DIR}/")
 
     async def _copy_all_bytes(self) -> None:
         """
@@ -186,6 +194,8 @@ class ExportWriter:
 
         # Copy FILEs concurrently with progress bar
         if len(files_df) > 0:
+            logger.info(f"Copying {len(files_df)} FILEs")
+            
             tasks = []
             for row in files_df.iter_rows(named=True):
                 vsi_path = row["internal:gdal_vsi"]
@@ -204,28 +214,28 @@ class ExportWriter:
                 tasks.append(task)
 
             # Progress bar for FILE copying
-            await tqdm_asyncio.gather(
+            await progress_gather(
                 *tasks,
                 desc="Copying FILEs",
                 unit="file",
-                colour="green",
-                disable=self.quiet
+                colour="green"
             )
 
         # Copy FOLDERs recursively with progress bar
         if len(folders_df) > 0:
+            logger.info(f"Copying {len(folders_df)} FOLDERs")
+            
             tasks = []
             for row in folders_df.iter_rows(named=True):
                 task = self._copy_folder_recursive(row, level=0, semaphore=semaphore)
                 tasks.append(task)
 
             # Progress bar for FOLDER copying
-            await tqdm_asyncio.gather(
+            await progress_gather(
                 *tasks,
                 desc="Copying FOLDERs",
                 unit="folder",
-                colour="blue",
-                disable=self.quiet
+                colour="blue"
             )
 
     async def _copy_single_file(
@@ -379,8 +389,7 @@ class ExportWriter:
         Also removes ZIP-specific columns (internal:offset, internal:size) since
         FOLDER format doesn't use them.
         """
-        if self.debug:
-            print("Generating consolidated metadata...")
+        logger.info("Generating consolidated metadata")
 
         selected_ids = set(self.dataset.data._data["id"].to_list())
 
@@ -443,8 +452,7 @@ class ExportWriter:
             output_path = self.metadata_dir / f"{level_name}.parquet"
             write_parquet_file_with_cdc(filtered_df, output_path)
 
-            if self.debug:
-                print(f"  {level_name}.parquet: {len(filtered_df)} samples")
+            logger.debug(f"{level_name}.parquet: {len(filtered_df)} samples")
 
     def _generate_collection_json(self) -> None:
         """
@@ -455,8 +463,7 @@ class ExportWriter:
         - Adds taco:subset_of field with original dataset ID
         - Adds taco:subset_date with export timestamp
         """
-        if self.debug:
-            print("Generating COLLECTION.json...")
+        logger.debug("Generating COLLECTION.json")
 
         collection = self.dataset.collection.copy()
 
@@ -475,3 +482,5 @@ class ExportWriter:
         output_path = self.output / "COLLECTION.json"
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(collection, f, indent=4, ensure_ascii=False)
+        
+        logger.debug("COLLECTION.json created")

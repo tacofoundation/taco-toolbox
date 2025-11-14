@@ -88,7 +88,11 @@ from tacotoolbox._constants import (
     METADATA_PARENT_ID,
 )
 from tacotoolbox._column_utils import write_parquet_file, write_parquet_file_with_cdc
+from tacotoolbox._logging import get_logger
 from tacotoolbox._metadata import MetadataPackage
+from tacotoolbox._progress import ProgressContext
+
+logger = get_logger(__name__)
 
 
 class FolderWriterError(Exception):
@@ -110,13 +114,14 @@ class FolderWriter:
         Args:
             output_dir: Output directory path
             quiet: If True, hide progress bars (default: False)
-            debug: If True, show detailed debug messages (default: False)
+            debug: If True, enable debug logging (default: False)
         """
         self.output_dir = output_dir
         self.quiet = quiet
-        self.debug = debug
         self.data_dir = output_dir / FOLDER_DATA_DIR
         self.metadata_dir = output_dir / FOLDER_METADATA_DIR
+        
+        logger.debug(f"FolderWriter initialized: output={output_dir}")
 
     def create_complete_folder(
         self,
@@ -133,36 +138,38 @@ class FolderWriter:
             **kwargs: Additional arguments
 
         Returns:
-            Path to created folder
+            pathlib.Path: Path to created folder
 
         Raises:
             FolderWriterError: If folder creation fails
         """
         try:
-            self._create_structure()
-            self._copy_data_files(samples)
-            self._write_local_metadata(metadata_package, **kwargs)
-            self._write_consolidated_metadata(metadata_package, **kwargs)
-            self._write_collection_json(metadata_package)
+            logger.info(f"Creating FOLDER container: {self.output_dir}")
+            
+            with ProgressContext(quiet=self.quiet):
+                self._create_structure()
+                self._copy_data_files(samples)
+                self._write_local_metadata(metadata_package, **kwargs)
+                self._write_consolidated_metadata(metadata_package, **kwargs)
+                self._write_collection_json(metadata_package)
 
-            if self.debug:
-                print(f"Folder container created: {self.output_dir}/")
+            logger.info(f"Folder container created: {self.output_dir}/")
+            return self.output_dir
 
         except Exception as e:
+            logger.error(f"Failed to create folder container: {e}")
             raise FolderWriterError(f"Failed to create folder container: {e}") from e
-        else:
-            return self.output_dir
 
     def _create_structure(self) -> None:
         """Create base DATA/ and METADATA/ folders."""
         self.data_dir.mkdir(parents=True, exist_ok=False)
         self.metadata_dir.mkdir(parents=True, exist_ok=False)
 
-        if self.debug:
-            print(f"Created {FOLDER_DATA_DIR}/ and {FOLDER_METADATA_DIR}/")
+        logger.debug(f"Created {FOLDER_DATA_DIR}/ and {FOLDER_METADATA_DIR}/")
 
     def _copy_data_files(self, samples: list[Any]) -> None:
         """Copy data files recursively."""
+        logger.debug("Copying data files")
         self._copy_samples_recursive(samples, path_prefix="")
 
     def _copy_samples_recursive(
@@ -204,7 +211,13 @@ class FolderWriter:
 
         These files do NOT contain internal:parent_id (navigation is implicit
         via folder structure), but they preserve all other metadata fields.
+        
+        Args:
+            metadata_package: Complete metadata package
+            **kwargs: Additional arguments (unused)
         """
+        logger.debug(f"Writing {len(metadata_package.local_metadata)} local __meta__ files")
+        
         for folder_path, local_df in metadata_package.local_metadata.items():
             meta_path = self.output_dir / f"{folder_path}{FOLDER_META_FILENAME}"
 
@@ -213,8 +226,7 @@ class FolderWriter:
             # Write as Parquet
             write_parquet_file(local_df, meta_path)
 
-            if self.debug:
-                print(f"Created {folder_path}{FOLDER_META_FILENAME}")
+            logger.debug(f"Created {folder_path}{FOLDER_META_FILENAME}")
 
     def _write_consolidated_metadata(
         self,
@@ -226,22 +238,32 @@ class FolderWriter:
 
         These files preserve ALL columns including internal:parent_id
         for hierarchical navigation via JOINs.
+        
+        Args:
+            metadata_package: Complete metadata package
+            **kwargs: Additional arguments (unused)
         """
+        logger.debug(f"Writing {len(metadata_package.levels)} consolidated metadata files")
+        
         for i, level_df in enumerate(metadata_package.levels):
             output_path = self.metadata_dir / f"level{i}.parquet"
 
             # Write consolidated as Parquet with CDC
             write_parquet_file_with_cdc(level_df, output_path)
 
-            if self.debug:
-                has_parent_id = METADATA_PARENT_ID in level_df.columns
-                print(
-                    f"Created {FOLDER_METADATA_DIR}/level{i}.parquet "
-                    f"({len(level_df)} rows, parent_id={has_parent_id})"
-                )
+            has_parent_id = METADATA_PARENT_ID in level_df.columns
+            logger.debug(
+                f"Created {FOLDER_METADATA_DIR}/level{i}.parquet "
+                f"({len(level_df)} rows, parent_id={has_parent_id})"
+            )
 
     def _write_collection_json(self, metadata_package: MetadataPackage) -> None:
-        """Write COLLECTION.json with pit_schema and field_schema embedded."""
+        """
+        Write COLLECTION.json with pit_schema and field_schema embedded.
+        
+        Args:
+            metadata_package: Complete metadata package
+        """
         collection_path = self.output_dir / FOLDER_COLLECTION_FILENAME
 
         collection_with_schema = metadata_package.collection.copy()
@@ -251,5 +273,4 @@ class FolderWriter:
         with open(collection_path, "w", encoding="utf-8") as f:
             json.dump(collection_with_schema, f, indent=4, ensure_ascii=False)
 
-        if self.debug:
-            print(f"Created {FOLDER_COLLECTION_FILENAME}")
+        logger.debug(f"Created {FOLDER_COLLECTION_FILENAME}")
