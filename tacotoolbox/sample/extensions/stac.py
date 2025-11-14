@@ -4,10 +4,18 @@ from typing import TypeAlias
 import polars as pl
 import pydantic
 from pyproj import CRS, Transformer
-from shapely.geometry import Point
+from shapely.geometry import Point, Polygon
 from shapely.wkb import dumps as wkb_dumps
 
 from tacotoolbox.sample.datamodel import SampleExtension
+
+# Soft dependency - only imported when check_antimeridian=True
+try:
+    import antimeridian
+    HAS_ANTIMERIDIAN = True
+except ImportError:
+    HAS_ANTIMERIDIAN = False
+
 
 ShapeND: TypeAlias = tuple[int, ...]
 GeoTransform6: TypeAlias = tuple[float, float, float, float, float, float]
@@ -18,6 +26,7 @@ def raster_centroid(
     crs: str,
     geotransform: GeoTransform6,
     raster_shape: ShapeND,
+    check_antimeridian: bool = False,
 ) -> bytes:
     """
     Calculate the centroid of a raster in EPSG:4326 and return as WKB binary.
@@ -35,9 +44,22 @@ def raster_centroid(
                 y resolution
             )
         raster_shape (Tuple[int, int]): The shape of the raster as (rows, columns).
+        check_antimeridian (bool): If True, detect and handle antimeridian crossings
+            correctly (slower, requires 'antimeridian' package). If False (default),
+            use fast single-point transform (works for 99% of cases).
 
     Returns:
         bytes: The centroid coordinates in EPSG:4326 as WKB binary.
+
+    Raises:
+        ImportError: If check_antimeridian=True but 'antimeridian' not installed.
+
+    Example:
+        >>> # Fast mode (default) - works for most rasters
+        >>> centroid = raster_centroid(crs, geotransform, shape)
+        
+        >>> # Antimeridian mode - for Pacific/Polar data
+        >>> centroid = raster_centroid(crs, geotransform, shape, check_antimeridian=True)
     """
     # Extract geotransform parameters
     origin_x, pixel_width, _, origin_y, _, pixel_height = geotransform
@@ -51,11 +73,63 @@ def raster_centroid(
     transformer = Transformer.from_crs(
         CRS.from_string(crs), CRS.from_epsg(4326), always_xy=True
     )
-    lon, lat = transformer.transform(centroid_x, centroid_y)
 
-    # Create shapely Point and convert to WKB
-    point = Point(lon, lat)
-    return wkb_dumps(point)
+    if not check_antimeridian:
+        # FAST PATH (default): Single transform
+        # Works correctly for 99% of rasters (those not crossing ±180° longitude)
+        lon, lat = transformer.transform(centroid_x, centroid_y)
+        point = Point(lon, lat)
+        return wkb_dumps(point)
+
+    # ANTIMERIDIAN MODE: Check if raster crosses ±180° longitude
+    # This requires checking bbox corners to detect the crossing
+    
+    if not HAS_ANTIMERIDIAN:
+        raise ImportError(
+            "check_antimeridian=True requires the 'antimeridian' package.\n"
+            "Install with: pip install antimeridian\n"
+            "Or set check_antimeridian=False to use fast mode (works for most rasters)."
+        )
+
+    # Calculate bbox corners in source CRS
+    min_x = origin_x
+    max_x = origin_x + cols * pixel_width
+    min_y = origin_y + rows * pixel_height  # pixel_height is typically negative
+    max_y = origin_y
+
+    # Transform all 4 corners to EPSG:4326
+    corners_lon = []
+    corners_lat = []
+    for x, y in [(min_x, min_y), (max_x, min_y), (max_x, max_y), (min_x, max_y)]:
+        lon, lat = transformer.transform(x, y)
+        corners_lon.append(lon)
+        corners_lat.append(lat)
+
+    # Check if bbox crosses antimeridian
+    # Heuristic: if longitude span > 180°, it wraps around
+    lon_span = max(corners_lon) - min(corners_lon)
+    crosses_antimeridian = lon_span > 180
+
+    if crosses_antimeridian:
+        # Build polygon and use antimeridian.centroid()
+        bbox_polygon = Polygon(
+            [
+                (corners_lon[0], corners_lat[0]),
+                (corners_lon[1], corners_lat[1]),
+                (corners_lon[2], corners_lat[2]),
+                (corners_lon[3], corners_lat[3]),
+                (corners_lon[0], corners_lat[0]),  # Close ring
+            ]
+        )
+
+        centroid_point = antimeridian.centroid(bbox_polygon)
+    else:
+        # Bbox doesn't cross antimeridian - use simple centroid
+        centroid_lon = sum(corners_lon) / 4
+        centroid_lat = sum(corners_lat) / 4
+        centroid_point = Point(centroid_lon, centroid_lat)
+
+    return wkb_dumps(centroid_point)
 
 
 class STAC(SampleExtension):
@@ -88,6 +162,9 @@ class STAC(SampleExtension):
         Automatically computed midpoint between `time_start` and `time_end`.
         Only populated when `time_end` is provided. Calculated as the integer
         average of the two timestamps.
+    check_antimeridian : bool
+        If True, detect and correctly handle rasters crossing the antimeridian
+        (±180° longitude). Requires 'antimeridian' package. Default False (fast mode).
 
     Notes
     -----
@@ -96,6 +173,26 @@ class STAC(SampleExtension):
     - The model enforces a non-decreasing temporal interval: `time_start <= time_end`
       (i.e., it rejects only `time_start > time_end`).
     - `time_middle` is automatically computed when both start and end times exist.
+    - Set check_antimeridian=True for Pacific/Polar rasters (requires: pip install antimeridian)
+
+    Example
+    -------
+    >>> # Default (fast mode) - works for most rasters
+    >>> stac = STAC(
+    ...     crs="EPSG:32633",
+    ...     tensor_shape=(512, 512),
+    ...     geotransform=(300000, 10, 0, 4500000, 0, -10),
+    ...     time_start=1234567890
+    ... )
+    
+    >>> # Antimeridian mode - for Pacific islands, polar data
+    >>> stac = STAC(
+    ...     crs="EPSG:32760",
+    ...     tensor_shape=(512, 512),
+    ...     geotransform=(500000, 10, 0, 8000000, 0, -10),
+    ...     time_start=1234567890,
+    ...     check_antimeridian=True  # Slower but correct for ±180° crossings
+    ... )
     """
 
     crs: str
@@ -105,6 +202,7 @@ class STAC(SampleExtension):
     centroid: bytes | None = None
     time_end: TimestampLike | None = None
     time_middle: int | None = None
+    check_antimeridian: bool = False
 
     @pydantic.model_validator(mode="after")
     def check_times(cls, values):
@@ -149,6 +247,9 @@ class STAC(SampleExtension):
 
         Assumes the spatial dimensions are the last two of `tensor_shape`.
         Raises a clear error if `tensor_shape` has fewer than two dims.
+        
+        If check_antimeridian=True, requires 'antimeridian' package for
+        correct handling of rasters crossing ±180° longitude.
         """
         if values.centroid is None:
             if len(values.tensor_shape) < 2:
@@ -161,6 +262,7 @@ class STAC(SampleExtension):
                 crs=values.crs,
                 geotransform=values.geotransform,
                 raster_shape=(rows, cols),
+                check_antimeridian=values.check_antimeridian,
             )
         return values
 
@@ -177,7 +279,7 @@ class STAC(SampleExtension):
         }
 
     def _compute(self, sample) -> pl.DataFrame:
-        """Actual computation logic - only called when return_none=False."""
+        """Actual computation logic - only called when schema_only=False."""
         return pl.DataFrame(
             {
                 "stac:crs": [self.crs],

@@ -4,11 +4,11 @@ import pydantic
 from tacotoolbox.sample.datamodel import SampleExtension
 
 
-class Packing(SampleExtension):
+class Scaling(SampleExtension):
     """
-    Data packing metadata for compression and numerical precision control.
+    Data scaling and padding metadata for compression and precision control.
 
-    Defines transformations for packing/unpacking data following CF conventions.
+    Defines transformations for scaling/unscaling data following CF conventions.
     All fields are optional - None indicates no transformation applied.
 
     Fields
@@ -19,7 +19,7 @@ class Packing(SampleExtension):
     scale_offset : float, list[float], or None
         Additive offset applied after scaling. Default is None (no offset).
     padding : list[int] or None
-        Padding as [top, right, bottom, left]. Default is None (no padding).
+        Spatial padding as [top, right, bottom, left]. Default is None (no padding).
 
     Notes
     -----
@@ -27,24 +27,28 @@ class Packing(SampleExtension):
     - scale_factor and scale_offset must match unpacked data type
     - Use for data compression and storage optimization
     - Padding can be reverted using stored values
+    - Follows CF (Climate and Forecast) metadata conventions
 
     Example
     -------
     >>> # Basic scaling
-    >>> packing = Packing(scale_factor=0.01, scale_offset=-273.15)
+    >>> scaling = Scaling(scale_factor=0.01, scale_offset=-273.15)
     >>>
     >>> # Per-band scaling
-    >>> packing = Packing(
+    >>> scaling = Scaling(
     ...     scale_factor=[0.0001, 0.0001, 0.0001],
     ...     scale_offset=[0.0, 0.0, 0.0]
     ... )
     >>>
     >>> # With padding
-    >>> packing = Packing(
+    >>> scaling = Scaling(
     ...     scale_factor=0.01,
     ...     scale_offset=0.0,
     ...     padding=[10, 10, 10, 10]
     ... )
+    >>>
+    >>> # Apply to sample
+    >>> sample.extend_with(scaling)
     """
 
     scale_factor: float | list[float] | None = None
@@ -91,18 +95,18 @@ class Packing(SampleExtension):
         )
 
         if has_list:
-            schema["packing:scale_factor"] = pl.List(pl.Float32())
-            schema["packing:scale_offset"] = pl.List(pl.Float32())
+            schema["scaling:scale_factor"] = pl.List(pl.Float32())
+            schema["scaling:scale_offset"] = pl.List(pl.Float32())
         else:
-            schema["packing:scale_factor"] = pl.Float32()
-            schema["packing:scale_offset"] = pl.Float32()
+            schema["scaling:scale_factor"] = pl.Float32()
+            schema["scaling:scale_offset"] = pl.Float32()
 
-        schema["packing:padding"] = pl.List(pl.Int32())
+        schema["scaling:padding"] = pl.List(pl.Int32())
 
         return schema
 
     def _compute(self, sample) -> pl.DataFrame:
-        """Actual computation logic - only called when return_none=False."""
+        """Actual computation logic - only called when schema_only=False."""
         # Determine output format based on inputs
         has_list = isinstance(self.scale_factor, list) or isinstance(
             self.scale_offset, list
@@ -123,9 +127,9 @@ class Packing(SampleExtension):
 
             return pl.DataFrame(
                 {
-                    "packing:scale_factor": [factor],
-                    "packing:scale_offset": [offset],
-                    "packing:padding": [self.padding],
+                    "scaling:scale_factor": [factor],
+                    "scaling:scale_offset": [offset],
+                    "scaling:padding": [self.padding],
                 },
                 schema=self.get_schema(),
             )
@@ -133,9 +137,9 @@ class Packing(SampleExtension):
             # Scalar values
             return pl.DataFrame(
                 {
-                    "packing:scale_factor": [self.scale_factor],
-                    "packing:scale_offset": [self.scale_offset],
-                    "packing:padding": [self.padding],
+                    "scaling:scale_factor": [self.scale_factor],
+                    "scaling:scale_offset": [self.scale_offset],
+                    "scaling:padding": [self.padding],
                 },
                 schema=self.get_schema(),
             )

@@ -33,13 +33,52 @@ def requires_gdal(func):
 
 
 class GeotiffStats(SampleExtension):
-    """Extract statistics from GeoTIFF files using GDAL.
+    """
+    Extract statistics from GeoTIFF files using GDAL.
 
     Returns Parquet-compatible list of lists structure:
     - Categorical: list[list[float32]] with probabilities for each class in class_values.
     - Continuous: list[list[float32]] with [min, max, mean, std, valid%, p25, p50, p75, p95].
 
     Automatically applies scaling transformation if scaling metadata exists in sample.
+
+    Fields
+    ------
+    categorical : bool
+        If True, treat data as categorical and compute class probabilities.
+        Default False (continuous statistics).
+    class_values : list[int] | None
+        Required when categorical=True. List of integer class values to track.
+        Probabilities sum to 1.0 across all classes.
+
+    Returns
+    -------
+    geotiff:stats : list[list[float32]]
+        Per-band statistics. One list per band containing:
+        - Categorical: [prob_class0, prob_class1, ...] (probabilities 0-1)
+        - Continuous: [min, max, mean, std, valid%, p25, p50, p75, p95]
+
+    Notes
+    -----
+    - Requires GDAL: conda install gdal
+    - Only works with GeoTIFF files (verified via GDAL driver check)
+    - Automatically applies scaling:factor and scaling:offset if present in sample
+    - For categorical data, handles uniform bands (all same value) correctly
+    - For continuous data, calculates percentiles from histogram (configurable buckets)
+
+    Example
+    -------
+    >>> # Continuous statistics
+    >>> stats = GeotiffStats()
+    >>> sample.extend_with(stats)
+    
+    >>> # Categorical statistics (e.g., land cover)
+    >>> stats = GeotiffStats(categorical=True, class_values=[0, 1, 2, 3])
+    >>> sample.extend_with(stats)
+    
+    >>> # With scaling
+    >>> sample.extend_with(Scaling(scale_factor=0.01, scale_offset=-273.15))
+    >>> sample.extend_with(GeotiffStats())  # Stats automatically scaled
     """
 
     categorical: bool = False
@@ -50,7 +89,7 @@ class GeotiffStats(SampleExtension):
 
     def get_schema(self) -> dict[str, pl.DataType]:
         """Return the expected schema for this extension."""
-        return {"internal:stats": pl.List(pl.List(pl.Float32))}
+        return {"geotiff:stats": pl.List(pl.List(pl.Float32))}
 
     @requires_gdal
     def _compute(self, sample) -> pl.DataFrame:
@@ -58,13 +97,20 @@ class GeotiffStats(SampleExtension):
         stats = self._extract_stats(sample.path)
 
         # Apply scaling transformation for continuous stats if scaling metadata exists
-        scaling_factor = getattr(sample, "scaling:factor", 1.0)
-        scaling_offset = getattr(sample, "scaling:offset", 0.0)
+        scaling_factor = getattr(sample, "scaling:scale_factor", None)
+        scaling_offset = getattr(sample, "scaling:scale_offset", None)
 
-        if not self.categorical and (scaling_factor != 1.0 or scaling_offset != 0.0):
+        # Check if we have valid scaling values (not None)
+        has_scaling = (
+            scaling_factor is not None 
+            and scaling_offset is not None 
+            and (scaling_factor != 1.0 or scaling_offset != 0.0)
+        )
+
+        if not self.categorical and has_scaling:
             stats = self._apply_scaling(stats, scaling_factor, scaling_offset)
 
-        return pl.DataFrame({"internal:stats": [stats]}, schema=self.get_schema())
+        return pl.DataFrame({"geotiff:stats": [stats]}, schema=self.get_schema())
 
     @requires_gdal
     def _extract_stats(self, filepath: pathlib.Path) -> list:
@@ -106,7 +152,8 @@ class GeotiffStats(SampleExtension):
                 single_value = int(min_val)
                 if single_value not in self.class_values:
                     raise ValueError(
-                        f"Band {band_idx}: all pixels have value {single_value}, not in class_values {self.class_values}"
+                        f"Band {band_idx}: all pixels have value {single_value}, "
+                        f"not in class_values {self.class_values}"
                     )
 
                 # Create probabilities: 1.0 for the single value, 0.0 for others
@@ -131,13 +178,14 @@ class GeotiffStats(SampleExtension):
             for class_val in self.class_values:
                 bin_idx = class_val - min_class
                 count = histogram[bin_idx] if 0 <= bin_idx < len(histogram) else 0
-                probability = float(count) / float(total_pixels)  # This stays 0-1
+                probability = float(count) / float(total_pixels)
                 band_probs.append(probability)
 
             # Ensure probabilities sum to exactly 1.0 (within rounding)
             total_sum = sum(band_probs)
             if total_sum > 0:
                 band_probs = [p / total_sum for p in band_probs]
+            
             result.append(band_probs)
 
         return result
@@ -201,7 +249,22 @@ class GeotiffStats(SampleExtension):
     def _apply_scaling(
         self, stats: list[list[float]], scaling_factor: float, scaling_offset: float
     ) -> list[list[float]]:
-        """Apply scaling transformation: real_value = packed_value * factor + offset."""
+        """
+        Apply scaling transformation: real_value = packed_value * factor + offset.
+        
+        Args:
+            stats: Per-band statistics to scale
+            scaling_factor: Multiplicative scaling factor
+            scaling_offset: Additive offset after scaling
+        
+        Returns:
+            Scaled statistics with same structure as input
+        
+        Notes:
+            - min, max, mean, percentiles: scaled with factor + offset
+            - std: scaled with factor only (no offset)
+            - valid_pct: unchanged (percentage remains same)
+        """
         result = []
 
         for band_stats in stats:

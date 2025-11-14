@@ -7,6 +7,13 @@ from shapely.wkb import loads as wkb_loads
 
 from tacotoolbox.sample.datamodel import SampleExtension
 
+# Soft dependency - only imported when check_antimeridian=True
+try:
+    import antimeridian
+    HAS_ANTIMERIDIAN = True
+except ImportError:
+    HAS_ANTIMERIDIAN = False
+
 
 class ISTAC(SampleExtension):
     """
@@ -46,6 +53,9 @@ class ISTAC(SampleExtension):
         Optional centroid point in EPSG:4326 as WKB binary. If not provided, it will
         be automatically computed from the geometry. Useful for quick spatial queries
         without loading full geometry.
+    check_antimeridian : bool
+        If True, detect and correctly handle geometries crossing the antimeridian
+        (±180° longitude). Requires 'antimeridian' package. Default False (fast mode).
 
     Examples
     --------
@@ -53,16 +63,24 @@ class ISTAC(SampleExtension):
     >>> from shapely.wkb import dumps as wkb_dumps
     >>> from datetime import datetime
     >>>
-    >>> # CloudSat orbital swath polygon
+    >>> # CloudSat orbital swath polygon (default fast mode)
     >>> swath = Polygon([(-180, -60), (180, -60), (180, 60), (-180, 60)])
-    >>>
     >>> istac = ISTAC(
     ...     crs="EPSG:4326",
     ...     geometry=wkb_dumps(swath),
     ...     time_start=int(datetime(2025, 1, 15, 12, 30).timestamp()),
     ...     time_end=int(datetime(2025, 1, 15, 12, 45).timestamp())
     ... )
+    >>> sample.extend_with(istac)
     >>>
+    >>> # Swath crossing Pacific (antimeridian mode)
+    >>> pacific_swath = Polygon([(170, -10), (-170, -10), (-170, 10), (170, 10)])
+    >>> istac = ISTAC(
+    ...     crs="EPSG:4326",
+    ...     geometry=wkb_dumps(pacific_swath),
+    ...     time_start=int(datetime(2025, 1, 15, 12, 30).timestamp()),
+    ...     check_antimeridian=True  # Correct centroid for ±180° crossings
+    ... )
     >>> sample.extend_with(istac)
 
     Notes
@@ -72,6 +90,7 @@ class ISTAC(SampleExtension):
     - For raster data with regular grids, use the STAC extension instead
     - WKB binary format is used for efficient storage and GeoParquet compatibility
     - `time_middle` is automatically computed when both start and end times exist
+    - Set check_antimeridian=True for Pacific/Polar data (requires: pip install antimeridian)
     """
 
     crs: str
@@ -80,6 +99,7 @@ class ISTAC(SampleExtension):
     time_end: int | None = None
     time_middle: int | None = None
     centroid: bytes | None = None
+    check_antimeridian: bool = False
 
     @pydantic.model_validator(mode="after")
     def check_times(self) -> "ISTAC":
@@ -111,13 +131,29 @@ class ISTAC(SampleExtension):
 
         Loads the geometry, computes its centroid, and reprojects to EPSG:4326
         if the source CRS is different.
+        
+        If check_antimeridian=True, uses the 'antimeridian' package to correctly
+        handle geometries crossing ±180° longitude (e.g., Pacific swaths).
         """
         if self.centroid is None:
             # Load geometry from WKB
             geom = wkb_loads(self.geometry)
 
-            # Compute centroid in source CRS
-            centroid_geom = geom.centroid
+            # Compute centroid with optional antimeridian handling
+            if self.check_antimeridian:
+                if not HAS_ANTIMERIDIAN:
+                    raise ImportError(
+                        "check_antimeridian=True requires the 'antimeridian' package.\n"
+                        "Install with: pip install antimeridian\n"
+                        "Or set check_antimeridian=False to use fast mode (works for most geometries)."
+                    )
+                # Use antimeridian-aware centroid calculation
+                # This correctly handles geometries crossing ±180° longitude
+                centroid_geom = antimeridian.centroid(geom)
+            else:
+                # FAST PATH (default): Standard shapely centroid
+                # Works correctly for 99% of geometries (those not crossing ±180°)
+                centroid_geom = geom.centroid
 
             # Transform to EPSG:4326 if needed
             if self.crs.upper() != "EPSG:4326":
@@ -144,7 +180,7 @@ class ISTAC(SampleExtension):
         }
 
     def _compute(self, sample) -> pl.DataFrame:
-        """Actual computation logic - only called when return_none=False."""
+        """Actual computation logic - only called when schema_only=False."""
         return pl.DataFrame(
             {
                 "istac:crs": [self.crs],
