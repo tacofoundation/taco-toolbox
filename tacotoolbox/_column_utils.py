@@ -1,17 +1,13 @@
 """
 Column manipulation utilities for tacotoolbox.
 
-This module provides shared utilities for working with DataFrame columns,
-particularly for handling internal:* metadata columns consistently across
-both ZIP and FOLDER containers.
-
 Functions:
     - reorder_internal_columns: Place internal:* columns at end of DataFrame
     - remove_empty_columns: Remove columns with all null/empty values
     - validate_schema_consistency: Check schema compatibility across DataFrames
-    - sanitize_avro_columns: Replace colons for Avro serialization
-    - desanitize_avro_columns: Restore colons after Avro deserialization
-    - read_metadata_file: Read Parquet or Avro with auto-format detection
+    - read_metadata_file: Read Parquet metadata files
+    - write_parquet_file: Write Parquet for local __meta__ files
+    - write_parquet_file_with_cdc: Write Parquet with CDC for consolidated metadata
     - cast_dataframe_to_schema: Cast columns to match schema spec
 """
 
@@ -20,7 +16,7 @@ from pathlib import Path
 import polars as pl
 
 from tacotoolbox._constants import (
-    AVRO_COLON_REPLACEMENT,
+    PARQUET_CDC_DEFAULT_CONFIG,
     METADATA_COLUMNS_ORDER,
     SHARED_CORE_FIELDS,
     is_internal_column,
@@ -30,10 +26,6 @@ from tacotoolbox._constants import (
 def reorder_internal_columns(df: pl.DataFrame) -> pl.DataFrame:
     """
     Reorder DataFrame columns to place internal:* columns at the end.
-
-    This function ensures consistent column ordering across all metadata
-    DataFrames in TACO containers. Regular columns come first, followed
-    by internal:* columns in a preferred order.
 
     Column order:
         1. Regular columns (non-internal)
@@ -59,22 +51,15 @@ def reorder_internal_columns(df: pl.DataFrame) -> pl.DataFrame:
         >>> df.columns
         ['id', 'type', 'internal:parent_id', 'internal:offset']
     """
-    # Separate regular and internal columns
     regular_cols = [col for col in df.columns if not is_internal_column(col)]
-
-    # Get internal columns in preferred order
     ordered_internal = [col for col in METADATA_COLUMNS_ORDER if col in df.columns]
-
-    # Get any other internal:* columns not in the preferred list
     other_internal = [
         col
         for col in df.columns
         if is_internal_column(col) and col not in METADATA_COLUMNS_ORDER
     ]
 
-    # Combine: regular + ordered internal + other internal
     new_order = regular_cols + ordered_internal + other_internal
-
     return df.select(new_order)
 
 
@@ -83,10 +68,6 @@ def remove_empty_columns(
 ) -> pl.DataFrame:
     """
     Remove columns that are completely empty (all null or empty strings).
-
-    This function cleans up metadata DataFrames by removing columns that
-    contain no useful information. Core fields and internal:* columns are
-    protected by default.
 
     Args:
         df: DataFrame to clean
@@ -110,22 +91,17 @@ def remove_empty_columns(
     cols_to_keep = []
 
     for col in df.columns:
-        # Always preserve core fields if requested
         if preserve_core and col in SHARED_CORE_FIELDS:
             cols_to_keep.append(col)
             continue
 
-        # Always preserve internal:* columns if requested
         if preserve_internal and is_internal_column(col):
             cols_to_keep.append(col)
             continue
 
-        # Check if column has any non-null, non-empty values
         if df[col].is_null().all():
-            # All nulls - skip this column
             continue
 
-        # For string columns, also check for empty strings
         if df[col].dtype == pl.Utf8:
             non_empty = df.filter(
                 (pl.col(col).is_not_null())
@@ -136,10 +112,8 @@ def remove_empty_columns(
             if non_empty > 0:
                 cols_to_keep.append(col)
         else:
-            # Non-string column with some non-null values
             cols_to_keep.append(col)
 
-    # Ensure we keep at least one column
     if not cols_to_keep:
         cols_to_keep = [df.columns[0]]
 
@@ -157,7 +131,7 @@ def validate_schema_consistency(
 
     Args:
         dataframes: List of DataFrames to validate
-        context: Description of where these DataFrames come from (for error messages)
+        context: Description of where these DataFrames come from
 
     Raises:
         ValueError: If schemas are inconsistent
@@ -174,18 +148,15 @@ def validate_schema_consistency(
         raise ValueError(f"{context}: Cannot validate empty DataFrame list")
 
     if len(dataframes) == 1:
-        return  # Single DataFrame is always consistent with itself
+        return
 
-    # Use first DataFrame as reference
     reference_schema = dict(dataframes[0].schema)
     reference_columns = set(reference_schema.keys())
 
-    # Check each subsequent DataFrame
     for i, df in enumerate(dataframes[1:], start=1):
         current_schema = dict(df.schema)
         current_columns = set(current_schema.keys())
 
-        # Check for column differences
         missing_columns = reference_columns - current_columns
         extra_columns = current_columns - reference_columns
 
@@ -203,7 +174,6 @@ def validate_schema_consistency(
 
             raise ValueError(error_msg)
 
-        # Check for type mismatches in common columns
         type_mismatches = []
         for col in reference_columns:
             ref_type = reference_schema[col]
@@ -229,15 +199,10 @@ def ensure_columns_exist(
     Args:
         df: DataFrame to check
         required_columns: List of column names that must be present
-        context: Description of the DataFrame (for error messages)
+        context: Description of the DataFrame
 
     Raises:
         ValueError: If any required columns are missing
-
-    Example:
-        >>> df = pl.DataFrame({"id": ["a"], "type": ["FILE"]})
-        >>> ensure_columns_exist(df, ["id", "type"])  # OK
-        >>> ensure_columns_exist(df, ["id", "missing"])  # Raises ValueError
     """
     missing = [col for col in required_columns if col not in df.columns]
 
@@ -261,23 +226,6 @@ def filter_columns_by_prefix(
 
     Returns:
         DataFrame with filtered columns
-
-    Example:
-        >>> df = pl.DataFrame({
-        ...     "id": ["a"],
-        ...     "internal:offset": [100],
-        ...     "internal:size": [50],
-        ...     "custom": ["x"]
-        ... })
-        >>> # Keep only internal:* columns
-        >>> internal_df = filter_columns_by_prefix(df, "internal:")
-        >>> internal_df.columns
-        ['internal:offset', 'internal:size']
-        >>>
-        >>> # Exclude internal:* columns
-        >>> regular_df = filter_columns_by_prefix(df, "internal:", exclude=True)
-        >>> regular_df.columns
-        ['id', 'custom']
     """
     if exclude:
         cols = [col for col in df.columns if not col.startswith(prefix)]
@@ -285,7 +233,6 @@ def filter_columns_by_prefix(
         cols = [col for col in df.columns if col.startswith(prefix)]
 
     if not cols:
-        # Return empty DataFrame with same height but no columns
         return df.select([])
 
     return df.select(cols)
@@ -297,9 +244,6 @@ def add_columns_if_missing(
     """
     Add columns to DataFrame if they don't exist, with default values.
 
-    Useful for ensuring schema compatibility when some DataFrames might
-    be missing certain columns.
-
     Args:
         df: DataFrame to modify
         columns: Dictionary mapping column_name -> polars DataType
@@ -307,20 +251,9 @@ def add_columns_if_missing(
 
     Returns:
         DataFrame with all specified columns present
-
-    Example:
-        >>> df = pl.DataFrame({"id": ["a", "b"]})
-        >>> df = add_columns_if_missing(
-        ...     df,
-        ...     {"internal:offset": pl.Int64(), "internal:size": pl.Int64()},
-        ...     default_value=0
-        ... )
-        >>> df.columns
-        ['id', 'internal:offset', 'internal:size']
     """
     for col_name, col_type in columns.items():
         if col_name not in df.columns:
-            # Create column with default values
             df = df.with_columns(pl.lit(default_value).cast(col_type).alias(col_name))
 
     return df
@@ -330,22 +263,11 @@ def get_column_statistics(df: pl.DataFrame) -> dict[str, dict]:
     """
     Get basic statistics about DataFrame columns.
 
-    Useful for debugging and understanding DataFrame contents.
-
     Args:
         df: DataFrame to analyze
 
     Returns:
         Dictionary mapping column_name -> statistics dict
-
-    Example:
-        >>> df = pl.DataFrame({
-        ...     "id": ["a", "b", "c"],
-        ...     "value": [1, None, 3]
-        ... })
-        >>> stats = get_column_statistics(df)
-        >>> stats["value"]["null_count"]
-        1
     """
     stats = {}
 
@@ -357,7 +279,6 @@ def get_column_statistics(df: pl.DataFrame) -> dict[str, dict]:
             "is_empty": df[col].is_null().all(),
         }
 
-        # Add type-specific stats
         if df[col].dtype in [pl.Int64, pl.Int32, pl.Float64, pl.Float32]:
             if not df[col].is_null().all():
                 col_stats["min"] = df[col].min()
@@ -369,91 +290,21 @@ def get_column_statistics(df: pl.DataFrame) -> dict[str, dict]:
     return stats
 
 
-def sanitize_avro_columns(df: pl.DataFrame) -> pl.DataFrame:
-    """
-    Sanitize DataFrame column names for Avro serialization.
-
-    Replaces colons with AVRO_COLON_REPLACEMENT since Avro specification
-    does not allow colons in field names. This affects all columns with
-    colons including internal:* columns and STAC/custom metadata fields.
-
-    Args:
-        df: DataFrame with potentially colons in column names
-
-    Returns:
-        DataFrame with sanitized column names safe for Avro
-
-    Example:
-        >>> df = pl.DataFrame({
-        ...     "id": ["a"],
-        ...     "internal:parent_id": [0],
-        ...     "stac:crs": ["EPSG:4326"]
-        ... })
-        >>> sanitized = sanitize_avro_columns(df)
-        >>> sanitized.columns
-        ['id', 'internal_COLON_parent_id', 'stac_COLON_crs']
-    """
-    return df.rename(
-        {col: col.replace(":", AVRO_COLON_REPLACEMENT) for col in df.columns}
-    )
-
-
-def desanitize_avro_columns(df: pl.DataFrame) -> pl.DataFrame:
-    """
-    Restore original column names after Avro deserialization.
-
-    Replaces AVRO_COLON_REPLACEMENT back with colons to restore
-    original column names after reading from Avro files. This is the
-    inverse operation of sanitize_avro_columns().
-
-    Args:
-        df: DataFrame with sanitized column names from Avro
-
-    Returns:
-        DataFrame with restored original column names
-
-    Example:
-        >>> df = pl.DataFrame({
-        ...     "id": ["a"],
-        ...     "internal_COLON_parent_id": [0],
-        ...     "stac_COLON_crs": ["EPSG:4326"]
-        ... })
-        >>> restored = desanitize_avro_columns(df)
-        >>> restored.columns
-        ['id', 'internal:parent_id', 'stac:crs']
-    """
-    return df.rename(
-        {col: col.replace(AVRO_COLON_REPLACEMENT, ":") for col in df.columns}
-    )
-
-
 def read_metadata_file(file_path: Path | str) -> pl.DataFrame:
     """
-    Read metadata file in Parquet or Avro format with automatic format detection.
-
-    Handles Avro column name desanitization automatically. Parquet files
-    preserve colons in column names, but Avro requires sanitization/desanitization.
-
-    Supported formats:
-        - .parquet: Read directly (colons preserved)
-        - .avro: Read and desanitize column names (restore colons)
+    Read metadata file in Parquet format.
 
     Args:
-        file_path: Path to metadata file (.parquet or .avro)
+        file_path: Path to metadata file (.parquet)
 
     Returns:
-        DataFrame with proper column names (colons restored if from Avro)
+        DataFrame with proper column names
 
     Raises:
-        ValueError: If file format is not .parquet or .avro
+        ValueError: If file format is not .parquet
 
     Example:
-        >>> # Reading Avro (auto-desanitizes column names)
-        >>> df = read_metadata_file("METADATA/level0.avro")
-        >>> "internal:parent_id" in df.columns
-        True
-        >>>
-        >>> # Reading Parquet (no changes needed)
+        >>> # Reading Parquet
         >>> df = read_metadata_file("METADATA/level0.parquet")
         >>> "internal:parent_id" in df.columns
         True
@@ -462,50 +313,16 @@ def read_metadata_file(file_path: Path | str) -> pl.DataFrame:
 
     if file_path.suffix == ".parquet":
         return pl.read_parquet(file_path)
-    elif file_path.suffix == ".avro":
-        df = pl.read_avro(file_path)
-        return desanitize_avro_columns(df)
     else:
         raise ValueError(
             f"Unsupported metadata format: {file_path.suffix}\n"
-            f"Expected .parquet or .avro, got {file_path}"
+            f"Expected .parquet, got {file_path}"
         )
-
-
-def write_avro_file(df: pl.DataFrame, output_path: Path | str) -> None:
-    """
-    Write DataFrame to Avro file with automatic column name sanitization.
-
-    Sanitizes column names (replaces : with _COLON_) before writing since
-    Avro specification does not allow colons in field names. The output
-    file can later be read with read_metadata_file() which will automatically
-    restore the original column names.
-
-    Args:
-        df: DataFrame to write
-        output_path: Target path for .avro file
-
-    Example:
-        >>> df = pl.DataFrame({
-        ...     "id": ["a", "b"],
-        ...     "internal:parent_id": [0, 1],
-        ...     "stac:crs": ["EPSG:4326", "EPSG:32633"]
-        ... })
-        >>> write_avro_file(df, "metadata.avro")
-        # File contains: id, internal_COLON_parent_id, stac_COLON_crs
-        >>>
-        >>> # Read it back with automatic desanitization
-        >>> df_read = read_metadata_file("metadata.avro")
-        >>> df_read.columns
-        ['id', 'internal:parent_id', 'stac:crs']
-    """
-    sanitized_df = sanitize_avro_columns(df)
-    sanitized_df.write_avro(output_path, name="TacoMetadata")
 
 
 def write_parquet_file(df: pl.DataFrame, output_path: Path | str) -> None:
     """
-    Write DataFrame to Parquet file.
+    Write DataFrame to Parquet file (for local __meta__ files).
 
     Parquet natively supports colons in column names, no sanitization needed.
     Used for local metadata (__meta__) in FOLDER containers.
@@ -521,9 +338,30 @@ def write_parquet_file(df: pl.DataFrame, output_path: Path | str) -> None:
         ...     "stac:crs": ["EPSG:4326", "EPSG:32633"]
         ... })
         >>> write_parquet_file(df, "metadata.parquet")
-        # Colons preserved directly in column names
     """
     df.write_parquet(output_path, compression="zstd")
+
+
+def write_parquet_file_with_cdc(df: pl.DataFrame, output_path: Path | str) -> None:
+    """
+    Write DataFrame to Parquet with CDC (for consolidated metadata).
+
+    Content-Defined Chunking ensures consistent data page boundaries for
+    efficient deduplication on content-addressable storage systems.
+
+    Args:
+        df: DataFrame to write
+        output_path: Target path for .parquet file
+
+    Example:
+        >>> df = pl.DataFrame({
+        ...     "id": ["a", "b"],
+        ...     "internal:parent_id": [0, 1]
+        ... })
+        >>> write_parquet_file_with_cdc(df, "level0.parquet")
+        # Parquet with CDC enabled for incremental updates
+    """
+    df.write_parquet(output_path, **PARQUET_CDC_DEFAULT_CONFIG)
 
 
 def cast_dataframe_to_schema(df: pl.DataFrame, schema_spec: list) -> pl.DataFrame:
@@ -534,27 +372,20 @@ def cast_dataframe_to_schema(df: pl.DataFrame, schema_spec: list) -> pl.DataFram
     collection["taco:field_schema"]["levelX"]. Handles Null columns gracefully
     by adding missing columns and coercing type mismatches.
 
-    This function ensures all DataFrames have identical schemas before concatenation,
-    preventing "type X is incompatible with expected type Y" errors.
-
     Args:
         df: Polars DataFrame with potentially inconsistent types
         schema_spec: List of [column_name, type_string] from taco:field_schema
-                     Example: [["id", "string"], ["internal:parent_id", "int64"], ...]
 
     Returns:
-        DataFrame with all columns cast to correct types and all schema columns present
+        DataFrame with all columns cast to correct types
 
     Example:
         >>> schema = [
         ...     ["id", "string"],
         ...     ["type", "string"],
         ...     ["internal:parent_id", "int64"],
-        ...     ["stac:time_start", "int64"],
-        ...     ["stac:centroid", "binary"]
         ... ]
         >>> df = cast_dataframe_to_schema(df, schema)
-        >>> # All columns present with correct types
     """
     type_mapping = {
         "string": pl.Utf8,
@@ -574,22 +405,18 @@ def cast_dataframe_to_schema(df: pl.DataFrame, schema_spec: list) -> pl.DataFram
         if target_type is None:
             continue
 
-        # Add missing column as Null with target type
         if col_name not in df.columns:
             df = df.with_columns(pl.lit(None, dtype=target_type).alias(col_name))
             continue
 
         current_type = df[col_name].dtype
 
-        # Skip if already correct type
         if current_type == target_type:
             continue
 
-        # ALWAYS cast to target type (handles Null -> Int64, Int64 -> Null, etc.)
         try:
             df = df.with_columns(pl.col(col_name).cast(target_type))
         except Exception:
-            # If cast fails, fill nulls first then cast
             df = df.with_columns(
                 pl.col(col_name).fill_null(pl.lit(None)).cast(target_type)
             )

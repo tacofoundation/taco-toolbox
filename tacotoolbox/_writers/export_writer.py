@@ -23,7 +23,7 @@ FOLDER Structure example (level 0 = FILEs only):
     │   ├── sample_002.tif
     │   └── sample_003.tif
     ├── METADATA/
-    │   └── level0.avro
+    │   └── level0.parquet
     └── COLLECTION.json
 
 FOLDER Structure example (level 0 = FOLDERs, level 1 = FILEs):
@@ -38,8 +38,8 @@ FOLDER Structure example (level 0 = FOLDERs, level 1 = FILEs):
     │       ├── nested_001.tif
     │       └── nested_002.tif
     ├── METADATA/
-    │   ├── level0.avro
-    │   └── level1.avro
+    │   ├── level0.parquet
+    │   └── level1.parquet
     └── COLLECTION.json
 """
 
@@ -56,8 +56,8 @@ from tqdm.asyncio import tqdm as tqdm_asyncio
 from tacotoolbox._column_utils import (
     read_metadata_file,
     reorder_internal_columns,
-    write_avro_file,
     write_parquet_file,
+    write_parquet_file_with_cdc,
 )
 from tacotoolbox._constants import FOLDER_DATA_DIR, FOLDER_METADATA_DIR
 
@@ -371,7 +371,7 @@ class ExportWriter:
 
     def _generate_consolidated_metadata(self) -> None:
         """
-        Generate consolidated metadata files (METADATA/levelX.avro).
+        Generate consolidated metadata files (METADATA/levelX.parquet).
 
         Filters existing consolidated metadata to selected samples and reindexes
         internal:parent_id to maintain relational consistency in the new dataset.
@@ -394,7 +394,7 @@ class ExportWriter:
         for level_name in level_names:
             file_path = self.dataset.consolidated_files[level_name]
 
-            # Read metadata file (auto-detects parquet/avro)
+            # Read metadata file (auto-detects parquet)
             df = read_metadata_file(file_path)
 
             if level_name == "level0":
@@ -439,12 +439,12 @@ class ExportWriter:
                 [col for col in zip_specific_cols if col in filtered_df.columns]
             )
 
-            # Write consolidated metadata as AVRO
-            output_path = self.metadata_dir / f"{level_name}.avro"
-            write_avro_file(filtered_df, output_path)
+            # Write consolidated metadata as PARQUET with CDC
+            output_path = self.metadata_dir / f"{level_name}.parquet"
+            write_parquet_file_with_cdc(filtered_df, output_path)
 
             if self.debug:
-                print(f"  {level_name}.avro: {len(filtered_df)} samples")
+                print(f"  {level_name}.parquet: {len(filtered_df)} samples")
 
     def _generate_collection_json(self) -> None:
         """

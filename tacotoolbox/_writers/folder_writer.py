@@ -4,13 +4,13 @@ Folder Writer - Create TACO datasets in FOLDER format.
 This module handles the creation of FOLDER-format TACO containers with
 dual metadata system:
 - Local metadata: __meta__ files in each DATA/ subfolder (PARQUET format)
-- Consolidated metadata: level*.avro files in METADATA/ directory
+- Consolidated metadata: level*.parquet files in METADATA/ directory
 
 The FOLDER format provides:
 - Direct filesystem access to individual files
 - Human-readable directory structure
-- Parquet __meta__ for local access (avoids Polars Avro bugs with small files)
-- Avro consolidated metadata for efficient queries
+- Parquet __meta__ for local access
+- Parquet consolidated metadata with CDC for efficient queries
 - Preserved internal:parent_id for hierarchical navigation
 
 Structure example (level 0 = FILEs only):
@@ -20,7 +20,7 @@ Structure example (level 0 = FILEs only):
     │   ├── sample_002.tif
     │   └── sample_003.tif
     ├── METADATA/
-    │   └── level0.avro
+    │   └── level0.parquet
     └── COLLECTION.json
 
 Structure example (level 0 = FOLDERs, level 1 = FILEs):
@@ -35,8 +35,8 @@ Structure example (level 0 = FOLDERs, level 1 = FILEs):
     │       ├── nested_001.tif
     │       └── nested_002.tif
     ├── METADATA/
-    │   ├── level0.avro
-    │   └── level1.avro
+    │   ├── level0.parquet
+    │   └── level1.parquet
     └── COLLECTION.json
 
 Structure example (Change Detection - 3 levels deep):
@@ -58,9 +58,9 @@ Structure example (Change Detection - 3 levels deep):
     │   │       └── after.tif
     │   └── ...
     ├── METADATA/
-    │   ├── level0.avro
-    │   ├── level1.avro
-    │   └── level2.avro
+    │   ├── level0.parquet
+    │   ├── level1.parquet
+    │   └── level2.parquet
     └── COLLECTION.json
 
 PIT Schema for Change Detection example:
@@ -81,13 +81,13 @@ from typing import Any
 import polars as pl
 
 from tacotoolbox._constants import (
-    AVRO_COLON_REPLACEMENT,
     FOLDER_COLLECTION_FILENAME,
     FOLDER_DATA_DIR,
     FOLDER_META_FILENAME,
     FOLDER_METADATA_DIR,
     METADATA_PARENT_ID,
 )
+from tacotoolbox._column_utils import write_parquet_file, write_parquet_file_with_cdc
 from tacotoolbox._metadata import MetadataPackage
 
 
@@ -211,7 +211,7 @@ class FolderWriter:
             meta_path.parent.mkdir(parents=True, exist_ok=True)
 
             # Write as Parquet
-            self._write_parquet_file(local_df, meta_path)
+            write_parquet_file(local_df, meta_path)
 
             if self.debug:
                 print(f"Created {folder_path}{FOLDER_META_FILENAME}")
@@ -222,35 +222,23 @@ class FolderWriter:
         **kwargs: Any,
     ) -> None:
         """
-        Write consolidated METADATA/levelX.avro files.
+        Write consolidated METADATA/levelX.parquet files with CDC.
 
         These files preserve ALL columns including internal:parent_id
         for hierarchical navigation via JOINs.
         """
         for i, level_df in enumerate(metadata_package.levels):
-            output_path = self.metadata_dir / f"level{i}.avro"
+            output_path = self.metadata_dir / f"level{i}.parquet"
 
-            # Write consolidated as Avro
-            self._write_avro_file(level_df, output_path)
+            # Write consolidated as Parquet with CDC
+            write_parquet_file_with_cdc(level_df, output_path)
 
             if self.debug:
                 has_parent_id = METADATA_PARENT_ID in level_df.columns
                 print(
-                    f"Created {FOLDER_METADATA_DIR}/level{i}.avro "
+                    f"Created {FOLDER_METADATA_DIR}/level{i}.parquet "
                     f"({len(level_df)} rows, parent_id={has_parent_id})"
                 )
-
-    def _write_parquet_file(self, df: pl.DataFrame, output_path: pathlib.Path) -> None:
-        """Write Parquet file for __meta__ (no sanitization needed)."""
-        df.write_parquet(output_path, compression="zstd")
-
-    def _write_avro_file(self, df: pl.DataFrame, output_path: pathlib.Path) -> None:
-        """Write Avro file for consolidated metadata (with column sanitization)."""
-        # Sanitize colons for Avro
-        sanitized_df = df.rename(
-            {col: col.replace(":", AVRO_COLON_REPLACEMENT) for col in df.columns}
-        )
-        sanitized_df.write_avro(output_path, name="TacoMetadata")
 
     def _write_collection_json(self, metadata_package: MetadataPackage) -> None:
         """Write COLLECTION.json with pit_schema and field_schema embedded."""

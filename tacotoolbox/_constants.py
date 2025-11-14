@@ -9,6 +9,7 @@ Organization:
 - METADATA_*  : Metadata column names
 - VALIDATION_*: Validation rules and limits
 - PADDING_*   : Padding-related constants
+- PARQUET_*   : Parquet configuration (including CDC)
 """
 
 import re
@@ -94,6 +95,17 @@ VALIDATION_MIN_SPLIT_SIZE = 1024
 """Minimum size in bytes for dataset splitting (1 KB)."""
 
 # =============================================================================
+# PARQUET CDC CONFIGURATION (SHARED)
+# =============================================================================
+
+PARQUET_CDC_DEFAULT_CONFIG = {
+    "compression": "zstd",
+    "use_content_defined_chunking": True,
+    "row_group_size": 65_536,
+}
+"""Default Parquet config with CDC enabled for FOLDER consolidated metadata."""
+
+# =============================================================================
 # ZIP CONTAINER SPECIFIC
 # =============================================================================
 
@@ -171,13 +183,12 @@ TACOCAT_TOTAL_HEADER_SIZE = TACOCAT_HEADER_SIZE + TACOCAT_INDEX_SIZE  # 128
 
 TACOCAT_DEFAULT_PARQUET_CONFIG = {
     "compression": "zstd",
-    "compression_level": 13,  # Balanced compression (fast + good ratio)
-    "row_group_size": 122_880,  # DuckDB default for parallelization
-    "statistics": True,  # CRITICAL for predicate pushdown
+    "compression_level": 13,
+    "row_group_size": 32_768,
+    "statistics": True,
+    "use_content_defined_chunking": True,
 }
-"""
-Default Parquet configuration optimized for DuckDB queries.s
-"""
+"""Default Parquet config for TacoCat with CDC and optimized row groups."""
 
 TACOCAT_FILENAME = "__TACOCAT__"
 """Fixed filename for TacoCat consolidated files."""
@@ -285,35 +296,11 @@ def validate_depth(depth: int, context: str = "operation") -> None:
 
 
 # =============================================================================
-# AVRO SERIALIZATION (SHARED)
-# =============================================================================
-
-AVRO_COLON_REPLACEMENT = "_COLON_"
-"""
-Replacement string for colons in Avro column names.
-
-CRITICAL: Avro specification does not allow colons (:) in field names.
-We must replace them during serialization and restore during deserialization.
-
-This affects all internal:* columns and any custom columns with colons
-(e.g., 'stac:crs', 'territorial:admin_states').
-
-Serialization flow:
-    Write: "internal:parent_id" → "internal_COLON_parent_id"
-    Read:  "internal_COLON_parent_id" → "internal:parent_id"
-
-Used in:
-    - FOLDER container local metadata (__meta__ files)
-    - Consolidated metadata files (METADATA/levelX.avro)
-    - TacoCat index serialization
-"""
-
-# =============================================================================
 # VERSION INFO
 # =============================================================================
 
-TACO_SPECIFICATION_VERSION = "2.0.0"
-"""Current TACO specification version."""
+TACO_SPECIFICATION_VERSION = "2.1.0"
+"""TACO spec version. v2.1.0: FOLDER uses Parquet+CDC instead of Avro."""
 
 TACOTOOLBOX_MIN_PYTHON = "3.10"
 """Minimum required Python version."""

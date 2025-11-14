@@ -7,7 +7,6 @@ This module provides bidirectional conversion between TACO container formats:
 
 Key features:
 - Preserves all metadata and hierarchical structure
-- Handles AVRO colon sanitization (_COLON_ ↔ :)
 - Regenerates __meta__ files with correct offsets for ZIP
 - Supports all PIT schema patterns
 - Progress bars for file operations
@@ -28,7 +27,6 @@ from pathlib import Path
 import polars as pl
 from tacoreader import TacoDataset
 
-from tacotoolbox._constants import AVRO_COLON_REPLACEMENT
 from tacotoolbox._metadata import MetadataPackage
 from tacotoolbox._writers.export_writer import ExportWriter
 from tacotoolbox._writers.zip_writer import ZipWriter
@@ -110,7 +108,7 @@ def folder2zip(
 
     Process:
     1. Read COLLECTION.json
-    2. Read consolidated metadata (METADATA/levelX.avro)
+    2. Read consolidated metadata (METADATA/levelX.parquet)
     3. Reconstruct local_metadata from consolidated (for __meta__ generation)
     4. Scan DATA/ for physical files
     5. Use ZipWriter to create ZIP (regenerates __meta__ with offsets)
@@ -148,7 +146,7 @@ def folder2zip(
             print("Reading COLLECTION.json...")
         collection = _read_collection(folder_path)
 
-        # 2. Read consolidated metadata from METADATA/levelX.avro
+        # 2. Read consolidated metadata from METADATA/levelX.parquet
         if debug:
             print("Reading consolidated metadata...")
         levels = _read_consolidated_metadata(folder_path)
@@ -223,54 +221,37 @@ def _read_collection(folder_path: Path) -> dict:
 
 def _read_consolidated_metadata(folder_path: Path) -> list[pl.DataFrame]:
     """
-    Read consolidated metadata from METADATA/levelX.avro files.
+    Read consolidated metadata from METADATA/levelX.parquet files.
 
-    CRITICAL: AVRO files use _COLON_ replacement for colons in column names.
-    This function unsanitizes them back to standard format (internal:parent_id).
+    Args:
+        folder_path: Path to FOLDER container
+
+    Returns:
+        List of DataFrames (one per level)
+
+    Raises:
+        TranslateError: If no metadata files found
     """
     metadata_dir = folder_path / "METADATA"
 
     if not metadata_dir.exists():
         raise TranslateError(f"METADATA directory not found in {folder_path}")
 
-    # Find all levelX.avro files
-    level_files = sorted(metadata_dir.glob("level*.avro"))
+    # Find all levelX.parquet files
+    level_files = sorted(metadata_dir.glob("level*.parquet"))
 
     if not level_files:
-        raise TranslateError(f"No level*.avro files found in {metadata_dir}")
+        raise TranslateError(f"No level*.parquet files found in {metadata_dir}")
 
     levels = []
     for level_file in level_files:
         try:
-            df = pl.read_avro(level_file)
-            df = _unsanitize_colons(df)
+            df = pl.read_parquet(level_file)
             levels.append(df)
         except Exception as e:
             raise TranslateError(f"Failed to read {level_file}: {e}") from e
 
     return levels
-
-
-def _unsanitize_colons(df: pl.DataFrame) -> pl.DataFrame:
-    """
-    Convert AVRO sanitized column names back to standard format.
-
-    AVRO does not support colons in field names, so they are replaced
-    with _COLON_ during serialization. This function reverses that.
-
-    Example:
-        internal_COLON_parent_id → internal:parent_id
-        stac_COLON_crs → stac:crs
-    """
-    rename_map = {
-        col: col.replace(AVRO_COLON_REPLACEMENT, ":")
-        for col in df.columns
-        if AVRO_COLON_REPLACEMENT in col
-    }
-
-    if rename_map:
-        return df.rename(rename_map)
-    return df
 
 
 def _reconstruct_local_metadata_from_levels(
@@ -346,6 +327,15 @@ def _scan_data_files(folder_path: Path) -> tuple[list[str], list[str]]:
     Builds parallel lists of source paths (absolute filesystem paths) and
     archive paths (paths within ZIP container). Excludes __meta__ files
     since they're regenerated during ZIP creation.
+
+    Args:
+        folder_path: Path to FOLDER container
+
+    Returns:
+        Tuple of (src_files, arc_files) lists
+
+    Raises:
+        TranslateError: If DATA directory not found or empty
     """
     data_dir = folder_path / "DATA"
 
