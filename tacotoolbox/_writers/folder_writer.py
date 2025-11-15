@@ -78,8 +78,6 @@ import pathlib
 import shutil
 from typing import Any
 
-import polars as pl
-
 from tacotoolbox._constants import (
     FOLDER_COLLECTION_FILENAME,
     FOLDER_DATA_DIR,
@@ -90,7 +88,7 @@ from tacotoolbox._constants import (
 from tacotoolbox._column_utils import write_parquet_file, write_parquet_file_with_cdc
 from tacotoolbox._logging import get_logger
 from tacotoolbox._metadata import MetadataPackage
-from tacotoolbox._progress import ProgressContext, progress_bar, progress_scope  # ← NEW: Import progress utilities
+from tacotoolbox._progress import ProgressContext, progress_bar, progress_scope  # Import progress utilities
 
 logger = get_logger(__name__)
 
@@ -170,11 +168,11 @@ class FolderWriter:
         
         Shows progress bar if total size > 1GB.
         """
-        # ← NEW: Calculate total size
+        # Calculate total size of all samples
         logger.debug("Calculating total size of samples")
         total_size = sum(_estimate_sample_size(sample) for sample in samples)
         
-        # ← NEW: Show progress bar if > 1GB
+        # Show progress bar only if dataset is large enough (> 1GB)
         size_threshold = 1_000_000_000  # 1GB
         
         if total_size > size_threshold:
@@ -191,7 +189,7 @@ class FolderWriter:
             self._copy_samples_recursive(samples, path_prefix="")
 
     def _copy_samples_recursive(
-        self, samples: list[Any], path_prefix: str = "", pbar=None  # ← NEW: Added pbar parameter
+        self, samples: list[Any], path_prefix: str = "", pbar=None
     ) -> None:
         """
         Recursively copy samples to DATA/.
@@ -209,8 +207,9 @@ class FolderWriter:
                 nested_dir = self.data_dir / new_prefix.rstrip("/")
                 nested_dir.mkdir(parents=True, exist_ok=True)
 
+                # Recursively copy nested samples, passing pbar along
                 self._copy_samples_recursive(
-                    sample.path.samples, path_prefix=new_prefix, pbar=pbar  # ← NEW: Pass pbar
+                    sample.path.samples, path_prefix=new_prefix, pbar=pbar
                 )
             else:
                 src_path = sample.path
@@ -218,14 +217,14 @@ class FolderWriter:
 
                 dst_path.parent.mkdir(parents=True, exist_ok=True)
 
-                # ← NEW: Get file size before copying
+                # Get file size before copying for progress tracking
                 file_size = 0
                 if hasattr(src_path, "stat"):
                     file_size = src_path.stat().st_size
 
                 shutil.copy2(src_path, dst_path)
                 
-                # ← NEW: Update progress bar after copy
+                # Update progress bar after each file copy
                 if pbar is not None and file_size > 0:
                     pbar.update(file_size)
 
@@ -252,7 +251,7 @@ class FolderWriter:
         num_folders = len(metadata_package.local_metadata)
         logger.debug(f"Writing {num_folders} local __meta__ files")
 
-        # ← NEW: Show progress bar if > 10 folders
+        # Show progress bar only if there are many folders (> 10)
         folder_threshold = 10
         
         if num_folders > folder_threshold:
@@ -331,7 +330,6 @@ class FolderWriter:
         logger.debug(f"Created {FOLDER_COLLECTION_FILENAME}")
 
 
-# ← NEW: Helper function copied from create.py
 def _estimate_sample_size(sample) -> int:
     """
     Estimate total size of a sample including nested samples.

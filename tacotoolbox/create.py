@@ -166,14 +166,14 @@ def create(
                 max_size = validate_split_size(split_size)
                 logger.info(f"Creating split containers (max_size={split_size})")
                 result = _create_with_splitting(
-                    taco, output_path, max_size, temp_dir, **kwargs
+                    taco, output_path, max_size, temp_dir, quiet=quiet, **kwargs
                 )
             elif output_format == "zip":
                 logger.info(f"Creating single ZIP: {output_path}")
-                result = [_create_zip(taco, output_path, temp_dir, **kwargs)]
+                result = [_create_zip(taco, output_path, temp_dir, quiet=quiet, **kwargs)]
             else:
                 logger.info(f"Creating FOLDER: {output_path}")
-                result = [_create_folder(taco, output_path, **kwargs)]
+                result = [_create_folder(taco, output_path, quiet=quiet, **kwargs)]
 
             # Always cleanup temp files after SUCCESS
             logger.debug("Cleaning up temporary files from tortilla")
@@ -440,6 +440,7 @@ def _create_zip(
     taco: Taco,
     output_path: pathlib.Path,
     temp_dir: pathlib.Path | str | None,
+    quiet: bool = False,
     **kwargs: Any,
 ) -> pathlib.Path:
     """
@@ -454,6 +455,7 @@ def _create_zip(
         taco: TACO object
         output_path: Output .tacozip path
         temp_dir: Temporary directory
+        quiet: If True, hide progress bars (default: False)
         **kwargs: Additional writer arguments
 
     Returns:
@@ -477,7 +479,7 @@ def _create_zip(
         logger.debug(f"Extracted {len(extracted['src_files'])} data files")
 
         logger.debug(f"Creating ZIP: {output_path}")
-        writer = ZipWriter(output_path, quiet=False, debug=False, temp_dir=temp_dir)
+        writer = ZipWriter(output_path, quiet=quiet, debug=False, temp_dir=temp_dir)
         return writer.create_complete_zip(
             src_files=extracted["src_files"],
             arc_files=extracted["arc_files"],
@@ -492,6 +494,7 @@ def _create_zip(
 def _create_folder(
     taco: Taco,
     output_path: pathlib.Path,
+    quiet: bool = False,
     **kwargs: Any,
 ) -> pathlib.Path:
     """
@@ -505,6 +508,7 @@ def _create_folder(
     Args:
         taco: TACO object
         output_path: Output folder path
+        quiet: If True, hide progress bars (default: False)
         **kwargs: Additional writer arguments
 
     Returns:
@@ -519,7 +523,7 @@ def _create_folder(
         metadata_package = generator.generate_all_levels()
 
         logger.debug(f"Creating FOLDER: {output_path}")
-        writer = FolderWriter(output_path, quiet=False, debug=False)
+        writer = FolderWriter(output_path, quiet=quiet, debug=False)
         return writer.create_complete_folder(
             samples=taco.tortilla.samples,
             metadata_package=metadata_package,
@@ -565,6 +569,7 @@ def _create_with_splitting(
     output_path: pathlib.Path,
     max_size: int,
     temp_dir: pathlib.Path | str | None,
+    quiet: bool = False,
     **kwargs: Any,
 ) -> list[pathlib.Path]:
     """
@@ -586,6 +591,7 @@ def _create_with_splitting(
         output_path: Base output path
         max_size: Maximum size per chunk in bytes
         temp_dir: Temporary directory
+        quiet: If True, hide progress bars (default: False)
         **kwargs: Additional writer arguments
 
     Returns:
@@ -600,7 +606,7 @@ def _create_with_splitting(
 
         if len(sample_chunks) == 1:
             logger.info("Only one chunk needed, creating single container")
-            return [_create_zip(taco, output_path, temp_dir, **kwargs)]
+            return [_create_zip(taco, output_path, temp_dir, quiet=quiet, **kwargs)]
 
         base_name = output_path.stem
         extension = output_path.suffix
@@ -631,7 +637,7 @@ def _create_with_splitting(
             logger.info(f"Creating chunk {i}/{len(sample_chunks)}: {chunk_filename}")
 
             # Create chunk ZIP
-            created_path = _create_zip(chunk_taco, chunk_path, temp_dir, **kwargs)
+            created_path = _create_zip(chunk_taco, chunk_path, temp_dir, quiet=quiet, **kwargs)
             created_files.append(created_path)
 
         logger.info(
