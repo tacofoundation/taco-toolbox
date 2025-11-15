@@ -10,6 +10,7 @@ from tacotoolbox.sample.datamodel import SampleExtension
 # Soft dependency - only imported when check_antimeridian=True
 try:
     import antimeridian
+
     HAS_ANTIMERIDIAN = True
 except ImportError:
     HAS_ANTIMERIDIAN = False
@@ -131,7 +132,7 @@ class ISTAC(SampleExtension):
 
         Loads the geometry, computes its centroid, and reprojects to EPSG:4326
         if the source CRS is different.
-        
+
         If check_antimeridian=True, uses the 'antimeridian' package to correctly
         handle geometries crossing ±180° longitude (e.g., Pacific swaths).
         """

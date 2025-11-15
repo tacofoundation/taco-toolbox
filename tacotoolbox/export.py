@@ -72,7 +72,7 @@ def export(
     Example:
         >>> # Normal Python REPL - just works!
         >>> export(dataset, "output.tacozip")
-        
+
         >>> # Jupyter/IPython - also works!
         >>> export(dataset, "output.tacozip")
         >>> # OR explicitly:
@@ -82,7 +82,9 @@ def export(
     try:
         asyncio.get_running_loop()
         # We're in async context (Jupyter) - return coroutine
-        return _export_async(dataset, output, format, concurrency, quiet, debug, temp_dir)
+        return _export_async(
+            dataset, output, format, concurrency, quiet, debug, temp_dir
+        )
     except RuntimeError:
         # No running loop - we're in sync context (normal REPL)
         # Run asyncio.run() internally

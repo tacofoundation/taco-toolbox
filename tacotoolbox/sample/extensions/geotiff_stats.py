@@ -71,11 +71,11 @@ class GeotiffStats(SampleExtension):
     >>> # Continuous statistics
     >>> stats = GeotiffStats()
     >>> sample.extend_with(stats)
-    
+
     >>> # Categorical statistics (e.g., land cover)
     >>> stats = GeotiffStats(categorical=True, class_values=[0, 1, 2, 3])
     >>> sample.extend_with(stats)
-    
+
     >>> # With scaling
     >>> sample.extend_with(Scaling(scale_factor=0.01, scale_offset=-273.15))
     >>> sample.extend_with(GeotiffStats())  # Stats automatically scaled
@@ -102,8 +102,8 @@ class GeotiffStats(SampleExtension):
 
         # Check if we have valid scaling values (not None)
         has_scaling = (
-            scaling_factor is not None 
-            and scaling_offset is not None 
+            scaling_factor is not None
+            and scaling_offset is not None
             and (scaling_factor != 1.0 or scaling_offset != 0.0)
         )
 
@@ -185,7 +185,7 @@ class GeotiffStats(SampleExtension):
             total_sum = sum(band_probs)
             if total_sum > 0:
                 band_probs = [p / total_sum for p in band_probs]
-            
+
             result.append(band_probs)
 
         return result
@@ -251,15 +251,15 @@ class GeotiffStats(SampleExtension):
     ) -> list[list[float]]:
         """
         Apply scaling transformation: real_value = packed_value * factor + offset.
-        
+
         Args:
             stats: Per-band statistics to scale
             scaling_factor: Multiplicative scaling factor
             scaling_offset: Additive offset after scaling
-        
+
         Returns:
             Scaled statistics with same structure as input
-        
+
         Notes:
             - min, max, mean, percentiles: scaled with factor + offset
             - std: scaled with factor only (no offset)

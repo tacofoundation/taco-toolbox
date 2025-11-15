@@ -118,7 +118,7 @@ class ZipWriter:
 
     The ZipWriter uses a sophisticated bottom-up approach to ensure all
     metadata files (__meta__) have correct offsets pointing to data files.
-    
+
     All temporary files are automatically cleaned up via ExitStack, even
     if errors occur during ZIP creation.
     """
@@ -148,11 +148,13 @@ class ZipWriter:
             self.temp_dir = pathlib.Path(temp_dir)
 
         self.temp_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Use ExitStack for robust cleanup
         self._cleanup_stack = ExitStack()
-        
-        logger.debug(f"ZipWriter initialized: output={output_path}, temp_dir={self.temp_dir}")
+
+        logger.debug(
+            f"ZipWriter initialized: output={output_path}, temp_dir={self.temp_dir}"
+        )
 
     def create_complete_zip(
         self,
@@ -245,7 +247,7 @@ class ZipWriter:
             logger.debug("Rebuilding consolidated metadata...")
 
             # Step 5: Rebuild consolidated metadata (METADATA/levelX.parquet)
-            
+
             # Level 0: Add offset/size columns
             original_level0 = metadata_package.levels[0]
             level0_with_offsets = _add_zip_offsets(
@@ -417,9 +419,9 @@ class ZipWriter:
     def _register_temp_file(self, path: pathlib.Path) -> None:
         """
         Register temporary file for automatic cleanup.
-        
+
         Uses ExitStack to ensure cleanup even if exceptions occur.
-        
+
         Args:
             path: Path to temporary file
         """
@@ -430,10 +432,10 @@ class ZipWriter:
         Extract folder paths that need __meta__ files.
 
         Only includes Level 1+ folders (not DATA/ root).
-        
+
         Args:
             arc_files: List of archive file paths
-        
+
         Returns:
             list[str]: Sorted list of folder paths needing __meta__
         """
@@ -452,10 +454,10 @@ class ZipWriter:
     def _group_folders_by_depth(self, folder_order: list[str]) -> dict[int, list[str]]:
         """
         Group folders by depth for bottom-up processing.
-        
+
         Args:
             folder_order: List of folder paths
-        
+
         Returns:
             dict[int, list[str]]: Folders grouped by depth level
         """
@@ -473,11 +475,11 @@ class ZipWriter:
     def _write_single_parquet(self, df: pl.DataFrame, folder_path: str) -> pathlib.Path:
         """
         Write a single __meta__ Parquet file to temp directory.
-        
+
         Args:
             df: DataFrame to write
             folder_path: Folder path (used for filename)
-        
+
         Returns:
             pathlib.Path: Path to created temp file
         """
@@ -494,10 +496,10 @@ class ZipWriter:
     def _filter_metadata_columns(self, df: pl.DataFrame) -> pl.DataFrame:
         """
         Filter columns for __meta__ files (removes 'path' column).
-        
+
         Args:
             df: DataFrame to filter
-        
+
         Returns:
             pl.DataFrame: Filtered DataFrame
         """
@@ -508,7 +510,7 @@ class ZipWriter:
     def _get_metadata_offsets(self) -> tuple[list[int], list[int]]:
         """
         Get offsets and sizes for METADATA/levelX.parquet files.
-        
+
         Returns:
             tuple[list[int], list[int]]: (offsets, sizes) for metadata files
         """
@@ -544,7 +546,7 @@ class ZipWriter:
     def _get_collection_offset(self) -> tuple[int, int]:
         """
         Get offset and size for COLLECTION.json.
-        
+
         Returns:
             tuple[int, int]: (offset, size) for COLLECTION.json
         """
@@ -566,7 +568,7 @@ class ZipWriter:
     def _cleanup(self) -> None:
         """
         Clean up all temporary files created during ZIP creation.
-        
+
         Uses ExitStack for robust cleanup that works even when exceptions occur.
         """
         logger.debug("Cleaning up temporary files")

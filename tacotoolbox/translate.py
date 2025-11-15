@@ -74,15 +74,15 @@ async def zip2folder(
     Example:
         >>> await zip2folder("dataset.tacozip", "dataset_folder/")
         PosixPath('dataset_folder')
-        
+
         >>> # With debug
         >>> await zip2folder("dataset.tacozip", "dataset_folder/", debug=True)
     """
     try:
         logger.info(f"Converting ZIP to FOLDER: {zip_path} → {folder_output}")
-        
+
         dataset = TacoDataset(str(zip_path))
-        
+
         writer = ExportWriter(
             dataset=dataset,
             output=Path(folder_output),
@@ -90,11 +90,11 @@ async def zip2folder(
             quiet=quiet,
             debug=debug,
         )
-        
+
         result = await writer.create_folder()
         logger.info(f"Conversion complete: {result}")
         return result
-        
+
     except Exception as e:
         logger.error(f"Failed to convert ZIP to FOLDER: {e}")
         raise TranslateError(f"Failed to convert ZIP to FOLDER: {e}") from e
@@ -139,7 +139,7 @@ def folder2zip(
     Example:
         >>> folder2zip("dataset_folder/", "dataset.tacozip")
         PosixPath('dataset.tacozip')
-        
+
         >>> # With debug
         >>> folder2zip("dataset_folder/", "dataset.tacozip", debug=True)
     """
@@ -177,13 +177,10 @@ def folder2zip(
 
         # 6. Use ZipWriter to create ZIP (regenerates __meta__ with offsets)
         logger.debug("Creating ZIP container")
-        
+
         with ProgressContext(quiet=quiet):
             writer = ZipWriter(
-                output_path=zip_output, 
-                quiet=quiet, 
-                debug=debug, 
-                temp_dir=temp_dir
+                output_path=zip_output, quiet=quiet, debug=debug, temp_dir=temp_dir
             )
             result = writer.create_complete_zip(
                 src_files=src_files,
@@ -208,13 +205,13 @@ def folder2zip(
 def _read_collection(folder_path: Path) -> dict:
     """
     Read COLLECTION.json from FOLDER.
-    
+
     Args:
         folder_path: Path to FOLDER container
-    
+
     Returns:
         dict: Collection metadata dictionary
-    
+
     Raises:
         TranslateError: If COLLECTION.json missing or invalid
     """
@@ -264,7 +261,7 @@ def _read_consolidated_metadata(folder_path: Path) -> list[pl.DataFrame]:
         raise TranslateError(f"No level*.parquet files found in {metadata_dir}")
 
     logger.debug(f"Found {len(level_files)} metadata files")
-    
+
     levels = []
     for level_file in level_files:
         try:

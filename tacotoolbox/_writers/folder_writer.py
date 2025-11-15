@@ -103,10 +103,7 @@ class FolderWriter:
     """Handle creation of folder container structures with dual metadata."""
 
     def __init__(
-        self, 
-        output_dir: pathlib.Path, 
-        quiet: bool = False, 
-        debug: bool = False
+        self, output_dir: pathlib.Path, quiet: bool = False, debug: bool = False
     ) -> None:
         """
         Initialize folder writer.
@@ -120,7 +117,7 @@ class FolderWriter:
         self.quiet = quiet
         self.data_dir = output_dir / FOLDER_DATA_DIR
         self.metadata_dir = output_dir / FOLDER_METADATA_DIR
-        
+
         logger.debug(f"FolderWriter initialized: output={output_dir}")
 
     def create_complete_folder(
@@ -145,7 +142,7 @@ class FolderWriter:
         """
         try:
             logger.info(f"Creating FOLDER container: {self.output_dir}")
-            
+
             with ProgressContext(quiet=self.quiet):
                 self._create_structure()
                 self._copy_data_files(samples)
@@ -211,13 +208,15 @@ class FolderWriter:
 
         These files do NOT contain internal:parent_id (navigation is implicit
         via folder structure), but they preserve all other metadata fields.
-        
+
         Args:
             metadata_package: Complete metadata package
             **kwargs: Additional arguments (unused)
         """
-        logger.debug(f"Writing {len(metadata_package.local_metadata)} local __meta__ files")
-        
+        logger.debug(
+            f"Writing {len(metadata_package.local_metadata)} local __meta__ files"
+        )
+
         for folder_path, local_df in metadata_package.local_metadata.items():
             meta_path = self.output_dir / f"{folder_path}{FOLDER_META_FILENAME}"
 
@@ -238,13 +237,15 @@ class FolderWriter:
 
         These files preserve ALL columns including internal:parent_id
         for hierarchical navigation via JOINs.
-        
+
         Args:
             metadata_package: Complete metadata package
             **kwargs: Additional arguments (unused)
         """
-        logger.debug(f"Writing {len(metadata_package.levels)} consolidated metadata files")
-        
+        logger.debug(
+            f"Writing {len(metadata_package.levels)} consolidated metadata files"
+        )
+
         for i, level_df in enumerate(metadata_package.levels):
             output_path = self.metadata_dir / f"level{i}.parquet"
 
@@ -260,7 +261,7 @@ class FolderWriter:
     def _write_collection_json(self, metadata_package: MetadataPackage) -> None:
         """
         Write COLLECTION.json with pit_schema and field_schema embedded.
-        
+
         Args:
             metadata_package: Complete metadata package
         """

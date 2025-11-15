@@ -49,25 +49,145 @@ if TYPE_CHECKING:
 
 PRODUCT_CONFIGS = [
     # Physical/topographic
-    ("elevation", "projects/sat-io/open-datasets/GLO-30", "mean", None, "ImageCollection", 0, pl.Float32),
-    ("cisi", "projects/sat-io/open-datasets/CISI/global_CISI", "mean", None, "Image", 0, pl.Float32),
+    (
+        "elevation",
+        "projects/sat-io/open-datasets/GLO-30",
+        "mean",
+        None,
+        "ImageCollection",
+        0,
+        pl.Float32,
+    ),
+    (
+        "cisi",
+        "projects/sat-io/open-datasets/CISI/global_CISI",
+        "mean",
+        None,
+        "Image",
+        0,
+        pl.Float32,
+    ),
     # Climate
-    ("precipitation", "projects/ee-csaybar-real/assets/precipitation", "mean", None, "Image", 0, pl.Float32),
-    ("temperature", "projects/ee-csaybar-real/assets/temperature", "mean", None, "Image", 0, pl.Float32),
+    (
+        "precipitation",
+        "projects/ee-csaybar-real/assets/precipitation",
+        "mean",
+        None,
+        "Image",
+        0,
+        pl.Float32,
+    ),
+    (
+        "temperature",
+        "projects/ee-csaybar-real/assets/temperature",
+        "mean",
+        None,
+        "Image",
+        0,
+        pl.Float32,
+    ),
     # Soil (OpenLandMap)
-    ("soil_clay", "OpenLandMap/SOL/SOL_CLAY-WFRACTION_USDA-3A1A1A_M/v02", "mean", "b0", "Image", 0, pl.Float32),
-    ("soil_sand", "OpenLandMap/SOL/SOL_SAND-WFRACTION_USDA-3A1A1A_M/v02", "mean", "b0", "Image", 0, pl.Float32),
-    ("soil_carbon", "OpenLandMap/SOL/SOL_ORGANIC-CARBON_USDA-6A1C_M/v02", "mean", "b0", "Image", 0, pl.Float32),
-    ("soil_bulk_density", "OpenLandMap/SOL/SOL_BULKDENS-FINEEARTH_USDA-4A1H_M/v02", "mean", "b0", "Image", 0, pl.Float32),
-    ("soil_ph", "OpenLandMap/SOL/SOL_PH-H2O_USDA-4C1A2A_M/v02", "mean", "b0", "Image", 0, pl.Float32),
+    (
+        "soil_clay",
+        "OpenLandMap/SOL/SOL_CLAY-WFRACTION_USDA-3A1A1A_M/v02",
+        "mean",
+        "b0",
+        "Image",
+        0,
+        pl.Float32,
+    ),
+    (
+        "soil_sand",
+        "OpenLandMap/SOL/SOL_SAND-WFRACTION_USDA-3A1A1A_M/v02",
+        "mean",
+        "b0",
+        "Image",
+        0,
+        pl.Float32,
+    ),
+    (
+        "soil_carbon",
+        "OpenLandMap/SOL/SOL_ORGANIC-CARBON_USDA-6A1C_M/v02",
+        "mean",
+        "b0",
+        "Image",
+        0,
+        pl.Float32,
+    ),
+    (
+        "soil_bulk_density",
+        "OpenLandMap/SOL/SOL_BULKDENS-FINEEARTH_USDA-4A1H_M/v02",
+        "mean",
+        "b0",
+        "Image",
+        0,
+        pl.Float32,
+    ),
+    (
+        "soil_ph",
+        "OpenLandMap/SOL/SOL_PH-H2O_USDA-4C1A2A_M/v02",
+        "mean",
+        "b0",
+        "Image",
+        0,
+        pl.Float32,
+    ),
     # Socioeconomic
-    ("gdp", "projects/sat-io/open-datasets/GRIDDED_HDI_GDP/total_gdp_perCapita_1990_2022_5arcmin", "mean", "PPP_2022", "Image", 0, pl.Float32),
-    ("human_modification", "projects/sat-io/open-datasets/GHM/HM_1990_2020_OVERALL_300M", "mean", "constant", "ImageCollection", 0, pl.Float32),
-    ("population", "projects/sat-io/open-datasets/hrsl/hrslpop", "mean", None, "ImageCollection", 0, pl.Float32),
+    (
+        "gdp",
+        "projects/sat-io/open-datasets/GRIDDED_HDI_GDP/total_gdp_perCapita_1990_2022_5arcmin",
+        "mean",
+        "PPP_2022",
+        "Image",
+        0,
+        pl.Float32,
+    ),
+    (
+        "human_modification",
+        "projects/sat-io/open-datasets/GHM/HM_1990_2020_OVERALL_300M",
+        "mean",
+        "constant",
+        "ImageCollection",
+        0,
+        pl.Float32,
+    ),
+    (
+        "population",
+        "projects/sat-io/open-datasets/hrsl/hrslpop",
+        "mean",
+        None,
+        "ImageCollection",
+        0,
+        pl.Float32,
+    ),
     # Administrative (always last) - Utf8 because we resolve to human-readable names
-    ("admin_countries", "projects/ee-csaybar-real/assets/admin0", "mode", None, "Image", 65535, pl.Utf8),
-    ("admin_states", "projects/ee-csaybar-real/assets/admin1", "mode", None, "Image", 65535, pl.Utf8),
-    ("admin_districts", "projects/ee-csaybar-real/assets/admin2", "mode", None, "Image", 65535, pl.Utf8),
+    (
+        "admin_countries",
+        "projects/ee-csaybar-real/assets/admin0",
+        "mode",
+        None,
+        "Image",
+        65535,
+        pl.Utf8,
+    ),
+    (
+        "admin_states",
+        "projects/ee-csaybar-real/assets/admin1",
+        "mode",
+        None,
+        "Image",
+        65535,
+        pl.Utf8,
+    ),
+    (
+        "admin_districts",
+        "projects/ee-csaybar-real/assets/admin2",
+        "mode",
+        None,
+        "Image",
+        65535,
+        pl.Utf8,
+    ),
 ]
 
 # Auto-generated schema from PRODUCT_CONFIGS (never edit this manually)
@@ -94,6 +214,7 @@ def _import_earth_engine():
     """
     try:
         import ee
+
         return ee
     except ImportError as e:
         raise ImportError(
@@ -106,42 +227,48 @@ def _import_earth_engine():
 def get_geoenrich_products() -> list[dict]:
     """
     Get all available Earth Engine products for geospatial enrichment.
-    
+
     Automatically generated from PRODUCT_CONFIGS.
 
     Returns:
         List of product dicts with 'name', 'image', 'reducer' keys
     """
     ee = _import_earth_engine()
-    
+
     # Reducer mapping
     reducer_map = {
         "mean": ee.Reducer.mean(),
         "mode": ee.Reducer.mode(),
         "sum": ee.Reducer.sum(),
     }
-    
+
     products = []
-    for name, path, reducer_type, band, collection_type, unmask_value, _dtype in PRODUCT_CONFIGS:
+    for (
+        name,
+        path,
+        reducer_type,
+        band,
+        collection_type,
+        unmask_value,
+        _dtype,
+    ) in PRODUCT_CONFIGS:
         # Load image or collection
         if collection_type == "ImageCollection":
             image = ee.ImageCollection(path).mosaic().unmask(unmask_value)
         else:
             image = ee.Image(path).unmask(unmask_value)
-        
+
         # Select band if specified
         if band:
             image = image.select(band)
-        
+
         # Rename to product name
         image = image.rename(name)
-        
-        products.append({
-            "name": name,
-            "image": image,
-            "reducer": reducer_map[reducer_type]
-        })
-    
+
+        products.append(
+            {"name": name, "image": image, "reducer": reducer_map[reducer_type]}
+        )
+
     return products
 
 
@@ -416,9 +543,7 @@ class GeoEnrich(TortillaExtension):
             groups[product["reducer"]].append(product)
         return dict(groups)
 
-    def _fix_mode_columns(
-        self, df: pl.DataFrame, products: list[dict]
-    ) -> pl.DataFrame:
+    def _fix_mode_columns(self, df: pl.DataFrame, products: list[dict]) -> pl.DataFrame:
         """
         Fix Earth Engine mode() reducer column naming issue.
 
@@ -566,7 +691,8 @@ class GeoEnrich(TortillaExtension):
 
         # Resolve admin names if any admin variables
         admin_vars = [
-            p["name"] for p in active_products 
+            p["name"]
+            for p in active_products
             if p["name"] in ["admin_countries", "admin_states", "admin_districts"]
         ]
         if admin_vars:
@@ -577,9 +703,11 @@ class GeoEnrich(TortillaExtension):
 
         # Add prefix and ensure schema (inline _finalize_schema)
         product_names = [p["name"] for p in active_products]
-        return raw_results.select([
-            pl.col(name)
-            .cast(PRODUCT_SCHEMA[name], strict=False)
-            .alias(f"geoenrich:{name}")
-            for name in product_names
-        ])
+        return raw_results.select(
+            [
+                pl.col(name)
+                .cast(PRODUCT_SCHEMA[name], strict=False)
+                .alias(f"geoenrich:{name}")
+                for name in product_names
+            ]
+        )

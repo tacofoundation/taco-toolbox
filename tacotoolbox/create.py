@@ -121,7 +121,7 @@ def create(
     # Validate all inputs upfront before doing any work
     output_path = pathlib.Path(output)
     _validate_all_inputs(taco, output_path, output_format, split_size)
-    
+
     # Adjust output path for folder format
     if output_format == "folder" and output_path.suffix in (".zip", ".tacozip"):
         output_path = output_path.with_suffix("")
@@ -157,7 +157,7 @@ def create(
             # Always cleanup temp files after SUCCESS
             logger.debug("Cleaning up temporary files from tortilla")
             _cleanup_tortilla_temp_files(taco.tortilla)
-            
+
             logger.info(f"Successfully created {len(result)} container(s)")
             return result
 
@@ -175,26 +175,26 @@ def _validate_all_inputs(
 ) -> None:
     """
     Validate all inputs before starting container creation.
-    
+
     Consolidates all validation checks to fail fast before any work is done.
-    
+
     Args:
         taco: TACO object to validate
         output_path: Output path to validate
         output_format: Format to validate
         split_size: Split size to validate
-    
+
     Raises:
         TacoValidationError: If any validation fails
     """
     logger.debug("Validating inputs")
-    
+
     # Validate format value
     validate_format_value(output_format)
-    
+
     # Validate output path
     validate_output_path(output_path, output_format)
-    
+
     # Validate split_size if provided
     if split_size is not None:
         if output_format == "folder":
@@ -203,11 +203,11 @@ def _validate_all_inputs(
                 "Splitting is only available for format='zip'."
             )
         validate_split_size(split_size)
-    
+
     # Validate taco has samples
     if not taco.tortilla.samples:
         raise TacoValidationError("Cannot create container from empty tortilla")
-    
+
     logger.debug("All inputs validated successfully")
 
 
@@ -593,12 +593,9 @@ def _create_with_splitting(
         # Progress bar for chunks
         for i, chunk_samples in enumerate(
             progress_bar(
-                sample_chunks,
-                desc="Creating ZIP chunks",
-                unit="chunk",
-                colour="cyan"
+                sample_chunks, desc="Creating ZIP chunks", unit="chunk", colour="cyan"
             ),
-            1
+            1,
         ):
             # Create separate TACO for this chunk
             chunk_tortilla = Tortilla(samples=chunk_samples)

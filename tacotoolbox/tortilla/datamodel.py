@@ -129,10 +129,10 @@ class Tortilla:
         Example:
             >>> # Strict mode (default) - fails on schema mismatch
             >>> tortilla = Tortilla(samples=[s1, s2])  # ValueError if schemas differ
-            
+
             >>> # Flexible mode - auto-fills missing columns
             >>> tortilla = Tortilla(samples=[s1, s2], strict_schema=False)
-            
+
             >>> # Check resulting schema
             >>> df = tortilla.export_metadata(deep=0)
             >>> print(df.columns)  # See what columns exist
@@ -213,9 +213,7 @@ class Tortilla:
         missing_columns = reference_columns - current_columns
         extra_columns = current_columns - reference_columns
 
-        error_msg = (
-            f"Schema inconsistency detected at sample {sample_index} (id: '{sample.id}'):\n\n"
-        )
+        error_msg = f"Schema inconsistency detected at sample {sample_index} (id: '{sample.id}'):\n\n"
 
         error_msg += (
             f"  Reference sample columns: {sorted(reference_columns)}\n"
@@ -240,9 +238,7 @@ class Tortilla:
 
         raise ValueError(error_msg)
 
-    def _align_schema(
-        self, df: pl.DataFrame, target_columns: set[str]
-    ) -> pl.DataFrame:
+    def _align_schema(self, df: pl.DataFrame, target_columns: set[str]) -> pl.DataFrame:
         """
         Align DataFrame schema to match target columns by adding missing columns with None.
 

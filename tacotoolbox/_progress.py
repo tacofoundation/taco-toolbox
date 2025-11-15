@@ -32,33 +32,33 @@ _SUPPRESS_PROGRESS = False
 class ProgressContext:
     """
     Context manager for controlling progress bar visibility.
-    
+
     Allows temporary suppression of all progress bars within a code block.
     Useful for quiet mode or when progress bars would clutter output.
-    
+
     Example:
         >>> with ProgressContext(quiet=True):
         ...     # All progress bars suppressed here
         ...     for item in progress_bar(items):
         ...         process(item)
     """
-    
+
     def __init__(self, quiet: bool = False):
         """
         Initialize progress context.
-        
+
         Args:
             quiet: If True, suppress all progress bars in this context
         """
         self.quiet = quiet
         self.previous_state = None
-    
+
     def __enter__(self):
         global _SUPPRESS_PROGRESS
         self.previous_state = _SUPPRESS_PROGRESS
         _SUPPRESS_PROGRESS = self.quiet
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         global _SUPPRESS_PROGRESS
         _SUPPRESS_PROGRESS = self.previous_state
@@ -68,10 +68,10 @@ class ProgressContext:
 def is_progress_suppressed() -> bool:
     """
     Check if progress bars are currently suppressed.
-    
+
     Returns:
         True if progress bars should be hidden
-    
+
     Example:
         >>> with ProgressContext(quiet=True):
         ...     print(is_progress_suppressed())
@@ -91,10 +91,10 @@ def progress_bar(
 ) -> tqdm:
     """
     Create progress bar with automatic suppression support.
-    
+
     Wrapper around tqdm that respects ProgressContext state.
     If progress is suppressed, returns plain iterator without overhead.
-    
+
     Args:
         iterable: Iterable to wrap with progress bar
         desc: Description text (e.g., "Processing files")
@@ -103,10 +103,10 @@ def progress_bar(
         colour: Bar colour ("green", "blue", "cyan", "red")
         leave: Keep bar after completion
         **kwargs: Additional tqdm arguments
-    
+
     Returns:
         tqdm progress bar or plain iterable if suppressed
-    
+
     Example:
         >>> for item in progress_bar(items, desc="Loading", colour="green"):
         ...     process(item)
@@ -115,7 +115,7 @@ def progress_bar(
     if _SUPPRESS_PROGRESS:
         # Return plain iterable without tqdm overhead
         return iterable
-    
+
     return tqdm(
         iterable,
         desc=desc,
@@ -137,19 +137,19 @@ async def progress_gather(
 ):
     """
     Async gather with progress bar.
-    
+
     Wrapper around tqdm.asyncio.gather that respects ProgressContext.
-    
+
     Args:
         *tasks: Async tasks to gather
         desc: Description text
         unit: Unit name
         colour: Bar colour
         **kwargs: Additional tqdm arguments
-    
+
     Returns:
         Results from gathered tasks
-    
+
     Example:
         >>> results = await progress_gather(
         ...     *tasks,
@@ -160,15 +160,11 @@ async def progress_gather(
     if _SUPPRESS_PROGRESS:
         # Use plain asyncio.gather
         import asyncio
+
         return await asyncio.gather(*tasks)
-    
+
     return await tqdm_asyncio.gather(
-        *tasks,
-        desc=desc,
-        unit=unit,
-        colour=colour,
-        disable=False,
-        **kwargs
+        *tasks, desc=desc, unit=unit, colour=colour, disable=False, **kwargs
     )
 
 
@@ -181,18 +177,18 @@ def progress_scope(
 ) -> Generator[tqdm, None, None]:
     """
     Context manager for manual progress bar updates.
-    
+
     Useful when you need fine-grained control over progress updates.
-    
+
     Args:
         desc: Description text
         total: Total iterations
         unit: Unit name
         colour: Bar colour
-    
+
     Yields:
         tqdm progress bar (or dummy object if suppressed)
-    
+
     Example:
         >>> with progress_scope("Processing", total=100, colour="blue") as pbar:
         ...     for i in range(100):
@@ -204,11 +200,13 @@ def progress_scope(
         class DummyProgress:
             def update(self, n=1):
                 pass
+
             def set_description(self, desc):
                 pass
+
             def close(self):
                 pass
-        
+
         yield DummyProgress()
     else:
         pbar = tqdm(total=total, desc=desc, unit=unit, colour=colour)
@@ -228,17 +226,17 @@ async def progress_map_async(
 ):
     """
     Map async function over items with progress bar and concurrency limit.
-    
+
     Args:
         func: Async function to apply
         items: Items to process
         desc: Progress description
         colour: Bar colour
         concurrency: Maximum concurrent tasks
-    
+
     Returns:
         List of results
-    
+
     Example:
         >>> results = await progress_map_async(
         ...     download_file,
@@ -249,18 +247,13 @@ async def progress_map_async(
         ... )
     """
     import asyncio
-    
+
     semaphore = asyncio.Semaphore(concurrency)
-    
+
     async def bounded_func(item):
         async with semaphore:
             return await func(item)
-    
+
     tasks = [bounded_func(item) for item in items]
-    
-    return await progress_gather(
-        *tasks,
-        desc=desc,
-        unit="item",
-        colour=colour
-    )
+
+    return await progress_gather(*tasks, desc=desc, unit="item", colour=colour)

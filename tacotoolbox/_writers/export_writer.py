@@ -103,7 +103,7 @@ class ExportWriter:
 
         self.data_dir = self.output / FOLDER_DATA_DIR
         self.metadata_dir = self.output / FOLDER_METADATA_DIR
-        
+
         logger.debug(
             f"ExportWriter initialized: output={output}, concurrency={concurrency}"
         )
@@ -129,7 +129,7 @@ class ExportWriter:
         """
         try:
             logger.info(f"Starting FOLDER export: {self.output}")
-            
+
             self._validate_dataset()
             self._create_folder_structure()
             await self._copy_all_bytes()
@@ -168,7 +168,7 @@ class ExportWriter:
 
         if self.output.exists():
             raise FileExistsError(f"Output already exists: {self.output}")
-        
+
         logger.debug(f"Dataset validated: {count} samples")
 
     def _create_folder_structure(self) -> None:
@@ -195,15 +195,12 @@ class ExportWriter:
         # Copy FILEs concurrently with progress bar
         if len(files_df) > 0:
             logger.info(f"Copying {len(files_df)} FILEs")
-            
+
             tasks = []
             for row in files_df.iter_rows(named=True):
                 vsi_path = row["internal:gdal_vsi"]
 
-                if (
-                    "internal:relative_path" in row
-                    and row["internal:relative_path"]
-                ):
+                if "internal:relative_path" in row and row["internal:relative_path"]:
                     relative_path = row["internal:relative_path"]
                 else:
                     relative_path = row["id"]
@@ -215,16 +212,13 @@ class ExportWriter:
 
             # Progress bar for FILE copying
             await progress_gather(
-                *tasks,
-                desc="Copying FILEs",
-                unit="file",
-                colour="green"
+                *tasks, desc="Copying FILEs", unit="file", colour="green"
             )
 
         # Copy FOLDERs recursively with progress bar
         if len(folders_df) > 0:
             logger.info(f"Copying {len(folders_df)} FOLDERs")
-            
+
             tasks = []
             for row in folders_df.iter_rows(named=True):
                 task = self._copy_folder_recursive(row, level=0, semaphore=semaphore)
@@ -232,10 +226,7 @@ class ExportWriter:
 
             # Progress bar for FOLDER copying
             await progress_gather(
-                *tasks,
-                desc="Copying FOLDERs",
-                unit="folder",
-                colour="blue"
+                *tasks, desc="Copying FOLDERs", unit="folder", colour="blue"
             )
 
     async def _copy_single_file(
@@ -328,10 +319,7 @@ class ExportWriter:
             return
 
         # Query children from next level
-        if (
-            "internal:source_file" in folder_row
-            and folder_row["internal:source_file"]
-        ):
+        if "internal:source_file" in folder_row and folder_row["internal:source_file"]:
             # TacoCat case: need to filter by both parent_id AND source_file
             children_df = pl.from_arrow(
                 self.dataset._duckdb.execute(
@@ -412,9 +400,7 @@ class ExportWriter:
 
                 # Build mapping: old_parent_id -> new_parent_id
                 old_parent_ids = filtered_df["internal:parent_id"].to_list()
-                parent_id_mapping = {
-                    old: new for new, old in enumerate(old_parent_ids)
-                }
+                parent_id_mapping = {old: new for new, old in enumerate(old_parent_ids)}
 
                 # Assign new sequential parent_id values
                 filtered_df = filtered_df.with_columns(
@@ -482,5 +468,5 @@ class ExportWriter:
         output_path = self.output / "COLLECTION.json"
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(collection, f, indent=4, ensure_ascii=False)
-        
+
         logger.debug("COLLECTION.json created")

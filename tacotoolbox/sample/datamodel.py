@@ -154,7 +154,9 @@ class Sample(pydantic.BaseModel):
     path: (
         pathlib.Path | Tortilla | bytes
     )  # Location of data (file, container, or bytes)
-    type: Literal["FILE", "FOLDER", "auto"] = "auto"  # Type of geospatial data asset (auto-inferred by default)
+    type: Literal["FILE", "FOLDER", "auto"] = (
+        "auto"  # Type of geospatial data asset (auto-inferred by default)
+    )
 
     # Private attribute to store temp files for cleanup
     _temp_files: list[pathlib.Path] = pydantic.PrivateAttr(default_factory=list)
@@ -398,7 +400,9 @@ class Sample(pydantic.BaseModel):
         else:
             # Explicit mode - validate consistency
             if self.type != inferred_type:
-                path_type_str = "Tortilla" if isinstance(self.path, Tortilla) else "Path/bytes"
+                path_type_str = (
+                    "Tortilla" if isinstance(self.path, Tortilla) else "Path/bytes"
+                )
                 raise ValueError(
                     f"Type mismatch: specified type='{self.type}' but path type ({path_type_str}) "
                     f"implies type='{inferred_type}'"

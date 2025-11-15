@@ -12,6 +12,7 @@ from tacotoolbox.sample.datamodel import SampleExtension
 # Soft dependency - only imported when check_antimeridian=True
 try:
     import antimeridian
+
     HAS_ANTIMERIDIAN = True
 except ImportError:
     HAS_ANTIMERIDIAN = False
@@ -57,7 +58,7 @@ def raster_centroid(
     Example:
         >>> # Fast mode (default) - works for most rasters
         >>> centroid = raster_centroid(crs, geotransform, shape)
-        
+
         >>> # Antimeridian mode - for Pacific/Polar data
         >>> centroid = raster_centroid(crs, geotransform, shape, check_antimeridian=True)
     """
@@ -83,7 +84,7 @@ def raster_centroid(
 
     # ANTIMERIDIAN MODE: Check if raster crosses ±180° longitude
     # This requires checking bbox corners to detect the crossing
-    
+
     if not HAS_ANTIMERIDIAN:
         raise ImportError(
             "check_antimeridian=True requires the 'antimeridian' package.\n"
@@ -184,7 +185,7 @@ class STAC(SampleExtension):
     ...     geotransform=(300000, 10, 0, 4500000, 0, -10),
     ...     time_start=1234567890
     ... )
-    
+
     >>> # Antimeridian mode - for Pacific islands, polar data
     >>> stac = STAC(
     ...     crs="EPSG:32760",
@@ -247,7 +248,7 @@ class STAC(SampleExtension):
 
         Assumes the spatial dimensions are the last two of `tensor_shape`.
         Raises a clear error if `tensor_shape` has fewer than two dims.
-        
+
         If check_antimeridian=True, requires 'antimeridian' package for
         correct handling of rasters crossing ±180° longitude.
         """
