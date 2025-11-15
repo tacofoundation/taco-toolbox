@@ -78,6 +78,7 @@ from typing import Any
 import polars as pl
 import tacozip
 
+from tacotoolbox._column_utils import align_dataframe_schemas
 from tacotoolbox._constants import (
     TACOCAT_DEFAULT_PARQUET_CONFIG,
     TACOCAT_FILENAME,
@@ -273,6 +274,10 @@ class TacoCatWriter:
         Uses tacozip.read_header() to get offsets, then reads directly from file.
         Adds internal:source_file column to track original tacozip.
 
+        CRITICAL: Different tacozips may have samples with different extensions
+        (e.g., dataset1 has geotiff:stats, dataset2 has scaling:scale_factor).
+        Must align schemas before concatenation to avoid ShapeError.
+
         Returns:
             Tuple of:
             - Dictionary mapping level -> consolidated parquet bytes
@@ -336,7 +341,11 @@ class TacoCatWriter:
                     f"  Consolidating level {level} ({len(levels_data[level])} DataFrames)..."
                 )
 
-            consolidated_df = pl.concat(levels_data[level], how="vertical")
+            # Align schemas before concatenating
+            # Different tacozips may have different extensions (geotiff:stats vs scaling:scale_factor)
+            # Without this, pl.concat fails with: ShapeError: unable to append DataFrame of width X with width Y
+            aligned_dfs = align_dataframe_schemas(levels_data[level])
+            consolidated_df = pl.concat(aligned_dfs, how="vertical")
             consolidated_counts[level] = len(consolidated_df)
 
             buffer = BytesIO()

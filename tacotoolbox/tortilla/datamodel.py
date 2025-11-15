@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, cast
 import polars as pl
 import pydantic
 
+from tacotoolbox._column_utils import align_dataframe_schemas
 from tacotoolbox._constants import (
     METADATA_PARENT_ID,
     PADDING_PREFIX,
@@ -39,7 +40,7 @@ class TortillaExtension(ABC, pydantic.BaseModel):
     schema_only: bool = pydantic.Field(
         False,
         description="If True, return None values while preserving schema",
-        validation_alias="return_none",
+        validation_alias="return_none",  # Backward compatibility
     )
 
     @abstractmethod
@@ -172,26 +173,12 @@ class Tortilla:
                         i, samples[i], reference_columns, current_columns
                     )
         else:
-            # FLEXIBLE MODE: Collect ALL columns first, then align all DataFrames
-            all_columns = set()
-            for df in metadata_dfs:
-                all_columns.update(df.columns)
-            
-            # Sort columns for consistent ordering (core fields first, then alphabetical)
-            core_fields = ["id", "type", "path"]
-            extension_fields = sorted([col for col in all_columns if col not in core_fields])
-            ordered_columns = core_fields + extension_fields
-            
-            # Align all DataFrames to the complete schema with consistent column order
-            aligned_dfs = []
-            for df in metadata_dfs:
-                # Add missing columns
-                df = self._align_schema(df, all_columns)
-                # Reorder to match
-                df = df.select(ordered_columns)
-                aligned_dfs.append(df)
-            
-            metadata_dfs = aligned_dfs
+            # FLEXIBLE MODE: Use helper function to align schemas
+            # Replaces the inline alignment code with DRY helper function
+            metadata_dfs = align_dataframe_schemas(
+                metadata_dfs, 
+                core_fields=["id", "type", "path"]
+            )
 
         # Concatenate DataFrames - all schemas are guaranteed consistent
         self._metadata_df = pl.concat(metadata_dfs, how="vertical")
@@ -604,5 +591,12 @@ class Tortilla:
 
             current_dfs = next_dfs
             current_samples = next_samples
+
+        # Align schemas before concatenating using DRY helper function        
+        if len(current_dfs) > 1:
+            current_dfs = align_dataframe_schemas(
+                current_dfs,
+                core_fields=["id", "type", "path", METADATA_PARENT_ID]
+            )
 
         return pl.concat(current_dfs, how="vertical")

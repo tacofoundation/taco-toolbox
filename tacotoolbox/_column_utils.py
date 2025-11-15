@@ -2,6 +2,7 @@
 Column manipulation utilities for tacotoolbox.
 
 Functions:
+    - align_dataframe_schemas: Align schemas before vertical concatenation
     - reorder_internal_columns: Place internal:* columns at end of DataFrame
     - remove_empty_columns: Remove columns with all null/empty values
     - validate_schema_consistency: Check schema compatibility across DataFrames
@@ -21,6 +22,123 @@ from tacotoolbox._constants import (
     SHARED_CORE_FIELDS,
     is_internal_column,
 )
+
+
+def align_dataframe_schemas(
+    dfs: list[pl.DataFrame],
+    core_fields: list[str] | None = None
+) -> list[pl.DataFrame]:
+    """
+    Align schemas before vertical concatenation.
+    
+    Ensures all DataFrames have the same columns with None-filled missing values
+    and consistent column ordering. This is CRITICAL for concatenating DataFrames
+    from samples with different extensions (e.g., cloudmask vs s2data vs thumbnail).
+    
+    Without alignment, pl.concat(dfs, how="vertical") fails with:
+        ShapeError: unable to append DataFrame of width X with DataFrame of width Y
+    
+    The function:
+    1. Collects ALL unique columns from ALL DataFrames with their types
+    2. Orders columns: core fields first, then extension fields alphabetically
+    3. Adds missing columns to each DataFrame with None values (proper type)
+    4. Reorders all DataFrames to have identical column order
+    
+    Args:
+        dfs: List of DataFrames to align (must have at least 1 DataFrame)
+        core_fields: Optional list of core field names to place first
+                    Default: ["id", "type", "path"]
+                    Can be extended for specific contexts (e.g., add "internal:parent_id")
+    
+    Returns:
+        List of DataFrames with aligned schemas and consistent column order.
+        All DataFrames will have the same width and column names in the same order.
+        
+    Example:
+        >>> # Different extensions create different schemas
+        >>> df1 = pl.DataFrame({
+        ...     "id": ["cloudmask"],
+        ...     "type": ["FILE"],
+        ...     "geotiff:stats": [{"min": 0, "max": 1}],
+        ...     "tacotiff:compression": ["zstd"]
+        ... })  # 4 columns
+        >>> 
+        >>> df2 = pl.DataFrame({
+        ...     "id": ["s2data"],
+        ...     "type": ["FILE"],
+        ...     "scaling:scale_factor": [0.0001],
+        ...     "tacotiff:compression": ["zstd"]
+        ... })  # 4 columns but DIFFERENT
+        >>> 
+        >>> df3 = pl.DataFrame({
+        ...     "id": ["thumbnail"],
+        ...     "type": ["FILE"]
+        ... })  # 2 columns
+        >>> 
+        >>> # Without alignment - FAILS
+        >>> pl.concat([df1, df2, df3], how="vertical")
+        # ShapeError: unable to append DataFrame of width 4 with DataFrame of width 2
+        >>> 
+        >>> # With alignment - SUCCESS
+        >>> aligned = align_dataframe_schemas([df1, df2, df3])
+        >>> result = pl.concat(aligned, how="vertical")  # ✅ Works!
+        >>> result.shape
+        (3, 5)  # All have same width now
+        >>> result.columns
+        ['id', 'type', 'geotiff:stats', 'scaling:scale_factor', 'tacotiff:compression']
+        
+    Use Cases:
+        - Tortilla.__init__: Samples with different extensions
+        - Tortilla._expand_hierarchical: Child samples with varying metadata
+        - MetadataGenerator._generate_folder_metadata: Folder children with different schemas
+        - TacoCatWriter: Consolidating DataFrames from multiple tacozips
+        - ZipWriter: Merging metadata from folders with heterogeneous samples
+    """
+    # Fast path: single DataFrame needs no alignment
+    if len(dfs) <= 1:
+        return dfs
+    
+    # Default core fields if not specified
+    if core_fields is None:
+        core_fields = ["id", "type", "path"]
+    
+    # Step 1: Collect complete schema with types from ALL DataFrames
+    # This ensures we preserve the correct data types for None-filled columns
+    complete_schema: dict[str, pl.DataType] = {}
+    for df in dfs:
+        for col_name, dtype in df.schema.items():
+            # First occurrence wins - assumes consistent types across DFs
+            # (which should be true for TACO extension system)
+            if col_name not in complete_schema:
+                complete_schema[col_name] = dtype
+    
+    # Step 2: Define column ordering for consistency
+    # Core fields first (in specified order), then extension fields alphabetically
+    extension_fields = sorted([
+        col for col in complete_schema.keys() 
+        if col not in core_fields
+    ])
+    
+    # Only include core fields that actually exist in the schema
+    ordered_columns = [
+        col for col in core_fields if col in complete_schema
+    ] + extension_fields
+    
+    # Step 3: Align all DataFrames to complete schema with consistent order
+    aligned_dfs = []
+    for df in dfs:
+        # Add missing columns with proper types (None values)
+        for col_name, dtype in complete_schema.items():
+            if col_name not in df.columns:
+                df = df.with_columns(
+                    pl.lit(None, dtype=dtype).alias(col_name)
+                )
+        
+        # Reorder columns to match canonical order
+        df = df.select(ordered_columns)
+        aligned_dfs.append(df)
+    
+    return aligned_dfs
 
 
 def reorder_internal_columns(df: pl.DataFrame) -> pl.DataFrame:

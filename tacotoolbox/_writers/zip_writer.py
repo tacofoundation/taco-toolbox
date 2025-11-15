@@ -93,7 +93,11 @@ import polars as pl
 import pyarrow.parquet as pq
 import tacozip
 
-from tacotoolbox._column_utils import reorder_internal_columns, cast_dataframe_to_schema
+from tacotoolbox._column_utils import (
+    align_dataframe_schemas,
+    cast_dataframe_to_schema,
+    reorder_internal_columns,
+)
 from tacotoolbox._constants import (
     METADATA_OFFSET,
     METADATA_PARENT_ID,
@@ -292,8 +296,12 @@ class ZipWriter:
                             for df in enriched_dfs
                         ]
 
-                    # Concatenated DataFrame (HAS offset/size, NO parent_id)
-                    concatenated = pl.concat(enriched_dfs, how="vertical")
+                    # Align schemas before concatenating
+                    # Different folders may have children with different extensions
+                    # (e.g., folder_A has [cloudmask, s2data], folder_B has [cloudmask, thumbnail])
+                    # Without this, pl.concat fails with: ShapeError: unable to append DataFrame
+                    aligned_dfs = align_dataframe_schemas(enriched_dfs)
+                    concatenated = pl.concat(aligned_dfs, how="vertical")
 
                     # Extract only offset/size columns
                     offset_size_cols = [METADATA_OFFSET, METADATA_SIZE]

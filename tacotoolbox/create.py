@@ -8,28 +8,28 @@ in ZIP or FOLDER format. It handles:
 - Dataset splitting (multi-part ZIPs)
 - Metadata generation
 - Automatic cleanup of temporary files
+- Auto-detection of output format from file extension
 
 Main workflow:
-    1. Validate parameters (output path, format, split size)
-    2. Generate metadata package (consolidated + local)
-    3. Extract file paths with archive paths
-    4. Create container(s) using appropriate writer
-    5. Cleanup temporary files automatically
+    1. Auto-detect format from output path (if format="auto")
+    2. Validate parameters (output path, format, split size)
+    3. Generate metadata package (consolidated + local)
+    4. Extract file paths with archive paths
+    5. Create container(s) using appropriate writer
+    6. Cleanup temporary files automatically
 
 Example:
     >>> from tacotoolbox import create, Taco, Sample
     >>> 
-    >>> # Create basic ZIP container
+    >>> # Auto-detect ZIP format from extension
     >>> taco = Taco(tortilla=Tortilla(samples=[...]), ...)
-    >>> paths = create(taco, "output.tacozip")
+    >>> paths = create(taco, "output.tacozip")  # format="zip" (auto)
     >>> 
-    >>> # Create with splitting
-    >>> paths = create(taco, "output.tacozip", split_size="4GB")
+    >>> # Auto-detect FOLDER format (no .zip/.tacozip extension)
+    >>> paths = create(taco, "output_dataset")  # format="folder" (auto)
     >>> 
-    >>> # Enable debug logging
-    >>> from tacotoolbox._logging import enable_debug_logging
-    >>> enable_debug_logging()
-    >>> paths = create(taco, "output.tacozip")
+    >>> # Explicit format override
+    >>> paths = create(taco, "output", output_format="folder")
 """
 
 import pathlib
@@ -59,7 +59,7 @@ class TacoCreationError(Exception):
 def create(
     taco: Taco,
     output: str | pathlib.Path,
-    output_format: Literal["zip", "folder"] = "zip",
+    output_format: Literal["zip", "folder", "auto"] = "auto",
     split_size: str | None = None,
     sort_by: str | None = None,
     temp_dir: str | pathlib.Path | None = None,
@@ -72,7 +72,12 @@ def create(
     This is the main entry point for creating TACO containers. It supports:
     - ZIP format (.tacozip) with optional splitting
     - FOLDER format (directory structure)
+    - Auto-detection of format from output file extension
     - Spatial sorting for geographic clustering in splits
+
+    Format auto-detection (when output_format="auto", the default):
+    - "output.tacozip" or "output.zip" → format="zip"
+    - "output" or "output/" → format="folder"
 
     Temporary files created from bytes (via Sample(path=bytes))
     are ALWAYS cleaned up automatically after successful container creation.
@@ -80,7 +85,7 @@ def create(
     Args:
         taco: TACO object with tortilla and metadata
         output: Output path for container
-        output_format: "zip" or "folder" (default: "zip")
+        output_format: "zip", "folder", or "auto" (default: "auto" - infers from extension)
         split_size: Optional size limit for splitting (ZIP only, e.g., "4GB")
         sort_by: Optional column name to sort samples before splitting.
                 Useful for spatial clustering (e.g., "majortom:code")
@@ -97,11 +102,19 @@ def create(
         TacoCreationError: If container creation fails
 
     Example:
-        >>> # Basic usage
+        >>> # Auto-detect ZIP format
         >>> sample = Sample(id="s1", path=image_bytes, type="FILE")
         >>> taco = Taco(tortilla=Tortilla(samples=[sample]), ...)
-        >>> paths = create(taco, "output.tacozip")
+        >>> paths = create(taco, "output.tacozip")  # format="zip" (auto)
         [PosixPath('output.tacozip')]
+
+        >>> # Auto-detect FOLDER format
+        >>> paths = create(taco, "output_dataset")  # format="folder" (auto)
+        [PosixPath('output_dataset')]
+
+        >>> # Explicit format override
+        >>> paths = create(taco, "output", output_format="folder")
+        [PosixPath('output')]
 
         >>> # With spatial sorting and splitting
         >>> majortom = MajorTOM(dist_km=100)
@@ -114,16 +127,24 @@ def create(
         ...     sort_by="majortom:code"
         ... )
         [PosixPath('output_part0001.tacozip'), PosixPath('output_part0002.tacozip')]
-
-        >>> # Silent mode
-        >>> create(taco, "out.tacozip", quiet=True)
     """
-    # Validate all inputs upfront before doing any work
+    # Convert to Path
     output_path = pathlib.Path(output)
+    
+    # Auto-detect format from file extension if format="auto"
+    if output_format == "auto":
+        if output_path.suffix.lower() in (".zip", ".tacozip"):
+            output_format = "zip"
+            logger.debug(f"Auto-detected format='zip' from extension: {output_path.suffix}")
+        else:
+            output_format = "folder"
+            logger.debug(f"Auto-detected format='folder' (no .zip/.tacozip extension)")
+    
+    # Validate all inputs upfront before doing any work
     _validate_all_inputs(taco, output_path, output_format, split_size)
 
     # Adjust output path for folder format
-    if output_format == "folder" and output_path.suffix in (".zip", ".tacozip"):
+    if output_format == "folder" and output_path.suffix.lower() in (".zip", ".tacozip"):
         output_path = output_path.with_suffix("")
         logger.debug(f"Adjusted output path for folder format: {output_path}")
 
@@ -181,7 +202,7 @@ def _validate_all_inputs(
     Args:
         taco: TACO object to validate
         output_path: Output path to validate
-        output_format: Format to validate
+        output_format: Format to validate (must be "zip" or "folder", not "auto")
         split_size: Split size to validate
 
     Raises:
@@ -189,7 +210,7 @@ def _validate_all_inputs(
     """
     logger.debug("Validating inputs")
 
-    # Validate format value
+    # Validate format value (should be "zip" or "folder" after auto-detection)
     validate_format_value(output_format)
 
     # Validate output path
