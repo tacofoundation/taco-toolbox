@@ -438,7 +438,11 @@ def read_metadata_file(file_path: Path | str) -> pl.DataFrame:
         )
 
 
-def write_parquet_file(df: pl.DataFrame, output_path: Path | str) -> None:
+def write_parquet_file(
+    df: pl.DataFrame, 
+    output_path: Path | str,
+    **kwargs
+) -> None:
     """
     Write DataFrame to Parquet file (for local __meta__ files).
 
@@ -448,6 +452,7 @@ def write_parquet_file(df: pl.DataFrame, output_path: Path | str) -> None:
     Args:
         df: DataFrame to write
         output_path: Target path for .parquet file
+        **kwargs: Additional Parquet writer parameters (passed to Polars write_parquet)
 
     Example:
         >>> df = pl.DataFrame({
@@ -456,20 +461,37 @@ def write_parquet_file(df: pl.DataFrame, output_path: Path | str) -> None:
         ...     "stac:crs": ["EPSG:4326", "EPSG:32633"]
         ... })
         >>> write_parquet_file(df, "metadata.parquet")
+        >>> write_parquet_file(df, "metadata.parquet", compression_level=22)
     """
-    df.write_parquet(output_path, compression="zstd")
+    # Default config for local metadata (simple, no CDC)
+    default_config = {"compression": "zstd"}
+    
+    # Merge: defaults first, then user kwargs (user overrides defaults)
+    parquet_config = {**default_config, **kwargs}
+    
+    # Use Polars API for simple local metadata
+    df.write_parquet(output_path, **parquet_config)
 
 
-def write_parquet_file_with_cdc(df: pl.DataFrame, output_path: Path | str) -> None:
+def write_parquet_file_with_cdc(
+    df: pl.DataFrame, 
+    output_path: Path | str,
+    **kwargs
+) -> None:
     """
     Write DataFrame to Parquet with CDC (for consolidated metadata).
 
     Content-Defined Chunking ensures consistent data page boundaries for
     efficient deduplication on content-addressable storage systems.
 
+    CRITICAL: Uses PyArrow's pq.write_table() because CDC is only available
+    in PyArrow, not in Polars write_parquet().
+
     Args:
         df: DataFrame to write
         output_path: Target path for .parquet file
+        **kwargs: Additional Parquet writer parameters (override defaults)
+                 Must be PyArrow-compatible parameters
 
     Example:
         >>> df = pl.DataFrame({
@@ -477,9 +499,19 @@ def write_parquet_file_with_cdc(df: pl.DataFrame, output_path: Path | str) -> No
         ...     "internal:parent_id": [0, 1]
         ... })
         >>> write_parquet_file_with_cdc(df, "level0.parquet")
+        >>> write_parquet_file_with_cdc(df, "level0.parquet", compression_level=22)
         # Parquet with CDC enabled for incremental updates
     """
-    df.write_parquet(output_path, **PARQUET_CDC_DEFAULT_CONFIG)
+    import pyarrow.parquet as pq
+    
+    # Merge: defaults first, then user kwargs (user overrides defaults)
+    parquet_config = {**PARQUET_CDC_DEFAULT_CONFIG, **kwargs}
+    
+    # Convert Polars DataFrame to PyArrow Table
+    arrow_table = df.to_arrow()
+    
+    # Write using PyArrow (supports use_content_defined_chunking)
+    pq.write_table(arrow_table, output_path, **parquet_config)
 
 
 def cast_dataframe_to_schema(df: pl.DataFrame, schema_spec: list) -> pl.DataFrame:

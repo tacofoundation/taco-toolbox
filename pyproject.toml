@@ -18,7 +18,7 @@ include = [
 python = ">=3.11,<4.0"
 pydantic = ">=2.10.3"
 polars = ">=1.25.2"
-pyarrow = ">=18.1.0"
+pyarrow = ">=21.0.0"
 pyproj = ">=3.7.2"
 shapely = ">=2.1.1"
 tacozip = ">=0.11.4"

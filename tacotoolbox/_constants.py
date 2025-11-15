@@ -100,10 +100,32 @@ VALIDATION_MIN_SPLIT_SIZE = 1024
 
 PARQUET_CDC_DEFAULT_CONFIG = {
     "compression": "zstd",
+    "compression_level": 13,
     "use_content_defined_chunking": True,
     "row_group_size": 65_536,
+    "write_statistics": True,
 }
-"""Default Parquet config with CDC enabled for FOLDER consolidated metadata."""
+"""
+Default Parquet config with CDC enabled for consolidated metadata.
+
+Content-Defined Chunking (CDC) ensures consistent data page boundaries for 
+efficient deduplication on content-addressable storage systems.
+
+CRITICAL: This config is for PyArrow's pq.write_table(), NOT Polars df.write_parquet().
+Both ZIP and FOLDER writers must use PyArrow directly:
+    arrow_table = df.to_arrow()
+    pq.write_table(arrow_table, path, **PARQUET_CDC_DEFAULT_CONFIG)
+
+Parameters:
+    compression: zstd for good compression ratio
+    compression_level: 13 for balanced compression/speed
+    use_content_defined_chunking: Enable CDC for deduplication
+    row_group_size: 65_536 rows per row group
+    write_statistics: Enable min/max/null_count for query pushdown
+
+User-provided kwargs will override these defaults via merge:
+    config = {**PARQUET_CDC_DEFAULT_CONFIG, **user_kwargs}
+"""
 
 # =============================================================================
 # ZIP CONTAINER SPECIFIC
@@ -185,7 +207,7 @@ TACOCAT_DEFAULT_PARQUET_CONFIG = {
     "compression": "zstd",
     "compression_level": 13,
     "row_group_size": 65_536,
-    "statistics": True,
+    "write_statistics": True,
     "use_content_defined_chunking": True,
 }
 """Default Parquet config for TacoCat with CDC and optimized row groups."""

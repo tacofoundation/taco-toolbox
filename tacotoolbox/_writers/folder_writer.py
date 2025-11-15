@@ -90,7 +90,7 @@ from tacotoolbox._constants import (
 from tacotoolbox._column_utils import write_parquet_file, write_parquet_file_with_cdc
 from tacotoolbox._logging import get_logger
 from tacotoolbox._metadata import MetadataPackage
-from tacotoolbox._progress import ProgressContext
+from tacotoolbox._progress import ProgressContext, progress_bar, progress_scope  # ← NEW: Import progress utilities
 
 logger = get_logger(__name__)
 
@@ -132,7 +132,7 @@ class FolderWriter:
         Args:
             samples: List of Sample objects
             metadata_package: Complete metadata package
-            **kwargs: Additional arguments
+            **kwargs: Additional Parquet writer parameters (e.g., compression_level)
 
         Returns:
             pathlib.Path: Path to created folder
@@ -165,12 +165,33 @@ class FolderWriter:
         logger.debug(f"Created {FOLDER_DATA_DIR}/ and {FOLDER_METADATA_DIR}/")
 
     def _copy_data_files(self, samples: list[Any]) -> None:
-        """Copy data files recursively."""
-        logger.debug("Copying data files")
-        self._copy_samples_recursive(samples, path_prefix="")
+        """
+        Copy data files recursively with progress bar for large datasets.
+        
+        Shows progress bar if total size > 1GB.
+        """
+        # ← NEW: Calculate total size
+        logger.debug("Calculating total size of samples")
+        total_size = sum(_estimate_sample_size(sample) for sample in samples)
+        
+        # ← NEW: Show progress bar if > 1GB
+        size_threshold = 1_000_000_000  # 1GB
+        
+        if total_size > size_threshold:
+            logger.debug(f"Total size: {total_size / (1024**3):.2f} GB (showing progress)")
+            with progress_scope(
+                desc="Copying files",
+                total=total_size,
+                unit="B",
+                colour="cyan"
+            ) as pbar:
+                self._copy_samples_recursive(samples, path_prefix="", pbar=pbar)
+        else:
+            logger.debug(f"Total size: {total_size / (1024**2):.2f} MB (no progress bar)")
+            self._copy_samples_recursive(samples, path_prefix="")
 
     def _copy_samples_recursive(
-        self, samples: list[Any], path_prefix: str = ""
+        self, samples: list[Any], path_prefix: str = "", pbar=None  # ← NEW: Added pbar parameter
     ) -> None:
         """
         Recursively copy samples to DATA/.
@@ -178,6 +199,7 @@ class FolderWriter:
         Args:
             samples: List of Sample objects
             path_prefix: Current path prefix in structure
+            pbar: Optional progress bar to update
         """
         for sample in samples:
             if sample.type == "FOLDER":
@@ -188,7 +210,7 @@ class FolderWriter:
                 nested_dir.mkdir(parents=True, exist_ok=True)
 
                 self._copy_samples_recursive(
-                    sample.path.samples, path_prefix=new_prefix
+                    sample.path.samples, path_prefix=new_prefix, pbar=pbar  # ← NEW: Pass pbar
                 )
             else:
                 src_path = sample.path
@@ -196,7 +218,16 @@ class FolderWriter:
 
                 dst_path.parent.mkdir(parents=True, exist_ok=True)
 
+                # ← NEW: Get file size before copying
+                file_size = 0
+                if hasattr(src_path, "stat"):
+                    file_size = src_path.stat().st_size
+
                 shutil.copy2(src_path, dst_path)
+                
+                # ← NEW: Update progress bar after copy
+                if pbar is not None and file_size > 0:
+                    pbar.update(file_size)
 
     def _write_local_metadata(
         self,
@@ -208,22 +239,42 @@ class FolderWriter:
 
         These files do NOT contain internal:parent_id (navigation is implicit
         via folder structure), but they preserve all other metadata fields.
+        
+        Shows progress bar if > 10 folders.
 
         Args:
             metadata_package: Complete metadata package
-            **kwargs: Additional arguments (unused)
-        """
-        logger.debug(
-            f"Writing {len(metadata_package.local_metadata)} local __meta__ files"
-        )
+            **kwargs: Additional Parquet writer parameters (passed to write_parquet_file)
 
-        for folder_path, local_df in metadata_package.local_metadata.items():
+        Example:
+            >>> writer._write_local_metadata(package, compression_level=22)
+        """
+        num_folders = len(metadata_package.local_metadata)
+        logger.debug(f"Writing {num_folders} local __meta__ files")
+
+        # ← NEW: Show progress bar if > 10 folders
+        folder_threshold = 10
+        
+        if num_folders > folder_threshold:
+            logger.debug(f"{num_folders} folders (showing progress)")
+            items = progress_bar(
+                metadata_package.local_metadata.items(),
+                desc="Writing local __meta__",
+                total=num_folders,
+                unit="folder",
+                colour="green"
+            )
+        else:
+            logger.debug(f"{num_folders} folders (no progress bar)")
+            items = metadata_package.local_metadata.items()
+
+        for folder_path, local_df in items:
             meta_path = self.output_dir / f"{folder_path}{FOLDER_META_FILENAME}"
 
             meta_path.parent.mkdir(parents=True, exist_ok=True)
 
-            # Write as Parquet
-            write_parquet_file(local_df, meta_path)
+            # Write as Parquet with user-provided kwargs
+            write_parquet_file(local_df, meta_path, **kwargs)
 
             logger.debug(f"Created {folder_path}{FOLDER_META_FILENAME}")
 
@@ -240,7 +291,10 @@ class FolderWriter:
 
         Args:
             metadata_package: Complete metadata package
-            **kwargs: Additional arguments (unused)
+            **kwargs: Additional Parquet writer parameters (passed to write_parquet_file_with_cdc)
+
+        Example:
+            >>> writer._write_consolidated_metadata(package, compression_level=22)
         """
         logger.debug(
             f"Writing {len(metadata_package.levels)} consolidated metadata files"
@@ -249,8 +303,8 @@ class FolderWriter:
         for i, level_df in enumerate(metadata_package.levels):
             output_path = self.metadata_dir / f"level{i}.parquet"
 
-            # Write consolidated as Parquet with CDC
-            write_parquet_file_with_cdc(level_df, output_path)
+            # Write consolidated as Parquet with CDC and user-provided kwargs
+            write_parquet_file_with_cdc(level_df, output_path, **kwargs)
 
             has_parent_id = METADATA_PARENT_ID in level_df.columns
             logger.debug(
@@ -275,3 +329,28 @@ class FolderWriter:
             json.dump(collection_with_schema, f, indent=4, ensure_ascii=False)
 
         logger.debug(f"Created {FOLDER_COLLECTION_FILENAME}")
+
+
+# ← NEW: Helper function copied from create.py
+def _estimate_sample_size(sample) -> int:
+    """
+    Estimate total size of a sample including nested samples.
+
+    For FILE samples, returns actual file size from filesystem.
+    For FOLDER samples, recursively sums all nested file sizes.
+
+    Args:
+        sample: Sample to estimate (FILE or FOLDER)
+
+    Returns:
+        int: Estimated size in bytes (0 if path doesn't support stat)
+    """
+    if sample.type == "FILE":
+        if hasattr(sample.path, "stat"):
+            return sample.path.stat().st_size
+        return 0
+
+    elif sample.type == "FOLDER":
+        return sum(_estimate_sample_size(child) for child in sample.path.samples)
+
+    return 0

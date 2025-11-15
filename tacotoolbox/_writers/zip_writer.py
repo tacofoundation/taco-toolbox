@@ -177,13 +177,22 @@ class ZipWriter:
             src_files: Source file paths (filesystem)
             arc_files: Archive paths in ZIP (e.g., "DATA/sample.tif")
             metadata_package: Complete metadata from MetadataGenerator
-            **parquet_kwargs: Additional arguments for Parquet writer
+            **parquet_kwargs: Additional Parquet writer parameters
+                            - For local __meta__: simple compression params
+                            - For consolidated metadata: merged with PARQUET_CDC_DEFAULT_CONFIG
+                            Example: compression_level=22
 
         Returns:
             pathlib.Path: Path to created .tacozip file
 
         Raises:
             ZipWriterError: If ZIP creation fails
+            
+        Example:
+            >>> writer.create_complete_zip(
+            ...     src_files, arc_files, metadata_package,
+            ...     compression_level=22  # Override default compression
+            ... )
         """
         try:
             logger.info("Starting bottom-up __meta__ generation")
@@ -235,7 +244,9 @@ class ZipWriter:
 
                     # Write __meta__ as Parquet
                     meta_arc_path = f"{folder_path}__meta__"
-                    temp_parquet = self._write_single_parquet(enriched_df, folder_path)
+                    temp_parquet = self._write_single_parquet(
+                        enriched_df, folder_path, **parquet_kwargs
+                    )
                     temp_meta_files[meta_arc_path] = temp_parquet
 
                     # Add to virtual ZIP and recalculate offsets
@@ -341,7 +352,12 @@ class ZipWriter:
                 arc_path = f"METADATA/level{i}.parquet"
                 temp_path = self.temp_dir / f"{uuid.uuid4().hex}_level{i}.parquet"
                 arrow_table = level_df.to_arrow()
-                pq.write_table(arrow_table, temp_path, **parquet_kwargs)
+                
+                # Merge CDC defaults with user kwargs
+                from tacotoolbox._constants import PARQUET_CDC_DEFAULT_CONFIG
+                parquet_config = {**PARQUET_CDC_DEFAULT_CONFIG, **parquet_kwargs}
+                
+                pq.write_table(arrow_table, temp_path, **parquet_config)
                 real_size = temp_path.stat().st_size
                 virtual_zip.add_file(str(temp_path), arc_path, file_size=real_size)
                 temp_level_files[arc_path] = temp_path
@@ -480,13 +496,19 @@ class ZipWriter:
 
         return by_depth
 
-    def _write_single_parquet(self, df: pl.DataFrame, folder_path: str) -> pathlib.Path:
+    def _write_single_parquet(
+        self, 
+        df: pl.DataFrame, 
+        folder_path: str,
+        **parquet_kwargs: Any
+    ) -> pathlib.Path:
         """
         Write a single __meta__ Parquet file to temp directory.
 
         Args:
             df: DataFrame to write
             folder_path: Folder path (used for filename)
+            **parquet_kwargs: Additional Parquet writer parameters
 
         Returns:
             pathlib.Path: Path to created temp file
@@ -496,7 +518,12 @@ class ZipWriter:
 
         filtered_df = self._filter_metadata_columns(df)
         arrow_table = filtered_df.to_arrow()
-        pq.write_table(arrow_table, temp_path, compression="zstd")
+        
+        # Default config for local __meta__ (simple, no CDC)
+        default_config = {"compression": "zstd"}
+        parquet_config = {**default_config, **parquet_kwargs}
+        
+        pq.write_table(arrow_table, temp_path, **parquet_config)
 
         self._register_temp_file(temp_path)
         return temp_path
