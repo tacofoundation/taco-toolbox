@@ -38,7 +38,8 @@ class TortillaExtension(ABC, pydantic.BaseModel):
 
     schema_only: bool = pydantic.Field(
         False,
-        description="If True, return None values while preserving schema (renamed from return_none)",
+        description="If True, return None values while preserving schema",
+        validation_alias="return_none",
     )
 
     @abstractmethod
@@ -129,10 +130,10 @@ class Tortilla:
         Example:
             >>> # Strict mode (default) - fails on schema mismatch
             >>> tortilla = Tortilla(samples=[s1, s2])  # ValueError if schemas differ
-
+            
             >>> # Flexible mode - auto-fills missing columns
             >>> tortilla = Tortilla(samples=[s1, s2], strict_schema=False)
-
+            
             >>> # Check resulting schema
             >>> df = tortilla.export_metadata(deep=0)
             >>> print(df.columns)  # See what columns exist
@@ -157,40 +158,42 @@ class Tortilla:
 
         # Extract metadata from all samples
         metadata_dfs = []
-        reference_columns = None
+        for sample in samples:
+            metadata_dfs.append(sample.export_metadata())
 
-        for i, sample in enumerate(samples):
-            sample_metadata_df = sample.export_metadata()
-
-            # Validate schema consistency
-            if reference_columns is None:
-                reference_columns = set(sample_metadata_df.columns)
-            else:
-                current_columns = set(sample_metadata_df.columns)
-
+        # Handle schema validation/alignment
+        if strict_schema:
+            # STRICT MODE: All schemas must match exactly
+            reference_columns = set(metadata_dfs[0].columns)
+            for i, df in enumerate(metadata_dfs[1:], start=1):
+                current_columns = set(df.columns)
                 if current_columns != reference_columns:
-                    if strict_schema:
-                        # STRICT MODE: fail with helpful error
-                        self._raise_schema_mismatch_error(
-                            i, sample, reference_columns, current_columns
-                        )
-                    else:
-                        # FLEXIBLE MODE: auto-fill missing columns with None
-                        sample_metadata_df = self._align_schema(
-                            sample_metadata_df, reference_columns
-                        )
-                        # Update reference columns to union of all columns seen
-                        reference_columns = reference_columns | current_columns
+                    self._raise_schema_mismatch_error(
+                        i, samples[i], reference_columns, current_columns
+                    )
+        else:
+            # FLEXIBLE MODE: Collect ALL columns first, then align all DataFrames
+            all_columns = set()
+            for df in metadata_dfs:
+                all_columns.update(df.columns)
+            
+            # Sort columns for consistent ordering (core fields first, then alphabetical)
+            core_fields = ["id", "type", "path"]
+            extension_fields = sorted([col for col in all_columns if col not in core_fields])
+            ordered_columns = core_fields + extension_fields
+            
+            # Align all DataFrames to the complete schema with consistent column order
+            aligned_dfs = []
+            for df in metadata_dfs:
+                # Add missing columns
+                df = self._align_schema(df, all_columns)
+                # Reorder to match
+                df = df.select(ordered_columns)
+                aligned_dfs.append(df)
+            
+            metadata_dfs = aligned_dfs
 
-            metadata_dfs.append(sample_metadata_df)
-
-        # If flexible mode was used, ensure all DataFrames have all columns
-        if not strict_schema and reference_columns:
-            metadata_dfs = [
-                self._align_schema(df, reference_columns) for df in metadata_dfs
-            ]
-
-        # Concatenate DataFrames - all schemas are guaranteed to be consistent
+        # Concatenate DataFrames - all schemas are guaranteed consistent
         self._metadata_df = pl.concat(metadata_dfs, how="vertical")
         self._current_depth = self._calculate_current_depth()
 
@@ -213,7 +216,9 @@ class Tortilla:
         missing_columns = reference_columns - current_columns
         extra_columns = current_columns - reference_columns
 
-        error_msg = f"Schema inconsistency detected at sample {sample_index} (id: '{sample.id}'):\n\n"
+        error_msg = (
+            f"Schema inconsistency detected at sample {sample_index} (id: '{sample.id}'):\n\n"
+        )
 
         error_msg += (
             f"  Reference sample columns: {sorted(reference_columns)}\n"
@@ -238,7 +243,9 @@ class Tortilla:
 
         raise ValueError(error_msg)
 
-    def _align_schema(self, df: pl.DataFrame, target_columns: set[str]) -> pl.DataFrame:
+    def _align_schema(
+        self, df: pl.DataFrame, target_columns: set[str]
+    ) -> pl.DataFrame:
         """
         Align DataFrame schema to match target columns by adding missing columns with None.
 

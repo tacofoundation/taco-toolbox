@@ -41,7 +41,8 @@ class SampleExtension(ABC, pydantic.BaseModel):
 
     schema_only: bool = pydantic.Field(
         False,
-        description="If True, return None values while preserving schema (renamed from return_none)",
+        description="If True, return None values while preserving schema",
+        validation_alias="return_none"
     )
 
     @abstractmethod
