@@ -15,32 +15,6 @@ Key features:
 The ExportWriter uses async/await for optimal performance when downloading
 data from remote sources like S3 or HTTP endpoints. Local file I/O uses
 sync operations as they're fast and not the bottleneck.
-
-FOLDER Structure example (level 0 = FILEs only):
-    dataset/
-    ├── DATA/
-    │   ├── sample_001.tif
-    │   ├── sample_002.tif
-    │   └── sample_003.tif
-    ├── METADATA/
-    │   └── level0.parquet
-    └── COLLECTION.json
-
-FOLDER Structure example (level 0 = FOLDERs, level 1 = FILEs):
-    dataset/
-    ├── DATA/
-    │   ├── folder_A/
-    │   │   ├── __meta__
-    │   │   ├── nested_001.tif
-    │   │   └── nested_002.tif
-    │   └── folder_B/
-    │       ├── __meta__
-    │       ├── nested_001.tif
-    │       └── nested_002.tif
-    ├── METADATA/
-    │   ├── level0.parquet
-    │   └── level1.parquet
-    └── COLLECTION.json
 """
 
 import asyncio
@@ -53,7 +27,6 @@ from tacoreader.io import download_range
 from tacoreader.utils.vsi import parse_vsi_subfile, strip_vsi_prefix
 
 from tacotoolbox._column_utils import (
-    read_metadata_file,
     reorder_internal_columns,
     write_parquet_file,
     write_parquet_file_with_cdc,
@@ -67,6 +40,12 @@ logger = get_logger(__name__)
 
 class ExportWriterError(Exception):
     """Raised when export writing operations fail."""
+
+
+def _get_available_levels(dataset: TacoDataset) -> list[str]:
+    """Get list of available level views from pit_schema.max_depth()."""
+    max_depth = dataset.pit_schema.max_depth()
+    return [f"level{i}" for i in range(max_depth + 1)]
 
 
 class ExportWriter:
@@ -308,8 +287,11 @@ class ExportWriter:
         parent_id = folder_row["internal:parent_id"]
         next_level = level + 1
 
+        # Check if next level exists
         view_name = f"level{next_level}"
-        if view_name not in self.dataset.consolidated_files:
+        available_levels = _get_available_levels(self.dataset)
+        
+        if view_name not in available_levels:
             return
 
         # Query children from next level
@@ -375,18 +357,18 @@ class ExportWriter:
 
         selected_ids = set(self.dataset.data._data["id"].to_list())
 
-        level_names = sorted(
-            self.dataset.consolidated_files.keys(),
-            key=lambda x: int(x.replace("level", "")),
-        )
+        # Get available levels from pit_schema
+        level_names = _get_available_levels(self.dataset)
 
         parent_id_mapping = None
 
         for level_name in level_names:
-            file_path = self.dataset.consolidated_files[level_name]
-
-            # Read metadata file (auto-detects parquet)
-            df = read_metadata_file(file_path)
+            # Read from DuckDB instead of physical files
+            df = pl.from_arrow(
+                self.dataset._duckdb.execute(
+                    f"SELECT * FROM {level_name}"
+                ).fetch_arrow_table()
+            )
 
             if level_name == "level0":
                 # Filter to selected samples
