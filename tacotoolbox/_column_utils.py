@@ -1,15 +1,13 @@
 """
 Column manipulation utilities for tacotoolbox.
 
-Functions:
-    - align_dataframe_schemas: Align schemas before vertical concatenation
-    - reorder_internal_columns: Place internal:* columns at end of DataFrame
-    - remove_empty_columns: Remove columns with all null/empty values
-    - validate_schema_consistency: Check schema compatibility across DataFrames
-    - read_metadata_file: Read Parquet metadata files
-    - write_parquet_file: Write Parquet for local __meta__ files
-    - write_parquet_file_with_cdc: Write Parquet with CDC for consolidated metadata
-    - cast_dataframe_to_schema: Cast columns to match schema spec
+Key functions:
+- align_dataframe_schemas: Align schemas before vertical concatenation
+- reorder_internal_columns: Place internal:* columns at end
+- remove_empty_columns: Remove all-null columns
+- validate_schema_consistency: Check schema compatibility
+- write_parquet_file_with_cdc: Write Parquet with Content-Defined Chunking
+- cast_dataframe_to_schema: Cast columns to match schema spec
 """
 
 from pathlib import Path
@@ -31,110 +29,50 @@ def align_dataframe_schemas(
     """
     Align schemas before vertical concatenation.
     
-    Ensures all DataFrames have the same columns with None-filled missing values
-    and consistent column ordering. This is CRITICAL for concatenating DataFrames
-    from samples with different extensions (e.g., cloudmask vs s2data vs thumbnail).
+    CRITICAL for concatenating DataFrames from samples with different extensions.
+    Without alignment, pl.concat(dfs, how="vertical") fails with ShapeError.
     
-    Without alignment, pl.concat(dfs, how="vertical") fails with:
-        ShapeError: unable to append DataFrame of width X with DataFrame of width Y
+    Algorithm:
+    1. Collect all unique columns from all DataFrames with their types
+    2. Order columns: core fields first, then extension fields alphabetically
+    3. Add missing columns to each DataFrame with None values (proper type)
+    4. Reorder all DataFrames to identical column order
     
-    The function:
-    1. Collects ALL unique columns from ALL DataFrames with their types
-    2. Orders columns: core fields first, then extension fields alphabetically
-    3. Adds missing columns to each DataFrame with None values (proper type)
-    4. Reorders all DataFrames to have identical column order
-    
-    Args:
-        dfs: List of DataFrames to align (must have at least 1 DataFrame)
-        core_fields: Optional list of core field names to place first
-                    Default: ["id", "type", "path"]
-                    Can be extended for specific contexts (e.g., add "internal:parent_id")
-    
-    Returns:
-        List of DataFrames with aligned schemas and consistent column order.
-        All DataFrames will have the same width and column names in the same order.
-        
-    Example:
-        >>> # Different extensions create different schemas
-        >>> df1 = pl.DataFrame({
-        ...     "id": ["cloudmask"],
-        ...     "type": ["FILE"],
-        ...     "geotiff:stats": [{"min": 0, "max": 1}],
-        ...     "tacotiff:compression": ["zstd"]
-        ... })  # 4 columns
-        >>> 
-        >>> df2 = pl.DataFrame({
-        ...     "id": ["s2data"],
-        ...     "type": ["FILE"],
-        ...     "scaling:scale_factor": [0.0001],
-        ...     "tacotiff:compression": ["zstd"]
-        ... })  # 4 columns but DIFFERENT
-        >>> 
-        >>> df3 = pl.DataFrame({
-        ...     "id": ["thumbnail"],
-        ...     "type": ["FILE"]
-        ... })  # 2 columns
-        >>> 
-        >>> # Without alignment - FAILS
-        >>> pl.concat([df1, df2, df3], how="vertical")
-        # ShapeError: unable to append DataFrame of width 4 with DataFrame of width 2
-        >>> 
-        >>> # With alignment - SUCCESS
-        >>> aligned = align_dataframe_schemas([df1, df2, df3])
-        >>> result = pl.concat(aligned, how="vertical")  # ✅ Works!
-        >>> result.shape
-        (3, 5)  # All have same width now
-        >>> result.columns
-        ['id', 'type', 'geotiff:stats', 'scaling:scale_factor', 'tacotiff:compression']
-        
-    Use Cases:
-        - Tortilla.__init__: Samples with different extensions
-        - Tortilla._expand_hierarchical: Child samples with varying metadata
-        - MetadataGenerator._generate_folder_metadata: Folder children with different schemas
-        - TacoCatWriter: Consolidating DataFrames from multiple tacozips
-        - ZipWriter: Merging metadata from folders with heterogeneous samples
+    Default core_fields: ["id", "type", "path"]
     """
-    # Fast path: single DataFrame needs no alignment
     if len(dfs) <= 1:
         return dfs
     
-    # Default core fields if not specified
     if core_fields is None:
         core_fields = ["id", "type", "path"]
     
-    # Step 1: Collect complete schema with types from ALL DataFrames
-    # This ensures we preserve the correct data types for None-filled columns
+    # Collect complete schema with types from all DataFrames
     complete_schema: dict[str, pl.DataType] = {}
     for df in dfs:
         for col_name, dtype in df.schema.items():
-            # First occurrence wins - assumes consistent types across DFs
-            # (which should be true for TACO extension system)
             if col_name not in complete_schema:
                 complete_schema[col_name] = dtype
     
-    # Step 2: Define column ordering for consistency
-    # Core fields first (in specified order), then extension fields alphabetically
+    # Define column ordering: core first, then extensions alphabetically
     extension_fields = sorted([
         col for col in complete_schema.keys() 
         if col not in core_fields
     ])
     
-    # Only include core fields that actually exist in the schema
     ordered_columns = [
         col for col in core_fields if col in complete_schema
     ] + extension_fields
     
-    # Step 3: Align all DataFrames to complete schema with consistent order
+    # Align all DataFrames
     aligned_dfs = []
     for df in dfs:
-        # Add missing columns with proper types (None values)
+        # Add missing columns with proper types
         for col_name, dtype in complete_schema.items():
             if col_name not in df.columns:
                 df = df.with_columns(
                     pl.lit(None, dtype=dtype).alias(col_name)
                 )
         
-        # Reorder columns to match canonical order
         df = df.select(ordered_columns)
         aligned_dfs.append(df)
     
@@ -143,31 +81,10 @@ def align_dataframe_schemas(
 
 def reorder_internal_columns(df: pl.DataFrame) -> pl.DataFrame:
     """
-    Reorder DataFrame columns to place internal:* columns at the end.
-
-    Column order:
-        1. Regular columns (non-internal)
-        2. internal:parent_id (if present)
-        3. internal:offset (if present)
-        4. internal:size (if present)
-        5. Other internal:* columns (if any)
-
-    Args:
-        df: DataFrame with mixed column order
-
-    Returns:
-        DataFrame with internal:* columns at the end
-
-    Example:
-        >>> df = pl.DataFrame({
-        ...     "id": ["a", "b"],
-        ...     "internal:offset": [100, 200],
-        ...     "type": ["FILE", "FILE"],
-        ...     "internal:parent_id": [0, 0],
-        ... })
-        >>> df = reorder_internal_columns(df)
-        >>> df.columns
-        ['id', 'type', 'internal:parent_id', 'internal:offset']
+    Place internal:* columns at end.
+    
+    Order: regular columns → internal:parent_id → internal:offset → 
+           internal:size → other internal:* columns
     """
     regular_cols = [col for col in df.columns if not is_internal_column(col)]
     ordered_internal = [col for col in METADATA_COLUMNS_ORDER if col in df.columns]
@@ -184,28 +101,7 @@ def reorder_internal_columns(df: pl.DataFrame) -> pl.DataFrame:
 def remove_empty_columns(
     df: pl.DataFrame, preserve_core: bool = True, preserve_internal: bool = True
 ) -> pl.DataFrame:
-    """
-    Remove columns that are completely empty (all null or empty strings).
-
-    Args:
-        df: DataFrame to clean
-        preserve_core: If True, never remove core fields (id, type, path)
-        preserve_internal: If True, never remove internal:* columns
-
-    Returns:
-        DataFrame with empty columns removed
-
-    Example:
-        >>> df = pl.DataFrame({
-        ...     "id": ["a", "b"],
-        ...     "empty_col": [None, None],
-        ...     "internal:offset": [100, 200],
-        ...     "empty_string": ["", ""],
-        ... })
-        >>> df = remove_empty_columns(df)
-        >>> df.columns
-        ['id', 'internal:offset']
-    """
+    """Remove columns that are all null or empty strings."""
     cols_to_keep = []
 
     for col in df.columns:
@@ -242,25 +138,9 @@ def validate_schema_consistency(
     dataframes: list[pl.DataFrame], context: str = "DataFrame list"
 ) -> None:
     """
-    Validate that all DataFrames have consistent schemas.
-
-    Ensures that DataFrames can be safely concatenated vertically by
-    checking that they all have the same columns with the same types.
-
-    Args:
-        dataframes: List of DataFrames to validate
-        context: Description of where these DataFrames come from
-
-    Raises:
-        ValueError: If schemas are inconsistent
-
-    Example:
-        >>> df1 = pl.DataFrame({"id": ["a"], "type": ["FILE"]})
-        >>> df2 = pl.DataFrame({"id": ["b"], "type": ["FILE"]})
-        >>> validate_schema_consistency([df1, df2])  # OK
-        >>>
-        >>> df3 = pl.DataFrame({"id": ["c"], "name": ["x"]})
-        >>> validate_schema_consistency([df1, df3])  # Raises ValueError
+    Validate all DataFrames have consistent schemas for safe vertical concatenation.
+    
+    Checks same columns with same types.
     """
     if not dataframes:
         raise ValueError(f"{context}: Cannot validate empty DataFrame list")
@@ -311,17 +191,7 @@ def validate_schema_consistency(
 def ensure_columns_exist(
     df: pl.DataFrame, required_columns: list[str], context: str = "DataFrame"
 ) -> None:
-    """
-    Validate that DataFrame contains all required columns.
-
-    Args:
-        df: DataFrame to check
-        required_columns: List of column names that must be present
-        context: Description of the DataFrame
-
-    Raises:
-        ValueError: If any required columns are missing
-    """
+    """Validate DataFrame contains all required columns."""
     missing = [col for col in required_columns if col not in df.columns]
 
     if missing:
@@ -334,17 +204,7 @@ def ensure_columns_exist(
 def filter_columns_by_prefix(
     df: pl.DataFrame, prefix: str, exclude: bool = False
 ) -> pl.DataFrame:
-    """
-    Select or exclude columns based on name prefix.
-
-    Args:
-        df: DataFrame to filter
-        prefix: Column name prefix to match
-        exclude: If True, exclude matching columns. If False, keep only matching.
-
-    Returns:
-        DataFrame with filtered columns
-    """
+    """Select or exclude columns by name prefix."""
     if exclude:
         cols = [col for col in df.columns if not col.startswith(prefix)]
     else:
@@ -359,17 +219,7 @@ def filter_columns_by_prefix(
 def add_columns_if_missing(
     df: pl.DataFrame, columns: dict[str, pl.DataType], default_value: any = None
 ) -> pl.DataFrame:
-    """
-    Add columns to DataFrame if they don't exist, with default values.
-
-    Args:
-        df: DataFrame to modify
-        columns: Dictionary mapping column_name -> polars DataType
-        default_value: Value to fill new columns with (default: None)
-
-    Returns:
-        DataFrame with all specified columns present
-    """
+    """Add columns to DataFrame if they don't exist, with default values."""
     for col_name, col_type in columns.items():
         if col_name not in df.columns:
             df = df.with_columns(pl.lit(default_value).cast(col_type).alias(col_name))
@@ -378,15 +228,7 @@ def add_columns_if_missing(
 
 
 def get_column_statistics(df: pl.DataFrame) -> dict[str, dict]:
-    """
-    Get basic statistics about DataFrame columns.
-
-    Args:
-        df: DataFrame to analyze
-
-    Returns:
-        Dictionary mapping column_name -> statistics dict
-    """
+    """Get basic statistics about DataFrame columns."""
     stats = {}
 
     for col in df.columns:
@@ -409,24 +251,7 @@ def get_column_statistics(df: pl.DataFrame) -> dict[str, dict]:
 
 
 def read_metadata_file(file_path: Path | str) -> pl.DataFrame:
-    """
-    Read metadata file in Parquet format.
-
-    Args:
-        file_path: Path to metadata file (.parquet)
-
-    Returns:
-        DataFrame with proper column names
-
-    Raises:
-        ValueError: If file format is not .parquet
-
-    Example:
-        >>> # Reading Parquet
-        >>> df = read_metadata_file("METADATA/level0.parquet")
-        >>> "internal:parent_id" in df.columns
-        True
-    """
+    """Read metadata file in Parquet format."""
     file_path = Path(file_path)
 
     if file_path.suffix == ".parquet":
@@ -444,32 +269,13 @@ def write_parquet_file(
     **kwargs
 ) -> None:
     """
-    Write DataFrame to Parquet file (for local __meta__ files).
-
-    Parquet natively supports colons in column names, no sanitization needed.
-    Used for local metadata (__meta__) in FOLDER containers.
-
-    Args:
-        df: DataFrame to write
-        output_path: Target path for .parquet file
-        **kwargs: Additional Parquet writer parameters (passed to Polars write_parquet)
-
-    Example:
-        >>> df = pl.DataFrame({
-        ...     "id": ["a", "b"],
-        ...     "internal:parent_id": [0, 1],
-        ...     "stac:crs": ["EPSG:4326", "EPSG:32633"]
-        ... })
-        >>> write_parquet_file(df, "metadata.parquet")
-        >>> write_parquet_file(df, "metadata.parquet", compression_level=22)
+    Write DataFrame to Parquet (for local __meta__ files).
+    
+    Used for local metadata in FOLDER containers.
+    Parquet natively supports colons in column names.
     """
-    # Default config for local metadata (simple, no CDC)
     default_config = {"compression": "zstd"}
-    
-    # Merge: defaults first, then user kwargs (user overrides defaults)
     parquet_config = {**default_config, **kwargs}
-    
-    # Use Polars API for simple local metadata
     df.write_parquet(output_path, **parquet_config)
 
 
@@ -479,63 +285,29 @@ def write_parquet_file_with_cdc(
     **kwargs
 ) -> None:
     """
-    Write DataFrame to Parquet with CDC (for consolidated metadata).
-
-    Content-Defined Chunking ensures consistent data page boundaries for
-    efficient deduplication on content-addressable storage systems.
-
+    Write Parquet with Content-Defined Chunking (for consolidated metadata).
+    
+    CDC ensures consistent data page boundaries for efficient deduplication
+    on content-addressable storage systems.
+    
     CRITICAL: Uses PyArrow's pq.write_table() because CDC is only available
     in PyArrow, not in Polars write_parquet().
-
-    Args:
-        df: DataFrame to write
-        output_path: Target path for .parquet file
-        **kwargs: Additional Parquet writer parameters (override defaults)
-                 Must be PyArrow-compatible parameters
-
-    Example:
-        >>> df = pl.DataFrame({
-        ...     "id": ["a", "b"],
-        ...     "internal:parent_id": [0, 1]
-        ... })
-        >>> write_parquet_file_with_cdc(df, "level0.parquet")
-        >>> write_parquet_file_with_cdc(df, "level0.parquet", compression_level=22)
-        # Parquet with CDC enabled for incremental updates
     """
     import pyarrow.parquet as pq
     
-    # Merge: defaults first, then user kwargs (user overrides defaults)
     parquet_config = {**PARQUET_CDC_DEFAULT_CONFIG, **kwargs}
-    
-    # Convert Polars DataFrame to PyArrow Table
     arrow_table = df.to_arrow()
-    
-    # Write using PyArrow (supports use_content_defined_chunking)
     pq.write_table(arrow_table, output_path, **parquet_config)
 
 
 def cast_dataframe_to_schema(df: pl.DataFrame, schema_spec: list) -> pl.DataFrame:
     """
-    Cast DataFrame columns to match schema specification from taco:field_schema.
-
-    Converts DataFrame types to match the expected schema defined in
-    collection["taco:field_schema"]["levelX"]. Handles Null columns gracefully
-    by adding missing columns and coercing type mismatches.
-
-    Args:
-        df: Polars DataFrame with potentially inconsistent types
-        schema_spec: List of [column_name, type_string] from taco:field_schema
-
-    Returns:
-        DataFrame with all columns cast to correct types
-
-    Example:
-        >>> schema = [
-        ...     ["id", "string"],
-        ...     ["type", "string"],
-        ...     ["internal:parent_id", "int64"],
-        ... ]
-        >>> df = cast_dataframe_to_schema(df, schema)
+    Cast DataFrame columns to match schema spec from taco:field_schema.
+    
+    Handles Null columns gracefully by adding missing columns and
+    coercing type mismatches.
+    
+    schema_spec: List of [column_name, type_string] from taco:field_schema
     """
     type_mapping = {
         "string": pl.Utf8,

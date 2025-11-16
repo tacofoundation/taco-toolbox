@@ -13,13 +13,6 @@ Key features:
 
 Main function:
     create_tacollection(): Merge multiple TACO datasets into single collection
-
-Example:
-    >>> from tacotoolbox import create_tacollection
-    >>> 
-    >>> # Merge all TACO files in directory
-    >>> tacozips = list(Path("datasets/").glob("*.tacozip"))
-    >>> create_tacollection(tacozips, output_path="global_collection.json")
 """
 
 import json
@@ -60,23 +53,6 @@ def create_tacollection(
 
     Sums 'n' values across all datasets.
     Uses first dataset as base for other metadata.
-
-    Args:
-        tacozips: List of TACO file paths
-        output_path: Output path for COLLECTION.json
-        validate_schema: Validate schema consistency (default: True)
-
-    Raises:
-        CollectionError: If no datasets provided or read fails
-        SchemaValidationError: If validation fails
-
-    Example:
-        >>> from tacotoolbox import create_tacollection
-        >>>
-        >>> create_tacollection(
-        ...     tacozips=list(Path("data/").glob("*.tacozip")),
-        ...     output_path="COLLECTION.json"
-        ... )
     """
     if not tacozips:
         raise CollectionError("No datasets provided")
@@ -132,15 +108,6 @@ def _read_collections(tacozips: list[str | Path]) -> list[dict[str, Any]]:
     Read COLLECTION.json from all tacozips.
 
     COLLECTION.json is always the last entry in TACO_HEADER.
-
-    Args:
-        tacozips: List of TACO file paths
-
-    Returns:
-        List of collection dictionaries
-
-    Raises:
-        CollectionError: If reading fails
     """
     collections = []
 
@@ -203,12 +170,6 @@ def _validate_pit_structure(collections: list[dict[str, Any]]) -> None:
     - Hierarchy depth must be identical
     - Type arrays must be identical per level
     - ID arrays must be identical per level
-
-    Args:
-        collections: List of collection dictionaries
-
-    Raises:
-        SchemaValidationError: If structure differs
     """
     if not collections:
         return
@@ -284,15 +245,7 @@ def _validate_pit_structure(collections: list[dict[str, Any]]) -> None:
 
 
 def _validate_field_schema(collections: list[dict[str, Any]]) -> None:
-    """
-    Validate that all collections have identical taco:field_schema.
-
-    Args:
-        collections: List of collection dictionaries
-
-    Raises:
-        SchemaValidationError: If schemas differ
-    """
+    """Validate that all collections have identical taco:field_schema."""
     if not collections:
         return
 
@@ -326,18 +279,7 @@ def _validate_field_schema(collections: list[dict[str, Any]]) -> None:
 
 
 def _sum_pit_schemas(collections: list[dict[str, Any]]) -> dict[str, Any]:
-    """
-    Sum 'n' values across all taco:pit_schemas.
-
-    Args:
-        collections: List of collection dictionaries
-
-    Returns:
-        Merged pit_schema with summed 'n' values
-
-    Raises:
-        CollectionError: If collections list is empty or schemas are invalid
-    """
+    """Sum 'n' values across all taco:pit_schemas."""
     if not collections:
         raise CollectionError("Cannot sum schemas from empty collections list")
 

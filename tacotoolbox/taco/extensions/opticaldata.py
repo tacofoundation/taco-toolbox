@@ -24,18 +24,7 @@ SUPPORTED_SENSORS = [
 
 
 class SpectralBand(pydantic.BaseModel):
-    """
-    Individual spectral band definition for remote sensing data.
-
-    Attributes:
-        name: Band identifier (e.g., "B04", "Red")
-        index: Band index in the data array
-        common_name: Standard name (e.g., "Red", "NIR", "SWIR1")
-        description: Human-readable description
-        unit: Measurement unit (e.g., "nm", "um")
-        center_wavelength: Central wavelength in nm
-        full_width_half_max: Bandwidth at half maximum intensity
-    """
+    """Individual spectral band definition for remote sensing data."""
 
     name: str
     index: int | None = None
@@ -52,10 +41,6 @@ class OpticalData(TacoExtension):
 
     Provides spectral band definitions either explicitly or automatically
     from supported sensor types. Supports band subset selection.
-
-    Attributes:
-        sensor: Sensor name (e.g., "sentinel2msi", "landsat8oli[B02,B03,B04]")
-        bands: List of spectral band definitions
 
     Usage:
         # Automatic band lookup

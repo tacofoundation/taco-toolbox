@@ -64,91 +64,19 @@ class MetadataPackage:
     The internal:relative_path column enables fast queries without JOINs.
     Level 0 uses row index as parent_id, while level 1+ link to parent rows.
 
-    Example hierarchy with parent_id and relative_path:
+    SQL examples:
+        # Level 0: Use 'id' directly (no relative_path)
+        SELECT * FROM level0 WHERE id = 'A'
 
-        level0 (parent_id = row index, NO relative_path):
-        ┌─────┬──────────┬──────────────────────┐
-        │ id  │ type     │ internal:parent_id   │
-        ├─────┼──────────┼──────────────────────┤
-        │ A   │ FOLDER   │ 0                    │
-        │ B   │ FOLDER   │ 1                    │
-        └─────┴──────────┴──────────────────────┘
+        # Level 1+: Use relative_path (fast, no JOIN needed)
+        SELECT * FROM level1
+        WHERE "internal:relative_path" LIKE 'A/%'
 
-        level1 (parent_id links to level0 row, HAS relative_path):
-        ┌─────┬──────────┬──────────────────────┬─────────────────────────────────┐
-        │ id  │ type     │ internal:parent_id   │ internal:relative_path          │
-        ├─────┼──────────┼──────────────────────┼─────────────────────────────────┤
-        │ f1  │ FILE     │ 0                    │ A/f1                            │
-        │ f2  │ FILE     │ 0                    │ A/f2                            │
-        │ f3  │ FILE     │ 1                    │ B/f3                            │
-        └─────┴──────────┴──────────────────────┴─────────────────────────────────┘
-
-        SQL examples:
-            # Level 0: Use 'id' directly (no relative_path)
-            SELECT * FROM level0 WHERE id = 'A'
-
-            # Level 1+: Use relative_path (fast, no JOIN needed)
-            SELECT * FROM level1
-            WHERE "internal:relative_path" LIKE 'A/%'
-
-            # Traditional JOIN approach (works but slower):
-            SELECT l1.id, l0.id as parent_folder
-            FROM level0 l0
-            JOIN level1 l1 ON l1."internal:parent_id" = l0."internal:parent_id"
-            WHERE l0.id = 'A'
-
-    Attributes:
-        levels: List of DataFrames, one per level (0-5)
-                Each DataFrame contains ALL samples at that level
-                Level 0: Has parent_id, NO relative_path (use 'id' directly)
-                Level 1+: Has parent_id AND relative_path for fast queries
-                NO offset/size (added by zip_writer if needed)
-
-        local_metadata: Dict mapping folder_path -> DataFrame
-                       Contains metadata for direct children of each folder
-                       WITHOUT parent_id or relative_path (path implicit, navigation via folder)
-                       Example: {"DATA/folder_A/": df_with_4_children}
-
-        collection: Dictionary with COLLECTION.json content
-                   Contains all TACO metadata except tortilla
-
-        pit_schema: Position-Isomorphic Tree schema
-                   Describes the hierarchical structure with types and IDs
-                   Format: {"root": {...}, "hierarchy": {"1": [...], "2": [...]}}
-
-        field_schema: Field schema per level
-                     Lists column names and types for each level
-                     Format: {"level0": [["id", "string"], ...], "level1": [...]}
-
-        max_depth: Maximum hierarchy depth (0-5)
-                  Example: depth=2 means 3 levels (0, 1, 2)
-
-    Example usage:
-        >>> generator = MetadataGenerator(taco, debug=False)
-        >>> package = generator.generate_all_levels()
-        >>>
-        >>> # Access consolidated metadata
-        >>> level0_df = package.levels[0]  # All root samples
-        >>> level1_df = package.levels[1]  # All level 1 samples
-        >>>
-        >>> # Access local metadata
-        >>> folder_meta = package.local_metadata["DATA/folder_A/"]
-        >>>
-        >>> # Access schemas
-        >>> pit = package.pit_schema
-        >>> fields = package.field_schema
-
-        >>> # SQL navigation using relative_path (FAST - no JOINs, level 1+ only)
-        >>> import duckdb
-        >>> duckdb.sql('''
-        ...     SELECT * FROM level1
-        ...     WHERE "internal:relative_path" LIKE 'A/%'
-        ... ''')
-        >>>
-        >>> # Level 0: Use 'id' directly (no relative_path column)
-        >>> duckdb.sql('''
-        ...     SELECT * FROM level0 WHERE id = 'A'
-        ... ''')
+        # Traditional JOIN approach (works but slower):
+        SELECT l1.id, l0.id as parent_folder
+        FROM level0 l0
+        JOIN level1 l1 ON l1."internal:parent_id" = l0."internal:parent_id"
+        WHERE l0.id = 'A'
     """
 
     def __init__(
@@ -172,13 +100,7 @@ class MetadataGenerator:
     """Generate complete metadata package for TACO containers."""
 
     def __init__(self, taco: "Taco", debug: bool = False) -> None:
-        """
-        Initialize metadata generator.
-
-        Args:
-            taco: TACO object containing tortilla with samples
-            debug: If True, show detailed debug messages (default: False)
-        """
+        """Initialize metadata generator."""
         self.taco = taco
         self.debug = debug
         self.max_depth = min(taco.tortilla._current_depth, 5)

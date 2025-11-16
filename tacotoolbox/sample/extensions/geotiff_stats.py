@@ -42,15 +42,6 @@ class GeotiffStats(SampleExtension):
 
     Automatically applies scaling transformation if scaling metadata exists in sample.
 
-    Fields
-    ------
-    categorical : bool
-        If True, treat data as categorical and compute class probabilities.
-        Default False (continuous statistics).
-    class_values : list[int] | None
-        Required when categorical=True. List of integer class values to track.
-        Probabilities sum to 1.0 across all classes.
-
     Returns
     -------
     geotiff:stats : list[list[float32]]
@@ -61,24 +52,9 @@ class GeotiffStats(SampleExtension):
     Notes
     -----
     - Requires GDAL: conda install gdal
-    - Only works with GeoTIFF files (verified via GDAL driver check)
-    - Automatically applies scaling:factor and scaling:offset if present in sample
-    - For categorical data, handles uniform bands (all same value) correctly
-    - For continuous data, calculates percentiles from histogram (configurable buckets)
-
-    Example
-    -------
-    >>> # Continuous statistics
-    >>> stats = GeotiffStats()
-    >>> sample.extend_with(stats)
-
-    >>> # Categorical statistics (e.g., land cover)
-    >>> stats = GeotiffStats(categorical=True, class_values=[0, 1, 2, 3])
-    >>> sample.extend_with(stats)
-
-    >>> # With scaling
-    >>> sample.extend_with(Scaling(scale_factor=0.01, scale_offset=-273.15))
-    >>> sample.extend_with(GeotiffStats())  # Stats automatically scaled
+    - Automatically applies scaling:factor and scaling:offset if present
+    - Categorical: handles uniform bands (all same value) correctly
+    - Continuous: calculates percentiles from histogram (configurable buckets)
     """
 
     categorical: bool = False
@@ -251,14 +227,6 @@ class GeotiffStats(SampleExtension):
     ) -> list[list[float]]:
         """
         Apply scaling transformation: real_value = packed_value * factor + offset.
-
-        Args:
-            stats: Per-band statistics to scale
-            scaling_factor: Multiplicative scaling factor
-            scaling_offset: Additive offset after scaling
-
-        Returns:
-            Scaled statistics with same structure as input
 
         Notes:
             - min, max, mean, percentiles: scaled with factor + offset

@@ -9,7 +9,7 @@ Key features:
 - Concurrent file downloading from TacoDataset (S3/HTTP/local)
 - Automatic parent_id reindexing for consistency
 - Recursive FOLDER handling with local metadata
-- Zero-copy data transfer with obstore
+- Zero-copy data transfer via tacoreader.io
 - High-performance concurrent downloads with progress bars
 
 The ExportWriter uses async/await for optimal performance when downloading
@@ -47,10 +47,10 @@ import asyncio
 import json
 import pathlib
 
-import obstore as obs
 import polars as pl
 from tacoreader import TacoDataset
-from tacoreader.utils.vsi import create_obstore_from_url, strip_vsi_prefix
+from tacoreader.io import download_range
+from tacoreader.utils.vsi import parse_vsi_subfile, strip_vsi_prefix
 
 from tacotoolbox._column_utils import (
     read_metadata_file,
@@ -236,10 +236,10 @@ class ExportWriter:
         Copy bytes from vsi_path to dest_path.
 
         Handles two types of source paths:
-        - /vsisubfile/... paths (ZIP entries): Downloads bytes from offset/size using obstore
+        - /vsisubfile/... paths (ZIP entries): Downloads bytes from offset/size
         - Regular filesystem paths: Direct file copy
 
-        Remote sources use obstore for concurrent downloads.
+        Uses tacoreader.io for all remote downloads (S3/HTTP/GCS).
         Local file I/O uses sync operations as they're fast and not the bottleneck.
 
         Args:
@@ -251,11 +251,8 @@ class ExportWriter:
             dest_path.parent.mkdir(parents=True, exist_ok=True)
 
             if vsi_path.startswith("/vsisubfile/"):
-                # Parse vsisubfile format: /vsisubfile/offset_size,source_path
-                parts = vsi_path.replace("/vsisubfile/", "").split(",", 1)
-                offset, size = map(int, parts[0].split("_"))
-                zip_path = parts[1]
-
+                # Parse vsisubfile format using tacoreader.utils.vsi
+                zip_path, offset, size = parse_vsi_subfile(vsi_path)
                 clean_url = strip_vsi_prefix(zip_path)
 
                 if pathlib.Path(clean_url).exists():
@@ -264,13 +261,10 @@ class ExportWriter:
                         f.seek(offset)
                         data = f.read(size)
                 else:
-                    # Remote file: use obstore async for concurrent downloads
-                    store = create_obstore_from_url(clean_url)
-                    # obstore returns Bytes (zero-copy), convert to bytes
-                    data = bytes(
-                        await obs.get_range_async(
-                            store, "", start=offset, end=offset + size
-                        )
+                    # Remote file: use tacoreader.io.download_range
+                    # Convert sync download_range to async with to_thread
+                    data = await asyncio.to_thread(
+                        download_range, clean_url, offset, size
                     )
 
                 # Write to dest (sync is fine - local disk I/O is fast)

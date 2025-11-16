@@ -396,13 +396,6 @@ def _calculate_spatial_extent(df: pl.DataFrame, centroid_col: str) -> list[float
 
     Parses WKB binary centroids and computes [min_lon, min_lat, max_lon, max_lat].
     Skips None values (padding samples).
-
-    Args:
-        df: DataFrame with centroid column
-        centroid_col: Column name containing WKB binary centroids
-
-    Returns:
-        Bounding box as [min_lon, min_lat, max_lon, max_lat]
     """
     centroids = [
         wkb_loads(wkb) for wkb in df[centroid_col].to_list() if wkb is not None
@@ -430,15 +423,6 @@ def _calculate_temporal_extent(
     Skips None values (padding samples).
 
     Priority cascade: time_middle > time_start > time_end
-
-    Args:
-        df: DataFrame with time columns
-        time_start_col: Column name for start timestamps
-        time_end_col: Optional column name for end timestamps
-        time_middle_col: Optional column name for middle timestamps
-
-    Returns:
-        Temporal interval as [start_iso, end_iso] or None if no valid timestamps
     """
     time_values = []
 

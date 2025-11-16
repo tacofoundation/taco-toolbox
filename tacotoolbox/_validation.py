@@ -29,19 +29,8 @@ class TacoValidationError(Exception):
     """
     Raised when TACO creation validation fails.
 
-    This exception is raised by validation functions when input parameters
-    or paths don't meet requirements for container creation.
-
     Error messages are designed to be actionable, telling users exactly
     what's wrong and how to fix it.
-
-    Example:
-        >>> try:
-        ...     validate_output_path(Path("existing.tacozip"), "zip")
-        ... except TacoValidationError as e:
-        ...     print(e)
-        Output file already exists: existing.tacozip
-        Remove it or choose a different output path.
     """
 
     pass
@@ -56,25 +45,6 @@ def validate_output_path(
     Checks that:
     - Output path doesn't already exist (prevents accidental overwrite)
     - Parent directory exists (can't create in non-existent directory)
-
-    Args:
-        path: Target output path for container
-        output_format: Creation format ("zip" or "folder")
-
-    Raises:
-        TacoValidationError: If path exists or parent directory missing
-
-    Example:
-        >>> # Valid case
-        >>> validate_output_path(Path("new_dataset.tacozip"), "zip")
-
-        >>> # Invalid - path exists
-        >>> validate_output_path(Path("existing.tacozip"), "zip")
-        TacoValidationError: Output file already exists: existing.tacozip
-
-        >>> # Invalid - parent missing
-        >>> validate_output_path(Path("/nonexistent/data.tacozip"), "zip")
-        TacoValidationError: Parent directory does not exist: /nonexistent
     """
     if path.exists():
         if output_format == "zip":
@@ -104,25 +74,6 @@ def validate_split_size(size_str: str) -> int:
     - Value is positive (greater than zero)
 
     Uses parse_size() internally for actual parsing.
-
-    Args:
-        size_str: Size string like "4GB", "100GB", "1TB"
-
-    Returns:
-        Size in bytes
-
-    Raises:
-        TacoValidationError: If size format invalid or value non-positive
-
-    Example:
-        >>> validate_split_size("4GB")
-        4294967296
-
-        >>> validate_split_size("invalid")
-        TacoValidationError: Invalid split_size format: ...
-
-        >>> validate_split_size("0GB")
-        TacoValidationError: split_size must be positive. Requested: 0GB
     """
     try:
         size_bytes = parse_size(size_str)
@@ -143,23 +94,6 @@ def validate_format_and_split(
 
     Ensures that split_size is only used with ZIP format, as FOLDER
     format doesn't support splitting.
-
-    Args:
-        output_format: Creation format ("zip" or "folder")
-        split_size: Optional split size parameter
-
-    Raises:
-        TacoValidationError: If folder format used with split_size
-
-    Example:
-        >>> # Valid combinations
-        >>> validate_format_and_split("zip", "4GB")
-        >>> validate_format_and_split("zip", None)
-        >>> validate_format_and_split("folder", None)
-
-        >>> # Invalid combination
-        >>> validate_format_and_split("folder", "4GB")
-        TacoValidationError: split_size is not supported with format='folder'
     """
     if output_format == "folder" and split_size is not None:
         raise TacoValidationError(
@@ -173,18 +107,6 @@ def validate_format_value(output_format: str) -> None:
     Validate that format parameter has allowed value.
 
     Only "zip" and "folder" are valid TACO container formats.
-
-    Args:
-        output_format: Format string to validate
-
-    Raises:
-        TacoValidationError: If format is not "zip" or "folder"
-
-    Example:
-        >>> validate_format_value("zip")     # OK
-        >>> validate_format_value("folder")  # OK
-        >>> validate_format_value("tar")     # FAIL
-        TacoValidationError: Invalid format: 'tar'. Must be 'zip' or 'folder'.
     """
     if output_format not in ("zip", "folder"):
         raise TacoValidationError(
@@ -205,29 +127,6 @@ def parse_size(size_str: str) -> int:
     Decimal values are supported (e.g., "4.5GB").
     Case-insensitive (e.g., "4gb" == "4GB").
     Whitespace between number and unit is allowed.
-
-    Args:
-        size_str: Size string to parse (e.g., "4GB", "512M", "1024KB")
-
-    Returns:
-        Size in bytes
-
-    Raises:
-        ValueError: If format is invalid or cannot be parsed
-
-    Example:
-        >>> parse_size("4GB")
-        4294967296
-        >>> parse_size("512MB")
-        536870912
-        >>> parse_size("2.5GB")
-        2684354560
-        >>> parse_size("1024")
-        1024
-        >>> parse_size("4 GB")  # Whitespace allowed
-        4294967296
-        >>> parse_size("4gb")   # Case insensitive
-        4294967296
     """
     size_str = size_str.strip().upper()
 

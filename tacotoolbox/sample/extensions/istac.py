@@ -20,77 +20,22 @@ class ISTAC(SampleExtension):
     """
     Irregular SpatioTemporal Asset Catalog (ISTAC) metadata for non-regular geometries.
 
-    This extension exists to handle geospatial data that cannot be represented with
-    a affine geotransform. Common use cases include:
+    For geospatial data that cannot be represented with an affine geotransform:
+    - Satellite swaths: CloudSat, CALIPSO, GPM orbital tracks
+    - Flight paths: Aircraft or drone trajectories
+    - Vector data: Polygons, lines, or points without underlying raster
+    - Irregular samplings: Weather stations, buoy arrays, sensor networks
 
-    - **Satellite swaths**: CloudSat, CALIPSO, GPM orbital tracks with irregular coverage
-    - **Flight paths**: Aircraft or drone trajectories with arbitrary geometries
-    - **Vector data**: Polygons, lines, or points without underlying raster structure
-    - **Irregular samplings**: Weather station networks, buoy arrays, sensor deployments
-
-    Unlike the STAC extension (designed for regular rasters with geotransform),
-    ISTAC stores the complete geometry directly as WKB binary, making it
-    suitable for any arbitrary spatial footprint.
-
-    Fields
-    ------
-    crs : str
-        Coordinate reference system identifier (e.g., "EPSG:4326", PROJ string, or WKT).
-        Most satellite swaths use EPSG:4326 (WGS84 lon/lat).
-    geometry : bytes
-        Complete spatial footprint as WKB (Well-Known Binary). Typically a Polygon or
-        MultiPolygon representing the data coverage area.
-    time_start : int
-        Start time as seconds since Unix epoch (1970-01-01 00:00:00 UTC).
-        Use `int(datetime.timestamp())` to convert from datetime objects.
-    time_end : int | None
-        Optional end time as seconds since Unix epoch. If provided, must be >= time_start.
-        Useful for data representing a time interval (e.g., satellite pass duration).
-    time_middle : int | None
-        Automatically computed midpoint between `time_start` and `time_end`.
-        Only populated when `time_end` is provided. Calculated as the integer
-        average of the two timestamps.
-    centroid : bytes | None
-        Optional centroid point in EPSG:4326 as WKB binary. If not provided, it will
-        be automatically computed from the geometry. Useful for quick spatial queries
-        without loading full geometry.
-    check_antimeridian : bool
-        If True, detect and correctly handle geometries crossing the antimeridian
-        (±180° longitude). Requires 'antimeridian' package. Default False (fast mode).
-
-    Examples
-    --------
-    >>> from shapely.geometry import Polygon
-    >>> from shapely.wkb import dumps as wkb_dumps
-    >>> from datetime import datetime
-    >>>
-    >>> # CloudSat orbital swath polygon (default fast mode)
-    >>> swath = Polygon([(-180, -60), (180, -60), (180, 60), (-180, 60)])
-    >>> istac = ISTAC(
-    ...     crs="EPSG:4326",
-    ...     geometry=wkb_dumps(swath),
-    ...     time_start=int(datetime(2025, 1, 15, 12, 30).timestamp()),
-    ...     time_end=int(datetime(2025, 1, 15, 12, 45).timestamp())
-    ... )
-    >>> sample.extend_with(istac)
-    >>>
-    >>> # Swath crossing Pacific (antimeridian mode)
-    >>> pacific_swath = Polygon([(170, -10), (-170, -10), (-170, 10), (170, 10)])
-    >>> istac = ISTAC(
-    ...     crs="EPSG:4326",
-    ...     geometry=wkb_dumps(pacific_swath),
-    ...     time_start=int(datetime(2025, 1, 15, 12, 30).timestamp()),
-    ...     check_antimeridian=True  # Correct centroid for ±180° crossings
-    ... )
-    >>> sample.extend_with(istac)
+    Unlike STAC (designed for regular rasters with geotransform), ISTAC stores
+    the complete geometry directly as WKB binary for arbitrary spatial footprints.
 
     Notes
     -----
-    - All timestamps are stored as int64 for efficiency and consistency with STAC
+    - All timestamps are int64 (seconds since Unix epoch)
     - Centroid is always in EPSG:4326 regardless of source geometry CRS
-    - For raster data with regular grids, use the STAC extension instead
-    - WKB binary format is used for efficient storage and GeoParquet compatibility
-    - `time_middle` is automatically computed when both start and end times exist
+    - For regular raster grids, use the STAC extension instead
+    - WKB binary format for efficient storage and GeoParquet compatibility
+    - time_middle is auto-computed when both start and end times exist
     - Set check_antimeridian=True for Pacific/Polar data (requires: pip install antimeridian)
     """
 
@@ -114,12 +59,7 @@ class ISTAC(SampleExtension):
 
     @pydantic.model_validator(mode="after")
     def populate_time_middle(self) -> "ISTAC":
-        """
-        Auto-populate `time_middle` when both time_start and time_end exist.
-
-        This validator runs after `check_times` to ensure the temporal interval
-        is valid before computing the midpoint.
-        """
+        """Auto-populate time_middle when both time_start and time_end exist."""
         if self.time_end is not None and self.time_middle is None:
             self.time_middle = (self.time_start + self.time_end) // 2
 
@@ -130,10 +70,7 @@ class ISTAC(SampleExtension):
         """
         Auto-compute centroid in EPSG:4326 if not provided.
 
-        Loads the geometry, computes its centroid, and reprojects to EPSG:4326
-        if the source CRS is different.
-
-        If check_antimeridian=True, uses the 'antimeridian' package to correctly
+        If check_antimeridian=True, uses 'antimeridian' package to correctly
         handle geometries crossing ±180° longitude (e.g., Pacific swaths).
         """
         if self.centroid is None:
@@ -149,7 +86,7 @@ class ISTAC(SampleExtension):
                         "Or set check_antimeridian=False to use fast mode (works for most geometries)."
                     )
                 # Use antimeridian-aware centroid calculation
-                # This correctly handles geometries crossing ±180° longitude
+                # Correctly handles geometries crossing ±180° longitude
                 centroid_geom = antimeridian.centroid(geom)
             else:
                 # FAST PATH (default): Standard shapely centroid

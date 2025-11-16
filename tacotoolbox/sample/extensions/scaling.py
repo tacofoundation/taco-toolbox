@@ -11,44 +11,14 @@ class Scaling(SampleExtension):
     Defines transformations for scaling/unscaling data following CF conventions.
     All fields are optional - None indicates no transformation applied.
 
-    Fields
-    ------
-    scale_factor : float, list[float], or None
-        Multiplicative factor for scaling. Default is None (no scaling).
-        Transformation: unpacked = packed * scale_factor + scale_offset
-    scale_offset : float, list[float], or None
-        Additive offset applied after scaling. Default is None (no offset).
-    padding : list[int] or None
-        Spatial padding as [top, right, bottom, left]. Default is None (no padding).
+    Transformation: unpacked = packed * scale_factor + scale_offset
 
     Notes
     -----
-    - When None, no transformation is applied for that parameter
+    - When None, no transformation is applied
     - scale_factor and scale_offset must match unpacked data type
-    - Use for data compression and storage optimization
-    - Padding can be reverted using stored values
+    - Padding format: [top, right, bottom, left]
     - Follows CF (Climate and Forecast) metadata conventions
-
-    Example
-    -------
-    >>> # Basic scaling
-    >>> scaling = Scaling(scale_factor=0.01, scale_offset=-273.15)
-    >>>
-    >>> # Per-band scaling
-    >>> scaling = Scaling(
-    ...     scale_factor=[0.0001, 0.0001, 0.0001],
-    ...     scale_offset=[0.0, 0.0, 0.0]
-    ... )
-    >>>
-    >>> # With padding
-    >>> scaling = Scaling(
-    ...     scale_factor=0.01,
-    ...     scale_offset=0.0,
-    ...     padding=[10, 10, 10, 10]
-    ... )
-    >>>
-    >>> # Apply to sample
-    >>> sample.extend_with(scaling)
     """
 
     scale_factor: float | list[float] | None = None

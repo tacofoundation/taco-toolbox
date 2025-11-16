@@ -30,37 +30,11 @@ def raster_centroid(
     check_antimeridian: bool = False,
 ) -> bytes:
     """
-    Calculate the centroid of a raster in EPSG:4326 and return as WKB binary.
+    Calculate raster centroid in EPSG:4326 and return as WKB binary.
 
-    Args:
-        crs (str): The raster's Coordinate Reference System (e.g., "EPSG:32633").
-        geotransform (Tuple[float, float, float, float, float, float]): The
-            geotransform of the raster following the GDAL convention:
-            (
-                top left x,
-                x resolution,
-                x rotation,
-                top left y,
-                y rotation,
-                y resolution
-            )
-        raster_shape (Tuple[int, int]): The shape of the raster as (rows, columns).
-        check_antimeridian (bool): If True, detect and handle antimeridian crossings
-            correctly (slower, requires 'antimeridian' package). If False (default),
-            use fast single-point transform (works for 99% of cases).
-
-    Returns:
-        bytes: The centroid coordinates in EPSG:4326 as WKB binary.
-
-    Raises:
-        ImportError: If check_antimeridian=True but 'antimeridian' not installed.
-
-    Example:
-        >>> # Fast mode (default) - works for most rasters
-        >>> centroid = raster_centroid(crs, geotransform, shape)
-
-        >>> # Antimeridian mode - for Pacific/Polar data
-        >>> centroid = raster_centroid(crs, geotransform, shape, check_antimeridian=True)
+    If check_antimeridian=True, detects and handles antimeridian crossings
+    correctly (slower, requires 'antimeridian' package). If False (default),
+    uses fast single-point transform (works for 99% of cases).
     """
     # Extract geotransform parameters
     origin_x, pixel_width, _, origin_y, _, pixel_height = geotransform
@@ -135,65 +109,16 @@ def raster_centroid(
 
 class STAC(SampleExtension):
     """
-    Minimal SpatioTemporal Asset Catalog (STAC)-style metadata for samples
+    Minimal SpatioTemporal Asset Catalog (STAC)-style metadata for samples.
 
-    Fields
-    ------
-    crs : str
-        Coordinate reference system identifier or definition (e.g., "EPSG:4326",
-        a PROJ string, or WKT).
-    tensor_shape : ShapeND
-        Shape of the tensor data, typically a 2D shape (height, width) for
-        raster data. For n-dimensional data, the spatial dimensions are
-        expected to be the last two dimensions.
-    geotransform : GeoTransform6
-        GDAL-style affine transform (x0, px_w, rot_x, y0, rot_y, px_h),
-        where typical north-up rasters have rot_x = rot_y = 0 and px_h < 0.
-    time_start : TimestampLike
-        Start time. Accepts a timezone-aware or naive `datetime` (naive will be
-        interpreted as system/unspecified timezone by `timestamp()`), or an
-        epoch value in seconds (`int`/`float`).
-    centroid : bytes | None
-        Automatically computed centroid of the raster in EPSG:4326 as WKB binary.
-        If not provided, it will be computed from `crs`, `geotransform`, and
-        `tensor_shape`.
-    time_end : TimestampLike | None
-        Optional end time. Same accepted forms as `time_start`.
-    time_middle : int | None
-        Automatically computed midpoint between `time_start` and `time_end`.
-        Only populated when `time_end` is provided. Calculated as the integer
-        average of the two timestamps.
-    check_antimeridian : bool
-        If True, detect and correctly handle rasters crossing the antimeridian
-        (±180° longitude). Requires 'antimeridian' package. Default False (fast mode).
+    For regular raster data with affine geotransform.
 
     Notes
     -----
-    - During validation, any `datetime` provided for `time_start`/`time_end` is
-      coerced to seconds since the Unix epoch (int) via `.timestamp()`.
-    - The model enforces a non-decreasing temporal interval: `time_start <= time_end`
-      (i.e., it rejects only `time_start > time_end`).
-    - `time_middle` is automatically computed when both start and end times exist.
+    - datetime provided for time_start/time_end is coerced to seconds since Unix epoch
+    - Enforces non-decreasing temporal interval: time_start <= time_end
+    - time_middle is auto-computed when both start and end times exist
     - Set check_antimeridian=True for Pacific/Polar rasters (requires: pip install antimeridian)
-
-    Example
-    -------
-    >>> # Default (fast mode) - works for most rasters
-    >>> stac = STAC(
-    ...     crs="EPSG:32633",
-    ...     tensor_shape=(512, 512),
-    ...     geotransform=(300000, 10, 0, 4500000, 0, -10),
-    ...     time_start=1234567890
-    ... )
-
-    >>> # Antimeridian mode - for Pacific islands, polar data
-    >>> stac = STAC(
-    ...     crs="EPSG:32760",
-    ...     tensor_shape=(512, 512),
-    ...     geotransform=(500000, 10, 0, 8000000, 0, -10),
-    ...     time_start=1234567890,
-    ...     check_antimeridian=True  # Slower but correct for ±180° crossings
-    ... )
     """
 
     crs: str
@@ -207,14 +132,13 @@ class STAC(SampleExtension):
 
     @pydantic.model_validator(mode="after")
     def check_times(cls, values):
-        """Validates that the time_start is before time_end."""
-        # If time_start is a datetime object, convert it to a timestamp
+        """Validates that time_start <= time_end."""
+        # Convert datetime to timestamp
         if isinstance(values.time_start, datetime.datetime):
             values.time_start = int(values.time_start.timestamp())
         else:
             values.time_start = int(values.time_start)
 
-        # If time_end is a datetime object, convert it to a timestamp
         if values.time_end is not None:
             if isinstance(values.time_end, datetime.datetime):
                 values.time_end = int(values.time_end.timestamp())
@@ -230,12 +154,7 @@ class STAC(SampleExtension):
 
     @pydantic.model_validator(mode="after")
     def populate_time_middle(cls, values):
-        """
-        Auto-populate `time_middle` when both time_start and time_end exist.
-
-        This validator runs after `check_times` to ensure timestamps are already
-        converted to integers.
-        """
+        """Auto-populate time_middle when both time_start and time_end exist."""
         if values.time_end is not None and values.time_middle is None:
             values.time_middle = (values.time_start + values.time_end) // 2
 
@@ -244,10 +163,9 @@ class STAC(SampleExtension):
     @pydantic.model_validator(mode="after")
     def populate_centroid(cls, values):
         """
-        Auto-populate `centroid` if not provided.
+        Auto-populate centroid if not provided.
 
-        Assumes the spatial dimensions are the last two of `tensor_shape`.
-        Raises a clear error if `tensor_shape` has fewer than two dims.
+        Assumes spatial dimensions are the last two of tensor_shape.
 
         If check_antimeridian=True, requires 'antimeridian' package for
         correct handling of rasters crossing ±180° longitude.

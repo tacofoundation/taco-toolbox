@@ -10,15 +10,6 @@ Key features:
 - Regenerates __meta__ files with correct offsets for ZIP
 - Supports all PIT schema patterns
 - Progress bars for file operations
-
-Example:
-    >>> from tacotoolbox.translate import zip2folder, folder2zip
-    >>> 
-    >>> # Convert ZIP to FOLDER (with progress bars)
-    >>> await zip2folder("dataset.tacozip", "dataset_folder/")
-    >>> 
-    >>> # Convert FOLDER to ZIP
-    >>> folder2zip("dataset_folder/", "dataset.tacozip")
 """
 
 import json
@@ -57,26 +48,6 @@ async def zip2folder(
 
     This is a wrapper around ExportWriter that converts a complete
     ZIP container to FOLDER format without any filtering.
-
-    Args:
-        zip_path: Path to input .tacozip file
-        folder_output: Path to output folder
-        concurrency: Maximum concurrent async operations (default: 100)
-        quiet: If True, hide progress bars (default: False - shows progress)
-        debug: If True, enable debug logging (default: False)
-
-    Returns:
-        Path: Path to created FOLDER container
-
-    Raises:
-        TranslateError: If conversion fails
-
-    Example:
-        >>> await zip2folder("dataset.tacozip", "dataset_folder/")
-        PosixPath('dataset_folder')
-
-        >>> # With debug
-        >>> await zip2folder("dataset.tacozip", "dataset_folder/", debug=True)
     """
     try:
         logger.info(f"Converting ZIP to FOLDER: {zip_path} → {folder_output}")
@@ -121,27 +92,6 @@ def folder2zip(
     3. Reconstruct local_metadata from consolidated (for __meta__ generation)
     4. Scan DATA/ for physical files
     5. Use ZipWriter to create ZIP (regenerates __meta__ with offsets)
-
-    Args:
-        folder_path: Path to input FOLDER container
-        zip_output: Path to output .tacozip file
-        quiet: If True, hide progress bars (default: False - shows progress)
-        debug: If True, enable debug logging (default: False)
-        temp_dir: Temporary directory for ZIP creation
-        **kwargs: Additional arguments passed to ZipWriter
-
-    Returns:
-        Path: Path to created .tacozip file
-
-    Raises:
-        TranslateError: If conversion fails
-
-    Example:
-        >>> folder2zip("dataset_folder/", "dataset.tacozip")
-        PosixPath('dataset.tacozip')
-
-        >>> # With debug
-        >>> folder2zip("dataset_folder/", "dataset.tacozip", debug=True)
     """
     folder_path = Path(folder_path)
     zip_output = Path(zip_output)
@@ -203,18 +153,7 @@ def folder2zip(
 
 
 def _read_collection(folder_path: Path) -> dict:
-    """
-    Read COLLECTION.json from FOLDER.
-
-    Args:
-        folder_path: Path to FOLDER container
-
-    Returns:
-        dict: Collection metadata dictionary
-
-    Raises:
-        TranslateError: If COLLECTION.json missing or invalid
-    """
+    """Read COLLECTION.json from FOLDER."""
     collection_path = folder_path / "COLLECTION.json"
 
     if not collection_path.exists():
@@ -237,18 +176,7 @@ def _read_collection(folder_path: Path) -> dict:
 
 
 def _read_consolidated_metadata(folder_path: Path) -> list[pl.DataFrame]:
-    """
-    Read consolidated metadata from METADATA/levelX.parquet files.
-
-    Args:
-        folder_path: Path to FOLDER container
-
-    Returns:
-        list[pl.DataFrame]: List of DataFrames (one per level)
-
-    Raises:
-        TranslateError: If no metadata files found
-    """
+    """Read consolidated metadata from METADATA/levelX.parquet files."""
     metadata_dir = folder_path / "METADATA"
 
     if not metadata_dir.exists():
@@ -290,18 +218,6 @@ def _reconstruct_local_metadata_from_levels(
     2. Finding FOLDER samples at each level
     3. Extracting their children from the next level using internal:parent_id
     4. Removing columns not needed in __meta__ (internal:relative_path)
-
-    Args:
-        levels: List of DataFrames (consolidated metadata per level)
-
-    Returns:
-        dict[str, pl.DataFrame]: Dictionary mapping folder_path → children DataFrame
-
-    Example:
-        >>> levels = [level0_df, level1_df, level2_df]
-        >>> local_metadata = _reconstruct_local_metadata_from_levels(levels)
-        >>> local_metadata.keys()
-        dict_keys(['DATA/folder_A/', 'DATA/folder_A/subfolder_B/', ...])
     """
     local_metadata = {}
 
@@ -348,15 +264,6 @@ def _scan_data_files(folder_path: Path) -> tuple[list[str], list[str]]:
     Builds parallel lists of source paths (absolute filesystem paths) and
     archive paths (paths within ZIP container). Excludes __meta__ files
     since they're regenerated during ZIP creation.
-
-    Args:
-        folder_path: Path to FOLDER container
-
-    Returns:
-        tuple[list[str], list[str]]: (src_files, arc_files) lists
-
-    Raises:
-        TranslateError: If DATA directory not found or empty
     """
     data_dir = folder_path / "DATA"
 

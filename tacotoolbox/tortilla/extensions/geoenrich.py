@@ -203,15 +203,7 @@ PRODUCT_SCHEMA: dict[str, pl.DataType] = {
 
 
 def _import_earth_engine():
-    """
-    Lazy import of Earth Engine with helpful error message.
-
-    Returns:
-        ee module
-
-    Raises:
-        ImportError: With installation instructions if ee not available
-    """
+    """Lazy import of Earth Engine with helpful error message."""
     try:
         import ee
 
@@ -229,9 +221,6 @@ def get_geoenrich_products() -> list[dict]:
     Get all available Earth Engine products for geospatial enrichment.
 
     Automatically generated from PRODUCT_CONFIGS.
-
-    Returns:
-        List of product dicts with 'name', 'image', 'reducer' keys
     """
     ee = _import_earth_engine()
 
@@ -284,14 +273,6 @@ def morton_key(lon: float, lat: float, bits: int = 24) -> int:
     Interleaves longitude and latitude bits to create a single integer key
     that preserves spatial locality. Points close in 2D space have similar
     Morton keys, improving Earth Engine cache hits.
-
-    Args:
-        lon: Longitude in degrees [-180, 180]
-        lat: Latitude in degrees [-90, 90]
-        bits: Number of bits for quantization (default 24)
-
-    Returns:
-        Morton key as integer
     """
     # Normalize to [0, 1]
     x = (lon + 180.0) / 360.0
@@ -316,16 +297,7 @@ def morton_key(lon: float, lat: float, bits: int = 24) -> int:
 
 
 def _chunks(seq: list, size: int):
-    """
-    Yield consecutive chunks from sequence of specified size.
-
-    Args:
-        seq: Input sequence to chunk
-        size: Chunk size
-
-    Yields:
-        Chunks of the input sequence
-    """
+    """Yield consecutive chunks from sequence of specified size."""
     for i in range(0, len(seq), size):
         yield seq[i : i + size]
 
@@ -337,15 +309,7 @@ def _chunks(seq: list, size: int):
 
 @lru_cache(maxsize=3)
 def _load_admin_layer(level: int) -> pl.DataFrame:
-    """
-    Load admin lookup table from embedded parquet file (cached).
-
-    Args:
-        level: Admin level (0=countries, 1=states, 2=districts)
-
-    Returns:
-        DataFrame mapping admin codes to human-readable names
-    """
+    """Load admin lookup table from embedded parquet file (cached)."""
     base = files("tacotoolbox").joinpath("tortilla/data/admin/")
     traversable = base / f"admin{level}.parquet"
 
@@ -358,17 +322,6 @@ def resolve_admin_names(df: pl.DataFrame, admin_vars: list[str]) -> pl.DataFrame
     Replace admin code columns with human-readable names using efficient joins.
 
     This replaces the old map_elements approach which was 10-100x slower.
-
-    Args:
-        df: DataFrame with admin code columns (numeric)
-        admin_vars: List of admin variable names to resolve
-
-    Returns:
-        DataFrame with admin codes replaced by human names (Utf8)
-
-    Example:
-        Input:  admin_countries = 840
-        Output: admin_countries = "United States"
     """
     # Map admin variable names to levels
     admin_level_map = {
@@ -424,28 +377,8 @@ class GeoEnrich(TortillaExtension):
         - Progress bars via tqdm
 
     Requirements:
-        - earthengine-api: Required for all functionality
-        - tqdm: Required for progress bars
-
-    Example Usage:
-        # All variables (default)
-        enrich = GeoEnrich(batch_size=100, max_concurrency=4)
-        tortilla.extend_with(enrich)
-
-        # Specific variables only
-        enrich = GeoEnrich(
-            variables=['elevation', 'gdp', 'admin_countries'],
-            scale_m=1000.0,
-            batch_size=50
-        )
-        tortilla.extend_with(enrich)
-
-        # Disable progress bar
-        enrich = GeoEnrich(show_progress=False)
-        tortilla.extend_with(enrich)
-
-        # Returns DataFrame with columns like:
-        # geoenrich:elevation, geoenrich:gdp, geoenrich:admin_countries
+        - earthengine-api: pip install earthengine-api
+        - tqdm: pip install tqdm
     """
 
     model_config = pydantic.ConfigDict(arbitrary_types_allowed=True)
@@ -486,37 +419,19 @@ class GeoEnrich(TortillaExtension):
                 )
 
     def get_schema(self) -> dict[str, pl.DataType]:
-        """
-        Return the expected schema for this extension.
-
-        Returns:
-            Dict mapping column names to Polars data types
-        """
+        """Return the expected schema for this extension."""
         active_vars = self.variables or list(PRODUCT_SCHEMA.keys())
         return {f"geoenrich:{var}": PRODUCT_SCHEMA[var] for var in active_vars}
 
     def _get_active_products(self) -> list[dict]:
-        """
-        Get product configurations to process based on user selection.
-
-        Returns:
-            List of product dicts filtered by user-specified variable names
-        """
+        """Get product configurations to process based on user selection."""
         all_products = get_geoenrich_products()
         if self.variables is None:
             return all_products
         return [p for p in all_products if p["name"] in self.variables]
 
     def _extract_points(self, df: pl.DataFrame) -> list[tuple[int, float, float]]:
-        """
-        Extract coordinate points from DataFrame and sort spatially.
-
-        Args:
-            df: Input DataFrame with 'stac:centroid' WKB binary column
-
-        Returns:
-            List of (row_index, longitude, latitude) sorted by Morton key
-        """
+        """Extract coordinate points from DataFrame and sort spatially."""
         points = []
         for i, row in enumerate(df.iter_rows(named=True)):
             geom = wkb_loads(row["stac:centroid"])
@@ -531,12 +446,6 @@ class GeoEnrich(TortillaExtension):
         Group products by their Earth Engine reducer type.
 
         Allows processing all products with the same reducer in a single EE call.
-
-        Args:
-            products: List of product configurations
-
-        Returns:
-            Dict mapping ee.Reducer objects to lists of products
         """
         groups = defaultdict(list)
         for product in products:
@@ -550,13 +459,6 @@ class GeoEnrich(TortillaExtension):
         When using mode() reducer with multiple bands, Earth Engine returns
         columns named "mode", "mode_1", "mode_2" instead of the band names.
         This function renames them back to expected product names.
-
-        Args:
-            df: DataFrame with mode columns
-            products: List of products that were processed
-
-        Returns:
-            DataFrame with properly named columns
         """
         mode_cols = ["mode"] + [f"mode_{i}" for i in range(1, len(products))]
         rename_map = {
@@ -572,17 +474,7 @@ class GeoEnrich(TortillaExtension):
         reducer_groups: dict[Any, list[dict]],
         ee: Any,
     ) -> pl.DataFrame:
-        """
-        Process a chunk of coordinate points with Earth Engine.
-
-        Args:
-            chunk: List of (row_index, lon, lat) tuples
-            reducer_groups: Dict mapping reducers to their products
-            ee: Earth Engine module
-
-        Returns:
-            DataFrame with columns: idx, variable1, variable2, ...
-        """
+        """Process a chunk of coordinate points with Earth Engine."""
         # Create Earth Engine FeatureCollection
         fc = ee.FeatureCollection(
             [
@@ -625,16 +517,7 @@ class GeoEnrich(TortillaExtension):
     def _process_batches(
         self, points: list[tuple[int, float, float]], products: list[dict]
     ) -> pl.DataFrame:
-        """
-        Process all point batches in parallel and return consolidated DataFrame.
-
-        Args:
-            points: List of (idx, lon, lat) tuples
-            products: List of product configurations
-
-        Returns:
-            DataFrame with columns: idx, variable1, variable2, ...
-        """
+        """Process all point batches in parallel and return consolidated DataFrame."""
         ee = _import_earth_engine()
         reducer_groups = self._group_products_by_reducer(products)
         chunks = list(_chunks(points, self.batch_size))
@@ -659,19 +542,7 @@ class GeoEnrich(TortillaExtension):
         return pl.concat(results, how="vertical")
 
     def _compute(self, tortilla: "Tortilla") -> pl.DataFrame:
-        """
-        Process Tortilla and return geographic enrichment.
-
-        Args:
-            tortilla: Input Tortilla object containing STAC data
-
-        Returns:
-            DataFrame with geoenrich:* columns aligned with input
-
-        Raises:
-            ImportError: If earthengine-api not available
-            Exception: Various Earth Engine or processing errors
-        """
+        """Process Tortilla and return geographic enrichment."""
         df = tortilla._metadata_df
 
         # Get active products

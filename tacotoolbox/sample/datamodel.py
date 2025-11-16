@@ -56,15 +56,7 @@ class SampleExtension(ABC, pydantic.BaseModel):
         pass
 
     def __call__(self, sample: "Sample") -> pl.DataFrame:
-        """
-        Process Sample and return computed metadata.
-
-        Args:
-            sample: Input Sample object
-
-        Returns:
-            pl.DataFrame: Single-row DataFrame with computed metadata
-        """
+        """Process Sample and return computed metadata as single-row DataFrame."""
         # Check schema_only FIRST for performance
         if self.schema_only:
             schema = self.get_schema()
@@ -103,51 +95,6 @@ class Sample(pydantic.BaseModel):
 
     Temporary files are automatically cleaned up when the Sample is
     garbage collected or when cleanup() is called explicitly.
-
-    Example:
-        >>> from tacotoolbox import Sample
-        >>> from tacotoolbox.sample.validators import TacotiffValidator
-        >>>
-        >>> # Basic sample (type inferred automatically)
-        >>> sample = Sample(
-        ...     id="soyuntaco",
-        ...     path=Path("/home/lxlx/sentinel2.tif")
-        ... )
-        >>> sample.type  # "FILE" (inferred)
-        >>>
-        >>> # Explicit type (validated against path)
-        >>> sample = Sample(
-        ...     id="soyuntaco",
-        ...     path=Path("/home/lxlx/sentinel2.tif"),
-        ...     type="FILE"
-        ... )
-        >>>
-        >>> # Validate with TACOTIFF format
-        >>> sample.validate_with(TacotiffValidator())
-        >>>
-        >>> # Bytes support with auto cleanup
-        >>> sample = Sample(
-        ...     id="bytesample",
-        ...     path=image_bytes,
-        ...     temp_dir="/data/workspace"
-        ... )
-        >>> # type="FILE" inferred automatically
-        >>> # Temporary file created automatically
-        >>> # ... use sample ...
-        >>> sample.cleanup()  # Explicit cleanup
-        >>> # Or let garbage collector do it automatically
-        >>>
-        >>> # Extensions
-        >>> sample.extend_with(stac_obj)
-        >>> sample.extend_with({"s2:mgrs_tile": "T30UYA"})
-        >>> sample.extend_with(scaling_extension)
-        >>>
-        >>> # Nested samples (FOLDER - type inferred)
-        >>> nested = Sample(
-        ...     id="multitemporal",
-        ...     path=Tortilla(samples=[s1, s2, s3])
-        ... )
-        >>> nested.type  # "FOLDER" (inferred)
     """
 
     # Core attributes
@@ -173,13 +120,7 @@ class Sample(pydantic.BaseModel):
     )
 
     def __init__(self, temp_dir: pathlib.Path | None = None, **data):
-        """
-        Initialize Sample with optional temp_dir for bytes conversion.
-
-        Args:
-            temp_dir: Directory for temporary files (if path is bytes)
-            **data: Sample fields (id, path, type, extensions, etc.)
-        """
+        """Initialize Sample with optional temp_dir for bytes conversion."""
         # Handle temp_dir for bytes conversion without storing it
         if "path" in data and isinstance(data["path"], bytes):
             temp_dir = (
@@ -228,21 +169,6 @@ class Sample(pydantic.BaseModel):
 
         Padding samples use empty bytes (b"") which creates a 0-byte temporary file.
         This file can be copied to ZIP/FOLDER containers like any other file.
-
-        Args:
-            index: Padding sample index (e.g., 0 for __TACOPAD__0)
-            temp_dir: Optional temp directory (defaults to system temp)
-
-        Returns:
-            Sample with __TACOPAD__ ID and empty temp file
-
-        Example:
-            >>> # Internal use only - called by Tortilla
-            >>> padding = Sample._create_padding(index=0)
-            >>> padding.id
-            '__TACOPAD__0'
-            >>> padding.path.stat().st_size
-            0  # 0-byte file
         """
         # Create temp directory
         temp_dir = (
@@ -275,13 +201,7 @@ class Sample(pydantic.BaseModel):
         """
         Clean up temporary files created from bytes.
 
-        This method can be called explicitly to clean up temporary files
-        immediately instead of waiting for garbage collection.
-
-        Example:
-            >>> sample = Sample(id="test", path=image_bytes)
-            >>> # ... use sample ...
-            >>> sample.cleanup()  # Explicit cleanup
+        Call explicitly to clean up immediately instead of waiting for garbage collection.
         """
         if not self._temp_files:
             return
@@ -297,12 +217,7 @@ class Sample(pydantic.BaseModel):
         self._temp_files.clear()
 
     def __del__(self):
-        """
-        Cleanup on garbage collection.
-
-        Automatically removes temporary files when the Sample object
-        is destroyed by the garbage collector.
-        """
+        """Cleanup on garbage collection."""
         try:
             self.cleanup()
         except Exception:
@@ -319,22 +234,6 @@ class Sample(pydantic.BaseModel):
         - NO slashes (/, \) - breaks file paths in ZIP and FOLDER containers
         - NO colons (:) - invalid on Windows, conflicts with extension namespaces
         - NO double underscore prefix (__) - reserved for __TACOPAD__ system
-
-        Args:
-            v: Sample ID to validate
-
-        Returns:
-            Validated ID
-
-        Raises:
-            ValueError: If ID format is invalid
-
-        Example:
-            >>> Sample(id="sample_001", path=b"")  # OK
-            >>> Sample(id="IMG-2024", path=b"")    # OK
-            >>> Sample(id="file/path", path=b"")   # FAIL - slash
-            >>> Sample(id="img:rgb", path=b"")     # FAIL - colon
-            >>> Sample(id="__private", path=b"")   # FAIL - reserved
         """
         # Check for slashes
         if "/" in v or "\\" in v:
@@ -416,35 +315,13 @@ class Sample(pydantic.BaseModel):
         Validate sample using provided validator.
 
         Validators enforce format-specific requirements (e.g., TACOTIFF, TACOZARR).
-        This method allows applying strict format validation after sample creation.
-
-        Args:
-            validator: SampleValidator instance (e.g., TacotiffValidator())
-
-        Raises:
-            ValidationError: If validation fails
-
-        Example:
-            >>> from tacotoolbox.sample.validators import TacotiffValidator
-            >>>
-            >>> sample = Sample(id="s2", path=Path("data.tif"))
-            >>> sample.validate_with(TacotiffValidator())  # Validates TACOTIFF format
         """
         validator.validate(self)
 
     def extend_with(
         self, extension: Any | dict[str, Any], name: str | None = None
     ) -> None:
-        """
-        Add extension to sample by adding fields directly to the model.
-
-        Args:
-            extension: SampleExtension, Pydantic model, or dictionary to add
-            name: Optional custom namespace (defaults to class name for objects)
-
-        Returns:
-            Sample: Self for method chaining
-        """
+        """Add extension to sample by adding fields directly to the model."""
         # Check if this is a computational SampleExtension
         if callable(extension) and hasattr(extension, "model_dump"):
             self._handle_sample_extension(extension)
@@ -556,10 +433,7 @@ class Sample(pydantic.BaseModel):
 
     def export_metadata(self) -> pl.DataFrame:
         """
-        Export complete Sample metadata as a single-row DataFrame with proper schemas.
-
-        Returns all fields in the model, including core attributes and
-        extension metadata with proper data types preserved.
+        Export complete Sample metadata as single-row DataFrame with proper schemas.
 
         Core fields (id, type, path) always use String type for schema consistency,
         even when path is None (FOLDER samples). This ensures all samples have
@@ -567,9 +441,6 @@ class Sample(pydantic.BaseModel):
 
         The 'type' column always contains "FILE" or "FOLDER" (never "auto")
         because type inference happens during validation.
-
-        Returns:
-            pl.DataFrame: Single-row DataFrame with complete sample metadata
         """
         data = self.model_dump()
 

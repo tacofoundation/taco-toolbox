@@ -13,12 +13,6 @@ def requires_gdal(min_version="3.11"):
     Decorator to ensure GDAL is available with minimum version.
 
     Caches the GDAL module check to make subsequent calls fast.
-
-    Args:
-        min_version: Minimum required GDAL version (default: "3.11")
-
-    Raises:
-        ImportError: If GDAL is not available or version is too old
     """
 
     def decorator(func):
@@ -78,17 +72,6 @@ class TacotiffValidator(SampleValidator):
     - BIGTIFF: YES (to standardize between large and small files)
     - GEOTIFF version: 1.1 (for standard compliance)
 
-    Usage:
-        >>> from tacotoolbox import Sample
-        >>> from tacotoolbox.sample.validators import TacotiffValidator
-        >>>
-        >>> sample = Sample(
-        ...     id="sentinel2",
-        ...     path=Path("data.tif"),
-        ...     type="FILE"
-        ... )
-        >>> sample.validate_with(TacotiffValidator())
-
     Raises:
         ValidationError: If the file does not meet TACOTIFF requirements
         ImportError: If GDAL is not available or version < 3.11
@@ -96,15 +79,7 @@ class TacotiffValidator(SampleValidator):
 
     @requires_gdal(min_version="3.11")
     def validate(self, sample: "Sample") -> None:
-        """
-        Validate a sample as TACOTIFF format.
-
-        Args:
-            sample: Sample object to validate
-
-        Raises:
-            ValidationError: If sample does not meet TACOTIFF requirements
-        """
+        """Validate sample as TACOTIFF format."""
         from osgeo import gdal
 
         # Check sample type is FILE
@@ -123,15 +98,7 @@ class TacotiffValidator(SampleValidator):
         self._validate_format(sample.path)
 
     def _validate_format(self, path: pathlib.Path) -> None:
-        """
-        Validate TACOTIFF file format using GDAL.
-
-        Args:
-            path: Path to TACOTIFF file
-
-        Raises:
-            ValidationError: If file does not meet format requirements
-        """
+        """Validate TACOTIFF file format using GDAL."""
         from osgeo import gdal
 
         # Open the dataset using GDAL
@@ -173,10 +140,5 @@ class TacotiffValidator(SampleValidator):
             ds = None
 
     def get_supported_extensions(self) -> list[str]:
-        """
-        Get list of file extensions for TACOTIFF files.
-
-        Returns:
-            List of supported extensions: [".tif", ".tiff"]
-        """
+        """Get list of file extensions for TACOTIFF files."""
         return [".tif", ".tiff"]

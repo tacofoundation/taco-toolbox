@@ -54,15 +54,7 @@ class TortillaExtension(ABC, pydantic.BaseModel):
         pass
 
     def __call__(self, tortilla: "Tortilla") -> pl.DataFrame:
-        """
-        Process Tortilla and return computed metadata.
-
-        Args:
-            tortilla: Input Tortilla object
-
-        Returns:
-            pl.DataFrame: DataFrame with computed metadata
-        """
+        """Process Tortilla and return computed metadata."""
         # Check schema_only FIRST for performance
         if self.schema_only:
             schema = self.get_schema()
@@ -91,21 +83,6 @@ class Tortilla:
     Schema Validation: By default (strict_schema=True), all samples must have
     identical metadata schemas. Set strict_schema=False to allow heterogeneous
     schemas with automatic None-filling for missing columns.
-
-    Example:
-        >>> # Basic tortilla (strict schema - default)
-        >>> tortilla = Tortilla(samples=[sample1, sample2, sample3])
-
-        >>> # Flexible schema (auto-fills missing columns with None)
-        >>> tortilla = Tortilla(samples=[s1, s2], strict_schema=False)
-
-        >>> # With auto-padding
-        >>> tortilla = Tortilla(samples=my_samples, pad_to=32)
-        >>> # If my_samples has 50 items, 14 padding samples added (50 + 14 = 64)
-
-        >>> # Export metadata at different levels
-        >>> level0 = tortilla.export_metadata(deep=0)  # Current level
-        >>> level1 = tortilla.export_metadata(deep=1)  # One level deep
     """
 
     def __init__(
@@ -117,27 +94,9 @@ class Tortilla:
         """
         Create Tortilla with eager DataFrame construction and schema validation.
 
-        Args:
-            samples: List of Sample objects
-            pad_to: Optional padding factor. If provided, adds dummy samples with
-                   "__TACOPAD__" prefix to make len(samples) % pad_to == 0.
-            strict_schema: If True (default), all samples must have identical schemas.
-                          If False, allows heterogeneous schemas with auto-fill.
-
         Raises:
             ValueError: If samples have inconsistent metadata schemas (strict_schema=True)
                        or empty list or if Inclusive ID Rule is violated or duplicate IDs
-
-        Example:
-            >>> # Strict mode (default) - fails on schema mismatch
-            >>> tortilla = Tortilla(samples=[s1, s2])  # ValueError if schemas differ
-            
-            >>> # Flexible mode - auto-fills missing columns
-            >>> tortilla = Tortilla(samples=[s1, s2], strict_schema=False)
-            
-            >>> # Check resulting schema
-            >>> df = tortilla.export_metadata(deep=0)
-            >>> print(df.columns)  # See what columns exist
         """
         if not samples:
             raise ValueError("Cannot create Tortilla with empty samples list")
@@ -174,7 +133,6 @@ class Tortilla:
                     )
         else:
             # FLEXIBLE MODE: Use helper function to align schemas
-            # Replaces the inline alignment code with DRY helper function
             metadata_dfs = align_dataframe_schemas(
                 metadata_dfs, 
                 core_fields=["id", "type", "path"]
@@ -191,15 +149,7 @@ class Tortilla:
         reference_columns: set[str],
         current_columns: set[str],
     ) -> None:
-        """
-        Raise helpful error when schema mismatch detected in strict mode.
-
-        Args:
-            sample_index: Index of the problematic sample
-            sample: The problematic sample
-            reference_columns: Expected columns from reference sample
-            current_columns: Actual columns in current sample
-        """
+        """Raise helpful error when schema mismatch detected in strict mode."""
         missing_columns = reference_columns - current_columns
         extra_columns = current_columns - reference_columns
 
@@ -235,13 +185,6 @@ class Tortilla:
     ) -> pl.DataFrame:
         """
         Align DataFrame schema to match target columns by adding missing columns with None.
-
-        Args:
-            df: DataFrame to align
-            target_columns: Set of column names that should exist
-
-        Returns:
-            DataFrame with all target columns (missing ones filled with None)
         """
         current_columns = set(df.columns)
         missing_columns = target_columns - current_columns
@@ -263,9 +206,6 @@ class Tortilla:
         offsets are stored in a dictionary keyed by archive path. When duplicate
         IDs exist, later samples overwrite earlier ones in the offset map,
         resulting in missing files in the final container.
-
-        Raises:
-            ValueError: If duplicate sample IDs found with details about the duplicates
         """
         ids = [s.id for s in self.samples]
         duplicates = {id: count for id, count in Counter(ids).items() if count > 1}
@@ -293,13 +233,6 @@ class Tortilla:
         cleaned up after container creation.
 
         Padding IDs are sequential: __TACOPAD__0, __TACOPAD__1, __TACOPAD__2, etc.
-
-        Args:
-            samples: Original list of samples
-            pad_to: Target divisor for total length
-
-        Returns:
-            List with original samples plus padding samples
         """
         # Local import to avoid circular dependency
         from tacotoolbox.sample.datamodel import Sample
@@ -341,13 +274,7 @@ class Tortilla:
         return padded_samples
 
     def _check_sample_ordering(self) -> None:
-        """
-        Check if samples follow best practice: FOLDERs before FILEs.
-
-        Warns if:
-        1. There's a mix of FOLDERs and FILEs
-        2. FOLDERs appear after FILEs
-        """
+        """Check if samples follow best practice: FOLDERs before FILEs."""
         types = [sample.type for sample in self.samples]
         has_folders = "FOLDER" in types
         has_files = "FILE" in types
@@ -382,20 +309,6 @@ class Tortilla:
 
         This ensures that dataset.read("some_id") only fails if that ID
         doesn't exist in ANY folder, not just some.
-
-        Valid examples (inclusive subsets):
-            Folder A: ["img_001", "img_002", "img_003"]
-            Folder B: ["img_001", "img_002"]  # subset of A
-
-            Folder A: ["data", "mask", "thumbnail"]
-            Folder B: ["data", "mask", "__TACOPAD__0"]  # "data", "mask" subset of A
-
-        Invalid example (non-inclusive):
-            Folder A: ["img_001", "img_002"]
-            Folder B: ["img_001", "img_003"]  # "img_003" not in A, "img_002" not in B
-
-        Raises:
-            ValueError: If ID sets are not inclusive (not subset relationships)
         """
         # Collect FOLDER samples
         folder_samples = [s for s in self.samples if s.type == "FOLDER"]
@@ -485,9 +398,6 @@ class Tortilla:
         """
         Add extension data via DataFrame processing.
 
-        Args:
-            extension: Extension implementing TortillaExtension ABC
-
         Returns:
             Self for method chaining
 
@@ -518,9 +428,6 @@ class Tortilla:
                 - 0: Current level only (with extensions)
                 - >0: Expand N levels deep (base metadata only, adds internal:parent_id)
 
-        Returns:
-            DataFrame with sample metadata and optional position tracking
-
         Raises:
             ValueError: If deep is negative or exceeds maximum depth
         """
@@ -541,15 +448,6 @@ class Tortilla:
 
         Uses cumulative global index tracking to ensure parent_id values
         reference the correct row in the previous level's DataFrame.
-
-        Args:
-            target_deep: Target expansion depth
-
-        Returns:
-            DataFrame with expanded samples including internal:parent_id
-
-        Raises:
-            ValueError: If target_deep exceeds current structure depth
         """
         if target_deep > self._current_depth:
             raise ValueError(

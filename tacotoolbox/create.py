@@ -1,35 +1,17 @@
 """
-TACO container creation.
-
-This module provides the main create() function for generating TACO containers
-in ZIP or FOLDER format. It handles:
-
-- Single container creation
-- Dataset splitting (multi-part ZIPs)
-- Metadata generation
-- Automatic cleanup of temporary files
-- Auto-detection of output format from file extension
+TACO container creation with ZIP/FOLDER support and dataset splitting.
 
 Main workflow:
-    1. Auto-detect format from output path (if format="auto")
-    2. Validate parameters (output path, format, split size)
-    3. Generate metadata package (consolidated + local)
-    4. Extract file paths with archive paths
-    5. Create container(s) using appropriate writer
-    6. Cleanup temporary files automatically
+1. Auto-detect format from extension (.zip/.tacozip → zip, else → folder)
+2. Validate inputs
+3. Generate metadata package
+4. Create container(s) using appropriate writer
+5. Cleanup temp files automatically
 
 Example:
-    >>> from tacotoolbox import create, Taco, Sample
-    >>> 
-    >>> # Auto-detect ZIP format from extension
     >>> taco = Taco(tortilla=Tortilla(samples=[...]), ...)
-    >>> paths = create(taco, "output.tacozip")  # format="zip" (auto)
-    >>> 
-    >>> # Auto-detect FOLDER format (no .zip/.tacozip extension)
-    >>> paths = create(taco, "output_dataset")  # format="folder" (auto)
-    >>> 
-    >>> # Explicit format override
-    >>> paths = create(taco, "output", output_format="folder")
+    >>> paths = create(taco, "output.tacozip")  # auto-detects ZIP
+    >>> paths = create(taco, "output_dataset")  # auto-detects FOLDER
 """
 
 import pathlib
@@ -69,69 +51,15 @@ def create(
     """
     Create TACO container from Taco object.
 
-    This is the main entry point for creating TACO containers. It supports:
-    - ZIP format (.tacozip) with optional splitting
-    - FOLDER format (directory structure)
-    - Auto-detection of format from output file extension
-    - Spatial sorting for geographic clustering in splits
+    Format auto-detection (output_format="auto"):
+    - .zip/.tacozip → ZIP format
+    - anything else → FOLDER format
 
-    Format auto-detection (when output_format="auto", the default):
-    - "output.tacozip" or "output.zip" → format="zip"
-    - "output" or "output/" → format="folder"
-
-    Temporary files created from bytes (via Sample(path=bytes))
-    are ALWAYS cleaned up automatically after successful container creation.
-
-    Args:
-        taco: TACO object with tortilla and metadata
-        output: Output path for container
-        output_format: "zip", "folder", or "auto" (default: "auto" - infers from extension)
-        split_size: Optional size limit for splitting (ZIP only, e.g., "4GB")
-        sort_by: Optional column name to sort samples before splitting.
-                Useful for spatial clustering (e.g., "majortom:code")
-        temp_dir: Temporary directory for ZIP creation
-        quiet: If True, hide progress bars and reduce logging (default: False)
-        **kwargs: Additional arguments passed to writers
-
-    Returns:
-        list[pathlib.Path]: List of created container paths.
-            Single item if no splitting, multiple if split_size used.
-
-    Raises:
-        TacoValidationError: If validation fails
-        TacoCreationError: If container creation fails
-
-    Example:
-        >>> # Auto-detect ZIP format
-        >>> sample = Sample(id="s1", path=image_bytes, type="FILE")
-        >>> taco = Taco(tortilla=Tortilla(samples=[sample]), ...)
-        >>> paths = create(taco, "output.tacozip")  # format="zip" (auto)
-        [PosixPath('output.tacozip')]
-
-        >>> # Auto-detect FOLDER format
-        >>> paths = create(taco, "output_dataset")  # format="folder" (auto)
-        [PosixPath('output_dataset')]
-
-        >>> # Explicit format override
-        >>> paths = create(taco, "output", output_format="folder")
-        [PosixPath('output')]
-
-        >>> # With spatial sorting and splitting
-        >>> majortom = MajorTOM(dist_km=100)
-        >>> tortilla.extend_with(majortom)
-        >>> taco = Taco(tortilla=tortilla, ...)
-        >>> paths = create(
-        ...     taco,
-        ...     "output.tacozip",
-        ...     split_size="4GB",
-        ...     sort_by="majortom:code"
-        ... )
-        [PosixPath('output_part0001.tacozip'), PosixPath('output_part0002.tacozip')]
+    Temp files from Sample(path=bytes) are always cleaned up after success.
     """
-    # Convert to Path
     output_path = pathlib.Path(output)
     
-    # Auto-detect format from file extension if format="auto"
+    # Auto-detect format
     if output_format == "auto":
         if output_path.suffix.lower() in (".zip", ".tacozip"):
             output_format = "zip"
@@ -140,7 +68,6 @@ def create(
             output_format = "folder"
             logger.debug(f"Auto-detected format='folder' (no .zip/.tacozip extension)")
     
-    # Validate all inputs upfront before doing any work
     _validate_all_inputs(taco, output_path, output_format, split_size)
 
     # Adjust output path for folder format
@@ -159,7 +86,6 @@ def create(
         logger.info(f"Sorting samples by column: {sort_by}")
         taco = _sort_taco_samples(taco, sort_by, quiet)
 
-    # Create container(s) with progress context
     with ProgressContext(quiet=quiet):
         try:
             if split_size is not None:
@@ -175,7 +101,6 @@ def create(
                 logger.info(f"Creating FOLDER: {output_path}")
                 result = [_create_folder(taco, output_path, quiet=quiet, **kwargs)]
 
-            # Always cleanup temp files after SUCCESS
             logger.debug("Cleaning up temporary files from tortilla")
             _cleanup_tortilla_temp_files(taco.tortilla)
 
@@ -184,7 +109,6 @@ def create(
 
         except Exception as e:
             logger.error(f"Container creation failed: {e}")
-            # On error, don't cleanup - files may be needed for debugging/retry
             raise
 
 
@@ -194,29 +118,12 @@ def _validate_all_inputs(
     output_format: str,
     split_size: str | None,
 ) -> None:
-    """
-    Validate all inputs before starting container creation.
-
-    Consolidates all validation checks to fail fast before any work is done.
-
-    Args:
-        taco: TACO object to validate
-        output_path: Output path to validate
-        output_format: Format to validate (must be "zip" or "folder", not "auto")
-        split_size: Split size to validate
-
-    Raises:
-        TacoValidationError: If any validation fails
-    """
+    """Validate all inputs before starting. Fails fast."""
     logger.debug("Validating inputs")
 
-    # Validate format value (should be "zip" or "folder" after auto-detection)
     validate_format_value(output_format)
-
-    # Validate output path
     validate_output_path(output_path, output_format)
 
-    # Validate split_size if provided
     if split_size is not None:
         if output_format == "folder":
             raise TacoValidationError(
@@ -225,7 +132,6 @@ def _validate_all_inputs(
             )
         validate_split_size(split_size)
 
-    # Validate taco has samples
     if not taco.tortilla.samples:
         raise TacoValidationError("Cannot create container from empty tortilla")
 
@@ -234,27 +140,12 @@ def _validate_all_inputs(
 
 def _sort_taco_samples(taco: Taco, sort_column: str, quiet: bool) -> Taco:
     """
-    Sort taco samples according to metadata column.
-
-    Creates a new Taco object with samples reordered based on the specified
-    metadata column. This enables spatial/temporal clustering when creating
-    split containers.
+    Sort taco samples by metadata column for spatial/temporal clustering.
 
     Common use cases:
-    - "majortom:code": Geographic clustering (nearby samples together)
+    - "majortom:code": Geographic clustering
     - "stac:time_start": Temporal ordering
     - "custom:priority": User-defined ordering
-
-    Args:
-        taco: Original Taco object
-        sort_column: Metadata column name to sort by
-        quiet: Suppress logging
-
-    Returns:
-        Taco: New Taco object with sorted samples
-
-    Raises:
-        TacoCreationError: If sort column doesn't exist or sorting fails
     """
     try:
         df = taco.tortilla.export_metadata(deep=0)
@@ -294,34 +185,13 @@ def _sort_taco_samples(taco: Taco, sort_column: str, quiet: bool) -> Taco:
 
 def _extract_files_with_ids(samples: list, path_prefix: str = "") -> dict[str, Any]:
     """
-    Extract files using sample IDs as-is in archive paths.
-
-    Recursively traverses sample hierarchy and builds parallel lists of:
-    - Source file paths (absolute paths on filesystem)
-    - Archive paths (relative paths in ZIP/FOLDER container)
-
-    Sample IDs are used directly without modification. If user wants
-    extensions, they include them in the ID.
-
-    Args:
-        samples: List of Sample objects (can contain nested FOLDERs)
-        path_prefix: Current path prefix in archive (e.g., "DATA/folder_A/")
-
-    Returns:
-        dict: Dictionary with 'src_files' and 'arc_files' lists
-
-    Example:
-        >>> samples = [
-        ...     Sample(id="img1", path="/data/img1.tif", type="FILE"),
-        ...     Sample(id="folder_A", type="FOLDER", path=Tortilla([
-        ...         Sample(id="nested", path="/data/nested.tif", type="FILE")
-        ...     ]))
-        ... ]
-        >>> result = _extract_files_with_ids(samples, "DATA/")
-        >>> result["src_files"]
-        ["/data/img1.tif", "/data/nested.tif"]
-        >>> result["arc_files"]
-        ["DATA/img1", "DATA/folder_A/nested"]
+    Extract file paths with sample IDs as archive paths.
+    
+    Recursively builds parallel lists:
+    - src_files: absolute filesystem paths
+    - arc_files: relative ZIP/FOLDER paths
+    
+    Sample IDs are used directly without modification.
     """
     src_files = []
     arc_files = []
@@ -344,31 +214,11 @@ def _extract_files_with_ids(samples: list, path_prefix: str = "") -> dict[str, A
 
 def _estimate_sample_size(sample) -> int:
     """
-    Estimate total size of a sample including nested samples.
-
-    For FILE samples, returns actual file size from filesystem.
-    For FOLDER samples, recursively sums all nested file sizes.
-
-    Used by _group_samples_by_size() to calculate chunk sizes
-    when splitting datasets into multiple containers.
-
-    Args:
-        sample: Sample to estimate (FILE or FOLDER)
-
-    Returns:
-        int: Estimated size in bytes (0 if path doesn't support stat)
-
-    Example:
-        >>> file = Sample(id="img", path=Path("/data/img.tif"), type="FILE")
-        >>> _estimate_sample_size(file)
-        10485760  # 10MB
-
-        >>> folder = Sample(id="dataset", type="FOLDER", path=Tortilla([
-        ...     Sample(id="img1", path=Path("/data/1.tif")),  # 5MB
-        ...     Sample(id="img2", path=Path("/data/2.tif")),  # 5MB
-        ... ]))
-        >>> _estimate_sample_size(folder)
-        10485760  # Sum of nested files
+    Estimate total size of sample including nested samples.
+    
+    For FILE: returns actual file size from filesystem.
+    For FOLDER: recursively sums all nested file sizes.
+    Used by _group_samples_by_size() for chunk calculation.
     """
     if sample.type == "FILE":
         if hasattr(sample.path, "stat"):
@@ -383,36 +233,12 @@ def _estimate_sample_size(sample) -> int:
 
 def _group_samples_by_size(samples: list, max_size: int) -> list[list]:
     """
-    Group samples into chunks based on size limit.
-
-    Splits a list of samples into multiple chunks where each chunk's total
-    size does not exceed max_size. Used for creating multi-part ZIP archives.
-
-    Algorithm: Greedy packing
-    - Add samples to current chunk until limit reached
-    - Start new chunk when adding next sample would exceed limit
-    - Each chunk contains complete samples (no partial splits)
-
+    Group samples into chunks based on size limit. Greedy packing algorithm.
+    
     IMPORTANT: Samples should be pre-sorted (e.g., by majortom:code) before
-    calling this function to ensure geographic/temporal clustering in chunks.
-
-    Note: Individual samples larger than max_size will be placed alone
-    in their own chunk (cannot split a single sample).
-
-    Args:
-        samples: List of Sample objects to group (should be pre-sorted)
-        max_size: Maximum size per chunk in bytes
-
-    Returns:
-        list[list]: List of sample chunks, each under max_size (if possible)
-
-    Example:
-        >>> # With spatial pre-sorting
-        >>> samples = [eu1, eu2, eu3, asia1, asia2, us1, us2]
-        >>> chunks = _group_samples_by_size(samples, max_size=20_000_000)
-        >>> # Chunk 1: [eu1, eu2, eu3]      - Europe together
-        >>> # Chunk 2: [asia1, asia2]       - Asia together
-        >>> # Chunk 3: [us1, us2]           - US together
+    calling this to ensure geographic/temporal clustering in chunks.
+    
+    Individual samples larger than max_size will be placed alone in their chunk.
     """
     chunks = []
     current_chunk = []
@@ -443,27 +269,7 @@ def _create_zip(
     quiet: bool = False,
     **kwargs: Any,
 ) -> pathlib.Path:
-    """
-    Create single ZIP container.
-
-    Workflow:
-    1. Generate metadata package (consolidated + local)
-    2. Extract file paths with archive paths
-    3. Create ZIP using ZipWriter
-
-    Args:
-        taco: TACO object
-        output_path: Output .tacozip path
-        temp_dir: Temporary directory
-        quiet: If True, hide progress bars (default: False)
-        **kwargs: Additional writer arguments
-
-    Returns:
-        pathlib.Path: Path to created .tacozip file
-
-    Raises:
-        TacoCreationError: If ZIP creation fails
-    """
+    """Create single ZIP container: metadata → extract paths → write ZIP."""
     try:
         logger.debug("Generating metadata package")
         generator = MetadataGenerator(taco, debug=False)
@@ -497,26 +303,7 @@ def _create_folder(
     quiet: bool = False,
     **kwargs: Any,
 ) -> pathlib.Path:
-    """
-    Create FOLDER container.
-
-    Workflow:
-    1. Generate metadata package (consolidated + local)
-    2. Create folder structure using FolderWriter
-    3. Copy files and write metadata
-
-    Args:
-        taco: TACO object
-        output_path: Output folder path
-        quiet: If True, hide progress bars (default: False)
-        **kwargs: Additional writer arguments
-
-    Returns:
-        pathlib.Path: Path to created folder
-
-    Raises:
-        TacoCreationError: If folder creation fails
-    """
+    """Create FOLDER container: metadata → write folder structure."""
     try:
         logger.debug("Generating metadata package")
         generator = MetadataGenerator(taco, debug=False)
@@ -540,20 +327,7 @@ def _validate_chunk_paths(
     extension: str,
     parent_dir: pathlib.Path,
 ) -> None:
-    """
-    Validate that chunk output paths don't already exist.
-
-    Prevents overwriting existing chunk files when splitting datasets.
-
-    Args:
-        sample_chunks: List of sample chunks to create
-        base_name: Base filename (without extension)
-        extension: File extension (e.g., ".tacozip")
-        parent_dir: Parent directory for chunks
-
-    Raises:
-        TacoValidationError: If any chunk file already exists
-    """
+    """Validate chunk output paths don't exist. Prevents overwriting."""
     for i in range(1, len(sample_chunks) + 1):
         chunk_filename = f"{base_name}_part{i:04d}{extension}"
         chunk_path = parent_dir / chunk_filename
@@ -574,31 +348,9 @@ def _create_with_splitting(
 ) -> list[pathlib.Path]:
     """
     Create multiple ZIP containers by splitting samples.
-
-    Workflow:
-    1. Group samples into chunks based on max_size
-    2. Validate chunk output paths don't exist
-    3. Create separate TACO for each chunk
-    4. Create ZIP for each chunk
-
+    
     Chunk naming: base_part0001.tacozip, base_part0002.tacozip, etc.
-
-    Note: Samples should be pre-sorted (via sort_by parameter in create())
-    to ensure spatial/temporal clustering in chunks.
-
-    Args:
-        taco: TACO object (potentially with pre-sorted samples)
-        output_path: Base output path
-        max_size: Maximum size per chunk in bytes
-        temp_dir: Temporary directory
-        quiet: If True, hide progress bars (default: False)
-        **kwargs: Additional writer arguments
-
-    Returns:
-        list[pathlib.Path]: List of created .tacozip paths
-
-    Raises:
-        TacoCreationError: If splitting or creation fails
+    Samples should be pre-sorted (via sort_by) for clustering.
     """
     try:
         logger.debug(f"Grouping samples by size (max_size={max_size})")
@@ -617,26 +369,22 @@ def _create_with_splitting(
 
         created_files = []
 
-        # Progress bar for chunks
         for i, chunk_samples in enumerate(
             progress_bar(
                 sample_chunks, desc="Creating ZIP chunks", unit="chunk", colour="cyan"
             ),
             1,
         ):
-            # Create separate TACO for this chunk
             chunk_tortilla = Tortilla(samples=chunk_samples)
             chunk_taco_data = taco.model_dump()
             chunk_taco_data["tortilla"] = chunk_tortilla
             chunk_taco = Taco(**chunk_taco_data)
 
-            # Generate chunk filename
             chunk_filename = f"{base_name}_part{i:04d}{extension}"
             chunk_path = parent_dir / chunk_filename
 
             logger.info(f"Creating chunk {i}/{len(sample_chunks)}: {chunk_filename}")
 
-            # Create chunk ZIP
             created_path = _create_zip(chunk_taco, chunk_path, temp_dir, quiet=quiet, **kwargs)
             created_files.append(created_path)
 
@@ -652,19 +400,10 @@ def _create_with_splitting(
 
 def _cleanup_tortilla_temp_files(tortilla: Tortilla) -> None:
     """
-    Recursively cleanup temporary files from all samples in tortilla.
-
-    This is called automatically after successful container creation to
-    free up disk space used by temporary files created from bytes.
-
-    The cleanup is:
-    - Automatic: Always runs after successful create()
-    - Silent: No messages (happens in background)
-    - Recursive: Cleans nested samples in FOLDERs
-    - Safe: Ignores errors (files may already be deleted)
-
-    Args:
-        tortilla: Tortilla containing samples to cleanup
+    Recursively cleanup temp files from all samples.
+    
+    Called automatically after successful create() to free disk space.
+    Silent, recursive, safe (ignores errors).
     """
     for sample in tortilla.samples:
         if sample.type == "FILE":

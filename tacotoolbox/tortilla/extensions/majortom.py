@@ -18,10 +18,6 @@ class MajorTOM(TortillaExtension):
     """
     MajorTOM-like spherical grid with ~`dist_km` spacing.
 
-    API Usage:
-        majortom = MajorTOM(dist_km=100)
-        tortilla.extend_with(majortom)
-
     ID Format: [DIST]km_[ROWID]_[COLID]
         Example: 0100km_0003U_0005R
         All numeric values use %04d formatting for consistency.
@@ -329,12 +325,6 @@ class MajorTOM(TortillaExtension):
 
         New format: [DIST]km_[ROWID]_[COLID]
         Example: 0100km_0003U_0005R
-
-        Args:
-            tortilla: Input Tortilla object
-
-        Returns:
-            pl.DataFrame: DataFrame with "majortom:code" column
         """
         df = tortilla._metadata_df
 

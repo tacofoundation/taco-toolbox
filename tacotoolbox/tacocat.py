@@ -110,41 +110,11 @@ def create_tacocat(
     Consolidates multiple .tacozip files into a single high-performance
     TacoCat file optimized for DuckDB queries.
 
-    Args:
-        tacozips: List of .tacozip file paths to consolidate
-        output_path: Output directory where __TACOCAT__ will be created
-        parquet_kwargs: Custom Parquet writer parameters (overrides defaults)
-        validate_schema: If True, validate all datasets have same schema per level
-        quiet: If True, suppress progress output
-
-    Raises:
-        TacoCatError: If no datasets provided or file operations fail
-        ValueError: If output_path is a file or has a file extension
-        SchemaValidationError: If validate_schema=True and schemas don't match
-
     Default parquet_kwargs (optimized for DuckDB):
         compression: "zstd"
         compression_level: 13
         row_group_size: 122_880
         statistics: True
-
-    Example:
-        >>> create_tacocat(
-        ...     tacozips=["dataset1.tacozip", "dataset2.tacozip"],
-        ...     output_path="/data/archive/"
-        ... )
-
-        >>> create_tacocat(
-        ...     tacozips=list(Path("data/").glob("*.tacozip")),
-        ...     output_path="/output/consolidated/",
-        ...     parquet_kwargs={"compression_level": 22}
-        ... )
-
-        >>> create_tacocat(
-        ...     tacozips=my_datasets,
-        ...     output_path="/quick/dir/",
-        ...     parquet_kwargs={"compression_level": 3}
-        ... )
     """
     output_dir = Path(output_path)
 
@@ -186,14 +156,7 @@ class TacoCatWriter:
         parquet_kwargs: dict[str, Any] | None = None,
         quiet: bool = False,
     ):
-        """
-        Initialize TacoCat writer.
-
-        Args:
-            output_path: Full path to __TACOCAT__ file (typically set by create_tacocat)
-            parquet_kwargs: Custom Parquet writer parameters
-            quiet: Suppress progress output
-        """
+        """Initialize TacoCat writer."""
         self.output_path = Path(output_path)
         self.datasets: list[Path] = []
         self.max_depth = 0
@@ -204,16 +167,7 @@ class TacoCatWriter:
             self.parquet_config.update(parquet_kwargs)
 
     def add_dataset(self, tacozip_path: str | Path) -> None:
-        """
-        Add a TACO dataset to be consolidated.
-
-        Args:
-            tacozip_path: Path to TACO file
-
-        Raises:
-            FileNotFoundError: If dataset file doesn't exist
-            TacoCatError: If file is not readable or invalid format
-        """
+        """Add a TACO dataset to be consolidated."""
         path = Path(tacozip_path)
 
         if not path.exists():
@@ -235,16 +189,7 @@ class TacoCatWriter:
         self.datasets.append(path)
 
     def write(self, validate_schema: bool = True) -> None:
-        """
-        Write consolidated TacoCat file.
-
-        Args:
-            validate_schema: If True, validate all datasets have same schema
-
-        Raises:
-            TacoCatError: If no datasets added
-            SchemaValidationError: If schema validation fails
-        """
+        """Write consolidated TacoCat file."""
         if not self.datasets:
             raise TacoCatError("No datasets added. Use add_dataset() first.")
 
@@ -277,11 +222,6 @@ class TacoCatWriter:
         CRITICAL: Different tacozips may have samples with different extensions
         (e.g., dataset1 has geotiff:stats, dataset2 has scaling:scale_factor).
         Must align schemas before concatenation to avoid ShapeError.
-
-        Returns:
-            Tuple of:
-            - Dictionary mapping level -> consolidated parquet bytes
-            - Dictionary mapping level -> total row count
         """
         levels_data: dict[int, list[pl.DataFrame]] = {}
         reference_schemas: dict[int, dict] = {}
@@ -366,15 +306,6 @@ class TacoCatWriter:
 
         Updates the PIT schema counts to reflect the consolidated data.
         Stores dataset_sources (original .tacozip filenames) for provenance tracking.
-
-        Args:
-            consolidated_counts: Dictionary mapping level -> total row count after consolidation
-
-        Returns:
-            JSON bytes for merged collection
-
-        Raises:
-            TacoCatError: If no collections could be read
         """
         collections = []
 
@@ -434,16 +365,7 @@ class TacoCatWriter:
     def _calculate_offsets(
         self, levels_bytes: dict[int, bytes], collection_bytes: bytes
     ) -> dict[int | str, tuple[int, int]]:
-        """
-        Calculate byte offsets for all data sections.
-
-        Args:
-            levels_bytes: Consolidated Parquet bytes per level
-            collection_bytes: Collection JSON bytes
-
-        Returns:
-            Dictionary mapping level/collection -> (offset, size)
-        """
+        """Calculate byte offsets for all data sections."""
         offsets = {}
         current_offset = TACOCAT_TOTAL_HEADER_SIZE
 
@@ -465,14 +387,7 @@ class TacoCatWriter:
         levels_bytes: dict[int, bytes],
         collection_bytes: bytes,
     ) -> None:
-        """
-        Write final TacoCat file with header, index, and data sections.
-
-        Args:
-            offsets: Byte offsets for all sections
-            levels_bytes: Consolidated Parquet bytes per level
-            collection_bytes: Collection JSON bytes
-        """
+        """Write final TacoCat file with header, index, and data sections."""
         with open(self.output_path, "wb") as f:
             f.write(TACOCAT_MAGIC)
             f.write(struct.pack("<I", TACOCAT_VERSION))
