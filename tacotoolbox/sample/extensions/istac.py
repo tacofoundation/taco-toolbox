@@ -31,7 +31,8 @@ class ISTAC(SampleExtension):
 
     Notes
     -----
-    - All timestamps are int64 (seconds since Unix epoch)
+    - Timestamps stored as Parquet native TIMESTAMP type (seconds precision)
+    - Accepts epoch seconds (int) which are converted to proper Parquet timestamps
     - Centroid is always in EPSG:4326 regardless of source geometry CRS
     - For regular raster grids, use the STAC extension instead
     - WKB binary format for efficient storage and GeoParquet compatibility
@@ -111,9 +112,9 @@ class ISTAC(SampleExtension):
         return {
             "istac:crs": pl.Utf8(),
             "istac:geometry": pl.Binary(),
-            "istac:time_start": pl.Int64(),
-            "istac:time_end": pl.Int64(),
-            "istac:time_middle": pl.Int64(),
+            "istac:time_start": pl.Datetime(time_unit="s", time_zone=None),
+            "istac:time_end": pl.Datetime(time_unit="s", time_zone=None),
+            "istac:time_middle": pl.Datetime(time_unit="s", time_zone=None),
             "istac:centroid": pl.Binary(),
         }
 

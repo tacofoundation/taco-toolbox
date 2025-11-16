@@ -115,7 +115,9 @@ class STAC(SampleExtension):
 
     Notes
     -----
-    - datetime provided for time_start/time_end is coerced to seconds since Unix epoch
+    - Timestamps stored as Parquet native TIMESTAMP type (seconds precision)
+    - datetime.datetime inputs are automatically converted to epoch seconds internally,
+      then stored as proper Parquet timestamps for efficient storage and queries
     - Enforces non-decreasing temporal interval: time_start <= time_end
     - time_middle is auto-computed when both start and end times exist
     - Set check_antimeridian=True for Pacific/Polar rasters (requires: pip install antimeridian)
@@ -191,10 +193,10 @@ class STAC(SampleExtension):
             "stac:crs": pl.Utf8(),
             "stac:tensor_shape": pl.List(pl.Int64()),
             "stac:geotransform": pl.List(pl.Float64()),
-            "stac:time_start": pl.Int64(),
+            "stac:time_start": pl.Datetime(time_unit="s", time_zone=None),
             "stac:centroid": pl.Binary(),
-            "stac:time_end": pl.Int64(),
-            "stac:time_middle": pl.Int64(),
+            "stac:time_end": pl.Datetime(time_unit="s", time_zone=None),
+            "stac:time_middle": pl.Datetime(time_unit="s", time_zone=None),
         }
 
     def _compute(self, sample) -> pl.DataFrame:
