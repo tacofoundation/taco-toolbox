@@ -41,7 +41,6 @@ async def zip2folder(
     folder_output: str | Path,
     concurrency: int = 100,
     quiet: bool = False,
-    debug: bool = False,
 ) -> Path:
     """
     Convert ZIP format TACO to FOLDER format.
@@ -59,7 +58,6 @@ async def zip2folder(
             output=Path(folder_output),
             concurrency=concurrency,
             quiet=quiet,
-            debug=debug,
         )
 
         result = await writer.create_folder()
@@ -75,7 +73,6 @@ def folder2zip(
     folder_path: str | Path,
     zip_output: str | Path,
     quiet: bool = False,
-    debug: bool = False,
     temp_dir: str | Path | None = None,
     **kwargs,
 ) -> Path:
@@ -129,9 +126,7 @@ def folder2zip(
         logger.debug("Creating ZIP container")
 
         with ProgressContext(quiet=quiet):
-            writer = ZipWriter(
-                output_path=zip_output, quiet=quiet, debug=debug, temp_dir=temp_dir
-            )
+            writer = ZipWriter(output_path=zip_output, quiet=quiet, temp_dir=temp_dir)
             result = writer.create_complete_zip(
                 src_files=src_files,
                 arc_files=arc_files,

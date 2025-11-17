@@ -58,16 +58,18 @@ def create(
     Temp files from Sample(path=bytes) are always cleaned up after success.
     """
     output_path = pathlib.Path(output)
-    
+
     # Auto-detect format
     if output_format == "auto":
         if output_path.suffix.lower() in (".zip", ".tacozip"):
             output_format = "zip"
-            logger.debug(f"Auto-detected format='zip' from extension: {output_path.suffix}")
+            logger.debug(
+                f"Auto-detected format='zip' from extension: {output_path.suffix}"
+            )
         else:
             output_format = "folder"
             logger.debug(f"Auto-detected format='folder' (no .zip/.tacozip extension)")
-    
+
     _validate_all_inputs(taco, output_path, output_format, split_size)
 
     # Adjust output path for folder format
@@ -96,7 +98,9 @@ def create(
                 )
             elif output_format == "zip":
                 logger.info(f"Creating single ZIP: {output_path}")
-                result = [_create_zip(taco, output_path, temp_dir, quiet=quiet, **kwargs)]
+                result = [
+                    _create_zip(taco, output_path, temp_dir, quiet=quiet, **kwargs)
+                ]
             else:
                 logger.info(f"Creating FOLDER: {output_path}")
                 result = [_create_folder(taco, output_path, quiet=quiet, **kwargs)]
@@ -186,11 +190,11 @@ def _sort_taco_samples(taco: Taco, sort_column: str, quiet: bool) -> Taco:
 def _extract_files_with_ids(samples: list, path_prefix: str = "") -> dict[str, Any]:
     """
     Extract file paths with sample IDs as archive paths.
-    
+
     Recursively builds parallel lists:
     - src_files: absolute filesystem paths
     - arc_files: relative ZIP/FOLDER paths
-    
+
     Sample IDs are used directly without modification.
     """
     src_files = []
@@ -215,7 +219,7 @@ def _extract_files_with_ids(samples: list, path_prefix: str = "") -> dict[str, A
 def _estimate_sample_size(sample) -> int:
     """
     Estimate total size of sample including nested samples.
-    
+
     For FILE: returns actual file size from filesystem.
     For FOLDER: recursively sums all nested file sizes.
     Used by _group_samples_by_size() for chunk calculation.
@@ -234,10 +238,10 @@ def _estimate_sample_size(sample) -> int:
 def _group_samples_by_size(samples: list, max_size: int) -> list[list]:
     """
     Group samples into chunks based on size limit. Greedy packing algorithm.
-    
+
     IMPORTANT: Samples should be pre-sorted (e.g., by majortom:code) before
     calling this to ensure geographic/temporal clustering in chunks.
-    
+
     Individual samples larger than max_size will be placed alone in their chunk.
     """
     chunks = []
@@ -285,7 +289,7 @@ def _create_zip(
         logger.debug(f"Extracted {len(extracted['src_files'])} data files")
 
         logger.debug(f"Creating ZIP: {output_path}")
-        writer = ZipWriter(output_path, quiet=quiet, debug=False, temp_dir=temp_dir)
+        writer = ZipWriter(output_path, quiet=quiet, temp_dir=temp_dir)
         return writer.create_complete_zip(
             src_files=extracted["src_files"],
             arc_files=extracted["arc_files"],
@@ -310,7 +314,7 @@ def _create_folder(
         metadata_package = generator.generate_all_levels()
 
         logger.debug(f"Creating FOLDER: {output_path}")
-        writer = FolderWriter(output_path, quiet=quiet, debug=False)
+        writer = FolderWriter(output_path, quiet=quiet)
         return writer.create_complete_folder(
             samples=taco.tortilla.samples,
             metadata_package=metadata_package,
@@ -348,7 +352,7 @@ def _create_with_splitting(
 ) -> list[pathlib.Path]:
     """
     Create multiple ZIP containers by splitting samples.
-    
+
     Chunk naming: base_part0001.tacozip, base_part0002.tacozip, etc.
     Samples should be pre-sorted (via sort_by) for clustering.
     """
@@ -385,7 +389,9 @@ def _create_with_splitting(
 
             logger.info(f"Creating chunk {i}/{len(sample_chunks)}: {chunk_filename}")
 
-            created_path = _create_zip(chunk_taco, chunk_path, temp_dir, quiet=quiet, **kwargs)
+            created_path = _create_zip(
+                chunk_taco, chunk_path, temp_dir, quiet=quiet, **kwargs
+            )
             created_files.append(created_path)
 
         logger.info(
@@ -401,7 +407,7 @@ def _create_with_splitting(
 def _cleanup_tortilla_temp_files(tortilla: Tortilla) -> None:
     """
     Recursively cleanup temp files from all samples.
-    
+
     Called automatically after successful create() to free disk space.
     Silent, recursive, safe (ignores errors).
     """

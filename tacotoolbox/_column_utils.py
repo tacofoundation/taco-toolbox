@@ -18,72 +18,68 @@ from tacotoolbox._constants import (
     PARQUET_CDC_DEFAULT_CONFIG,
     METADATA_COLUMNS_ORDER,
     SHARED_CORE_FIELDS,
-    is_internal_column,
 )
+from tacotoolbox._utils import is_internal_column
 
 
 def align_dataframe_schemas(
-    dfs: list[pl.DataFrame],
-    core_fields: list[str] | None = None
+    dfs: list[pl.DataFrame], core_fields: list[str] | None = None
 ) -> list[pl.DataFrame]:
     """
     Align schemas before vertical concatenation.
-    
+
     CRITICAL for concatenating DataFrames from samples with different extensions.
     Without alignment, pl.concat(dfs, how="vertical") fails with ShapeError.
-    
+
     Algorithm:
     1. Collect all unique columns from all DataFrames with their types
     2. Order columns: core fields first, then extension fields alphabetically
     3. Add missing columns to each DataFrame with None values (proper type)
     4. Reorder all DataFrames to identical column order
-    
+
     Default core_fields: ["id", "type", "path"]
     """
     if len(dfs) <= 1:
         return dfs
-    
+
     if core_fields is None:
         core_fields = ["id", "type", "path"]
-    
+
     # Collect complete schema with types from all DataFrames
     complete_schema: dict[str, pl.DataType] = {}
     for df in dfs:
         for col_name, dtype in df.schema.items():
             if col_name not in complete_schema:
                 complete_schema[col_name] = dtype
-    
+
     # Define column ordering: core first, then extensions alphabetically
-    extension_fields = sorted([
-        col for col in complete_schema.keys() 
-        if col not in core_fields
-    ])
-    
+    extension_fields = sorted(
+        [col for col in complete_schema.keys() if col not in core_fields]
+    )
+
     ordered_columns = [
         col for col in core_fields if col in complete_schema
     ] + extension_fields
-    
+
     # Align all DataFrames
     aligned_dfs = []
     for df in dfs:
         # Add missing columns with proper types
         for col_name, dtype in complete_schema.items():
             if col_name not in df.columns:
-                df = df.with_columns(
-                    pl.lit(None, dtype=dtype).alias(col_name)
-                )
-        
+                df = df.with_columns(pl.lit(None, dtype=dtype).alias(col_name))
+
         df = df.select(ordered_columns)
         aligned_dfs.append(df)
-    
+
     return aligned_dfs
 
 
 def reorder_internal_columns(df: pl.DataFrame) -> pl.DataFrame:
     """
     Place internal:* columns at end.
-    
-    Order: regular columns → internal:parent_id → internal:offset → 
+
+    Order: regular columns → internal:parent_id → internal:offset →
            internal:size → other internal:* columns
     """
     regular_cols = [col for col in df.columns if not is_internal_column(col)]
@@ -139,7 +135,7 @@ def validate_schema_consistency(
 ) -> None:
     """
     Validate all DataFrames have consistent schemas for safe vertical concatenation.
-    
+
     Checks same columns with same types.
     """
     if not dataframes:
@@ -201,55 +197,6 @@ def ensure_columns_exist(
         )
 
 
-def filter_columns_by_prefix(
-    df: pl.DataFrame, prefix: str, exclude: bool = False
-) -> pl.DataFrame:
-    """Select or exclude columns by name prefix."""
-    if exclude:
-        cols = [col for col in df.columns if not col.startswith(prefix)]
-    else:
-        cols = [col for col in df.columns if col.startswith(prefix)]
-
-    if not cols:
-        return df.select([])
-
-    return df.select(cols)
-
-
-def add_columns_if_missing(
-    df: pl.DataFrame, columns: dict[str, pl.DataType], default_value: any = None
-) -> pl.DataFrame:
-    """Add columns to DataFrame if they don't exist, with default values."""
-    for col_name, col_type in columns.items():
-        if col_name not in df.columns:
-            df = df.with_columns(pl.lit(default_value).cast(col_type).alias(col_name))
-
-    return df
-
-
-def get_column_statistics(df: pl.DataFrame) -> dict[str, dict]:
-    """Get basic statistics about DataFrame columns."""
-    stats = {}
-
-    for col in df.columns:
-        col_stats = {
-            "dtype": str(df[col].dtype),
-            "null_count": df[col].is_null().sum(),
-            "null_percentage": (df[col].is_null().sum() / len(df)) * 100,
-            "is_empty": df[col].is_null().all(),
-        }
-
-        if df[col].dtype in [pl.Int64, pl.Int32, pl.Float64, pl.Float32]:
-            if not df[col].is_null().all():
-                col_stats["min"] = df[col].min()
-                col_stats["max"] = df[col].max()
-                col_stats["mean"] = df[col].mean()
-
-        stats[col] = col_stats
-
-    return stats
-
-
 def read_metadata_file(file_path: Path | str) -> pl.DataFrame:
     """Read metadata file in Parquet format."""
     file_path = Path(file_path)
@@ -263,14 +210,10 @@ def read_metadata_file(file_path: Path | str) -> pl.DataFrame:
         )
 
 
-def write_parquet_file(
-    df: pl.DataFrame, 
-    output_path: Path | str,
-    **kwargs
-) -> None:
+def write_parquet_file(df: pl.DataFrame, output_path: Path | str, **kwargs) -> None:
     """
     Write DataFrame to Parquet (for local __meta__ files).
-    
+
     Used for local metadata in FOLDER containers.
     Parquet natively supports colons in column names.
     """
@@ -280,21 +223,19 @@ def write_parquet_file(
 
 
 def write_parquet_file_with_cdc(
-    df: pl.DataFrame, 
-    output_path: Path | str,
-    **kwargs
+    df: pl.DataFrame, output_path: Path | str, **kwargs
 ) -> None:
     """
     Write Parquet with Content-Defined Chunking (for consolidated metadata).
-    
+
     CDC ensures consistent data page boundaries for efficient deduplication
     on content-addressable storage systems.
-    
+
     CRITICAL: Uses PyArrow's pq.write_table() because CDC is only available
     in PyArrow, not in Polars write_parquet().
     """
     import pyarrow.parquet as pq
-    
+
     parquet_config = {**PARQUET_CDC_DEFAULT_CONFIG, **kwargs}
     arrow_table = df.to_arrow()
     pq.write_table(arrow_table, output_path, **parquet_config)
@@ -303,10 +244,10 @@ def write_parquet_file_with_cdc(
 def cast_dataframe_to_schema(df: pl.DataFrame, schema_spec: list) -> pl.DataFrame:
     """
     Cast DataFrame columns to match schema spec from taco:field_schema.
-    
+
     Handles Null columns gracefully by adding missing columns and
     coercing type mismatches.
-    
+
     schema_spec: List of [column_name, type_string] from taco:field_schema
     """
     type_mapping = {

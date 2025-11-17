@@ -21,22 +21,22 @@ def _get_version() -> str:
 def verbose(level=True):
     """
     Enable/disable verbose logging for tacotoolbox operations.
-    
+
     Args:
         level: Logging level to enable:
             - True or "info": Show INFO and above (default)
             - "debug": Show DEBUG and above (very detailed)
             - False: Disable all logging
-    
+
     Example:
         >>> import tacotoolbox
-        >>> 
+        >>>
         >>> # Enable standard logging
         >>> tacotoolbox.verbose()
-        >>> 
+        >>>
         >>> # Enable debug logging (very detailed)
         >>> tacotoolbox.verbose("debug")
-        >>> 
+        >>>
         >>> # Disable logging
         >>> tacotoolbox.verbose(False)
     """
@@ -48,8 +48,7 @@ def verbose(level=True):
         setup_basic_logging(level=logging.DEBUG)
     else:
         raise ValueError(
-            f"Invalid verbose level: {level}. "
-            "Use True, 'info', 'debug', or False."
+            f"Invalid verbose level: {level}. " "Use True, 'info', 'debug', or False."
         )
 
 

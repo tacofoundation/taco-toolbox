@@ -6,7 +6,6 @@ and manipulation codebase. Includes types for:
 - Offset pairs and file mappings
 - PIT (Position-Isomorphic Tree) schema structures
 - Metadata packages and field schemas
-- Virtual ZIP structures
 - Sample grouping for dataset splitting
 
 These types improve code clarity and enable better static type checking.
@@ -42,21 +41,6 @@ OffsetMap: TypeAlias = dict[str, OffsetPair]
 # PIT SCHEMA TYPES
 # ============================================================================
 
-
-class PITRootLevel:
-    """Root level of PIT schema (level 0 - the collection)."""
-
-    n: int
-    type: str
-
-
-class PITPattern:
-    """Pattern descriptor for a specific position in the hierarchy."""
-
-    n: int
-    children: list[str]
-
-
 PITSchema: TypeAlias = dict[str, object]
 """
 Position-Isomorphic Tree schema for deterministic navigation.
@@ -73,16 +57,8 @@ Structure:
 
 
 # ============================================================================
-# METADATA PACKAGE TYPES (NEW DUAL SYSTEM)
+# METADATA PACKAGE TYPES
 # ============================================================================
-
-
-class LocalMetadata:
-    """Metadata for a single folder (local __metadata__). Used for DATA/folder/__metadata__ files (level 1+ only)."""
-
-    folder_path: str
-    samples: list  # list[Sample] - can't import to avoid circular dependency
-    metadata_df: pl.DataFrame
 
 
 class MetadataPackage:
@@ -118,45 +94,6 @@ class ExtractedFiles:
 
 ExtractedFilesDict: TypeAlias = dict[str, list[str]]
 """Dictionary format for ExtractedFiles: {"src_files": [...], "arc_files": [...]}"""
-
-
-# ============================================================================
-# ZIP CREATION TYPES
-# ============================================================================
-
-
-class ZipCreationResult:
-    """Result of ZIP creation process (currently unused, kept for compatibility)."""
-
-    path: str
-    data_offsets: list[OffsetPair]
-    metadata_offsets: list[OffsetPair]
-    collection_offset: OffsetPair
-
-
-# ============================================================================
-# VIRTUAL ZIP TYPES
-# ============================================================================
-
-
-class VirtualFileInfo:
-    """Information about a virtual file in VirtualTACOZIP."""
-
-    src_path: str | None
-    arc_path: str
-    file_size: int
-    lfh_offset: int
-    lfh_size: int
-    data_offset: int
-    needs_zip64: bool
-
-
-VirtualZipSummary: TypeAlias = dict[str, int | bool]
-"""
-Summary statistics from VirtualTACOZIP.
-
-Keys: header_size, num_files, zip64_files, total_data_size, total_lfh_size, total_zip_size, needs_zip64
-"""
 
 
 # ============================================================================

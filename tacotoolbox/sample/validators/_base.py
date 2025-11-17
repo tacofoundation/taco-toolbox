@@ -7,6 +7,7 @@ if TYPE_CHECKING:
 
 class ValidationError(Exception):
     """Raised when sample validation fails."""
+
     pass
 
 

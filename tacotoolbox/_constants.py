@@ -7,12 +7,9 @@ Organization:
 - FOLDER_*    : FOLDER container specific  
 - TACOCAT_*   : TacoCat format specific
 - METADATA_*  : Metadata column names
-- VALIDATION_*: Validation rules and limits
 - PADDING_*   : Padding-related constants
 - PARQUET_*   : Parquet configuration (including CDC)
 """
-
-import re
 
 # =============================================================================
 # METADATA COLUMNS (SHARED - used by both containers)
@@ -39,26 +36,12 @@ METADATA_COLUMNS_ORDER = [
 ]
 """Preferred order for internal:* columns at end of DataFrames."""
 
-METADATA_PROTECTED_COLUMNS = {
-    METADATA_PARENT_ID,
-    METADATA_OFFSET,
-    METADATA_SIZE,
-    METADATA_RELATIVE_PATH,
-}
-"""
-Protected internal:* columns that should not be dropped during cleaning.
-These are the core internal columns created by tacotoolbox.
-"""
-
 # =============================================================================
 # CORE FIELDS (SHARED - used in Sample datamodel)
 # =============================================================================
 
 SHARED_CORE_FIELDS = {"id", "type", "path"}
 """Core Sample fields that cannot be overwritten by extensions."""
-
-SHARED_PROTECTED_FIELDS = SHARED_CORE_FIELDS
-"""Alias for protected fields (same as core fields)."""
 
 # =============================================================================
 # HIERARCHY LIMITS (SHARED)
@@ -80,19 +63,6 @@ COLLECTION.json entry, making 6 entries total in the TACO_HEADER.
 
 PADDING_PREFIX = "__TACOPAD__"
 """Prefix for auto-generated padding sample IDs."""
-
-# =============================================================================
-# VALIDATION (SHARED)
-# =============================================================================
-
-VALIDATION_KEY_PATTERN = re.compile(r"^[a-zA-Z0-9_]+(?:[:][\w]+)?$")
-"""Regex pattern for valid metadata key names (e.g., 'key', 'stac:title')."""
-
-VALIDATION_MAX_TITLE_LENGTH = 250
-"""Maximum length for dataset title field."""
-
-VALIDATION_MIN_SPLIT_SIZE = 1024
-"""Minimum size in bytes for dataset splitting (1 KB)."""
 
 # =============================================================================
 # PARQUET CDC CONFIGURATION (SHARED)
@@ -226,96 +196,24 @@ SHARED_METADATA_PREFIX = "METADATA/"
 """Prefix for metadata files in archive paths."""
 
 # =============================================================================
-# HELPER FUNCTIONS
+# CLOUD STORAGE & PROTOCOLS
 # =============================================================================
 
+PROTOCOL_MAPPINGS = {
+    "s3": {"standard": "s3://", "vsi": "/vsis3/"},
+    "gcs": {"standard": "gs://", "vsi": "/vsigs/"},
+    "azure": {"standard": "az://", "vsi": "/vsiaz/", "alt": "azure://"},
+    "oss": {"standard": "oss://", "vsi": "/vsioss/"},
+    "swift": {"standard": "swift://", "vsi": "/vsiswift/"},
+    "http": {"standard": "http://", "vsi": "/vsicurl/"},
+    "https": {"standard": "https://", "vsi": "/vsicurl/"},
+}
+"""
+Unified protocol mappings for cloud storage and GDAL VSI.
 
-def is_padding_id(sample_id: str) -> bool:
-    """
-    Check if a sample ID represents padding.
-
-    Args:
-        sample_id: Sample ID to check
-
-    Returns:
-        True if ID starts with padding prefix
-
-    Example:
-        >>> is_padding_id("__TACOPAD__0")
-        True
-        >>> is_padding_id("real_sample")
-        False
-    """
-    return sample_id.startswith(PADDING_PREFIX)
-
-
-def is_internal_column(column_name: str) -> bool:
-    """
-    Check if a column name is an internal metadata column.
-
-    Args:
-        column_name: Column name to check
-
-    Returns:
-        True if column starts with "internal:"
-
-    Example:
-        >>> is_internal_column("internal:parent_id")
-        True
-        >>> is_internal_column("custom_field")
-        False
-    """
-    return column_name.startswith("internal:")
-
-
-def is_protected_column(column_name: str) -> bool:
-    """
-    Check if a column is protected and should not be dropped.
-
-    ALL internal:* columns are now protected. This ensures that any
-    internal metadata added by extensions or processing is preserved.
-
-    Args:
-        column_name: Column name to check
-
-    Returns:
-        True if column starts with "internal:"
-
-    Example:
-        >>> is_protected_column("internal:offset")
-        True
-        >>> is_protected_column("internal:custom_metadata")
-        True
-        >>> is_protected_column("user_field")
-        False
-    """
-    return is_internal_column(column_name)
-
-
-def validate_depth(depth: int, context: str = "operation") -> None:
-    """
-    Validate that depth is within allowed range.
-
-    Args:
-        depth: Depth value to validate
-        context: Context string for error message
-
-    Raises:
-        ValueError: If depth is invalid
-
-    Example:
-        >>> validate_depth(3, "export")
-        >>> validate_depth(6, "export")  # Raises ValueError
-    """
-    if depth < 0:
-        raise ValueError(f"{context}: depth must be non-negative, got {depth}")
-
-    if depth > SHARED_MAX_DEPTH:
-        raise ValueError(
-            f"{context}: depth {depth} exceeds maximum of {SHARED_MAX_DEPTH} "
-            f"(levels 0-{SHARED_MAX_DEPTH})"
-        )
-
+Maps storage protocols to their standard URL scheme and GDAL VSI prefix.
+'alt' key provides alternative protocol names (e.g., azure:// vs az://).
+"""
 
 # =============================================================================
 # VERSION INFO
@@ -323,6 +221,3 @@ def validate_depth(depth: int, context: str = "operation") -> None:
 
 TACO_SPECIFICATION_VERSION = "2.1.0"
 """TACO spec version. v2.1.0: FOLDER uses Parquet+CDC instead of Avro."""
-
-TACOTOOLBOX_MIN_PYTHON = "3.10"
-"""Minimum required Python version."""

@@ -220,18 +220,18 @@ class MetadataGenerator:
     def _generate_folder_metadata(self, folder_sample: "Sample") -> pl.DataFrame:
         """
         Generate local metadata for a single folder.
-        
+
         Critical: Children may have different extensions (e.g., cloudmask vs s2data vs thumbnail),
         resulting in different schema widths. Must align schemas before concatenation.
         """
         samples = folder_sample.path.samples
         metadata_dfs = [s.export_metadata() for s in samples]
-        
+
         # Align schemas before concatenating (samples may have different extensions)
         # Without this, pl.concat fails with: ShapeError: unable to append DataFrame of width X with width Y
         aligned_dfs = align_dataframe_schemas(metadata_dfs)
         df = pl.concat(aligned_dfs, how="vertical")
-        
+
         return self._clean_dataframe(df)
 
     def _generate_nested_folders(

@@ -134,8 +134,7 @@ class Tortilla:
         else:
             # FLEXIBLE MODE: Use helper function to align schemas
             metadata_dfs = align_dataframe_schemas(
-                metadata_dfs, 
-                core_fields=["id", "type", "path"]
+                metadata_dfs, core_fields=["id", "type", "path"]
             )
 
         # Concatenate DataFrames - all schemas are guaranteed consistent
@@ -153,9 +152,7 @@ class Tortilla:
         missing_columns = reference_columns - current_columns
         extra_columns = current_columns - reference_columns
 
-        error_msg = (
-            f"Schema inconsistency detected at sample {sample_index} (id: '{sample.id}'):\n\n"
-        )
+        error_msg = f"Schema inconsistency detected at sample {sample_index} (id: '{sample.id}'):\n\n"
 
         error_msg += (
             f"  Reference sample columns: {sorted(reference_columns)}\n"
@@ -180,9 +177,7 @@ class Tortilla:
 
         raise ValueError(error_msg)
 
-    def _align_schema(
-        self, df: pl.DataFrame, target_columns: set[str]
-    ) -> pl.DataFrame:
+    def _align_schema(self, df: pl.DataFrame, target_columns: set[str]) -> pl.DataFrame:
         """
         Align DataFrame schema to match target columns by adding missing columns with None.
         """
@@ -490,11 +485,10 @@ class Tortilla:
             current_dfs = next_dfs
             current_samples = next_samples
 
-        # Align schemas before concatenating using DRY helper function        
+        # Align schemas before concatenating using DRY helper function
         if len(current_dfs) > 1:
             current_dfs = align_dataframe_schemas(
-                current_dfs,
-                core_fields=["id", "type", "path", METADATA_PARENT_ID]
+                current_dfs, core_fields=["id", "type", "path", METADATA_PARENT_ID]
             )
 
         return pl.concat(current_dfs, how="vertical")

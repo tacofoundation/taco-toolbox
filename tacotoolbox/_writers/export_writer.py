@@ -11,10 +11,6 @@ Key features:
 - Recursive FOLDER handling with local metadata
 - Zero-copy data transfer via tacoreader.io
 - High-performance concurrent downloads with progress bars
-
-The ExportWriter uses async/await for optimal performance when downloading
-data from remote sources like S3 or HTTP endpoints. Local file I/O uses
-sync operations as they're fast and not the bottleneck.
 """
 
 import asyncio
@@ -23,7 +19,6 @@ import pathlib
 
 import polars as pl
 from tacoreader import TacoDataset
-from tacoreader.io import download_range
 from tacoreader.utils.vsi import parse_vsi_subfile, strip_vsi_prefix
 
 from tacotoolbox._column_utils import (
@@ -34,6 +29,7 @@ from tacotoolbox._column_utils import (
 from tacotoolbox._constants import FOLDER_DATA_DIR, FOLDER_METADATA_DIR
 from tacotoolbox._logging import get_logger
 from tacotoolbox._progress import progress_gather
+from tacotoolbox.io import download_range
 
 logger = get_logger(__name__)
 
@@ -63,7 +59,6 @@ class ExportWriter:
         output: pathlib.Path,
         concurrency: int = 100,
         quiet: bool = False,
-        debug: bool = False,
     ) -> None:
         """
         Initialize export writer.
@@ -73,7 +68,6 @@ class ExportWriter:
             output: Path to output folder
             concurrency: Maximum concurrent async operations (default: 100)
             quiet: If True, hide progress bars (default: False - shows progress)
-            debug: If True, enable debug logging (default: False)
         """
         self.dataset = dataset
         self.output = pathlib.Path(output)
@@ -130,10 +124,6 @@ class ExportWriter:
         - Dataset has no level1+ joins (only level0 filters supported)
         - Dataset is not empty (at least one sample)
         - Output path doesn't exist
-
-        Raises:
-            ValueError: If dataset validation fails
-            FileExistsError: If output exists
         """
         if self.dataset._has_level1_joins:
             raise ValueError(
@@ -218,13 +208,8 @@ class ExportWriter:
         - /vsisubfile/... paths (ZIP entries): Downloads bytes from offset/size
         - Regular filesystem paths: Direct file copy
 
-        Uses tacoreader.io for all remote downloads (S3/HTTP/GCS).
+        Uses tacotoolbox.io for all remote downloads (S3/HTTP/GCS).
         Local file I/O uses sync operations as they're fast and not the bottleneck.
-
-        Args:
-            vsi_path: Source path (may be /vsisubfile/... or regular path)
-            dest_path: Destination path for copied file
-            semaphore: Asyncio semaphore to limit concurrency
         """
         async with semaphore:
             dest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -240,7 +225,7 @@ class ExportWriter:
                         f.seek(offset)
                         data = f.read(size)
                 else:
-                    # Remote file: use tacoreader.io.download_range
+                    # Remote file: use tacotoolbox.io.download_range
                     # Convert sync download_range to async with to_thread
                     data = await asyncio.to_thread(
                         download_range, clean_url, offset, size
@@ -270,11 +255,6 @@ class ExportWriter:
         2. Query children from next level using parent_id
         3. Process all children concurrently (both FOLDERs and FILEs)
         4. Write local __meta__ file with children metadata (PARQUET format)
-
-        Args:
-            folder_row: Row from dataset.df for the FOLDER
-            level: Current level of this folder (0, 1, 2, ...)
-            semaphore: Asyncio semaphore to limit concurrency
         """
         if level == 0:
             relative_path = folder_row["id"]
@@ -290,7 +270,7 @@ class ExportWriter:
         # Check if next level exists
         view_name = f"level{next_level}"
         available_levels = _get_available_levels(self.dataset)
-        
+
         if view_name not in available_levels:
             return
 

@@ -252,34 +252,3 @@ class VirtualTACOZIP:
                 return True
 
         return False
-
-    def get_summary(self) -> dict:
-        """
-        Get summary statistics about the virtual ZIP structure.
-
-        Provides overview of the simulated archive including sizes,
-        file counts, and ZIP64 status. Useful for debugging and logging.
-        """
-        if not self._calculated:
-            raise ValueError("Call calculate_offsets() first")
-
-        total_data_size = sum(vf.file_size for vf in self.files)
-        total_lfh_size = sum(vf.lfh_size for vf in self.files)
-
-        if self.files:
-            last_file = self.files[-1]
-            total_zip_size = last_file.data_offset + last_file.file_size
-        else:
-            total_zip_size = self.header_size
-
-        zip64_files = sum(1 for vf in self.files if vf.needs_zip64)
-
-        return {
-            "header_size": self.header_size,
-            "num_files": len(self.files),
-            "zip64_files": zip64_files,
-            "total_data_size": total_data_size,
-            "total_lfh_size": total_lfh_size,
-            "total_zip_size": total_zip_size,
-            "needs_zip64": self.needs_zip64(),
-        }

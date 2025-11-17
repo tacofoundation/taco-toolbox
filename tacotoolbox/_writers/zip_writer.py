@@ -17,68 +17,6 @@ The writer uses a bottom-up approach:
 4. Recalculate offsets after each level
 5. Rebuild consolidated metadata with offset/size columns
 6. Write final ZIP with correct offsets in TACO_HEADER
-
-ZIP Structure example (level 0 = FILEs only):
-    dataset.tacozip
-    ├── TACO_HEADER
-    ├── DATA/
-    │   ├── sample_001.tif
-    │   ├── sample_002.tif
-    │   └── sample_003.tif
-    ├── METADATA/
-    │   └── level0.parquet
-    └── COLLECTION.json
-
-ZIP Structure example (level 0 = FOLDERs, level 1 = FILEs):
-    dataset.tacozip
-    ├── TACO_HEADER
-    ├── DATA/
-    │   ├── folder_A/
-    │   │   ├── __meta__
-    │   │   ├── nested_001.tif
-    │   │   └── nested_002.tif
-    │   └── folder_B/
-    │       ├── __meta__
-    │       ├── nested_001.tif
-    │       └── nested_002.tif
-    ├── METADATA/
-    │   ├── level0.parquet
-    │   └── level1.parquet
-    └── COLLECTION.json
-
-ZIP Structure example (Change Detection - 3 levels deep):
-    dataset.tacozip
-    ├── TACO_HEADER
-    ├── DATA/
-    │   ├── Landslide_001/
-    │   │   ├── __meta__
-    │   │   ├── label.json
-    │   │   └── imagery/
-    │   │       ├── __meta__
-    │   │       ├── before.tif
-    │   │       └── after.tif
-    │   ├── Landslide_002/
-    │   │   ├── __meta__
-    │   │   ├── label.json
-    │   │   └── imagery/
-    │   │       ├── __meta__
-    │   │       ├── before.tif
-    │   │       └── after.tif
-    │   └── ...
-    ├── METADATA/
-    │   ├── level0.parquet
-    │   ├── level1.parquet
-    │   └── level2.parquet
-    └── COLLECTION.json
-
-PIT Schema for Change Detection example:
-    {
-        "root": {"n": 500, "type": ["FOLDER"]},
-        "hierarchy": {
-            "1": [{"n": 1000, "type": ["FILE", "FOLDER"], "id": ["label", "imagery"]}],
-            "2": [{"n": 1000, "type": ["FILE", "FILE"], "id": ["before", "after"]}]
-        }
-    }
 """
 
 import json
@@ -102,11 +40,11 @@ from tacotoolbox._constants import (
     METADATA_OFFSET,
     METADATA_PARENT_ID,
     METADATA_SIZE,
-    is_padding_id,
 )
 from tacotoolbox._logging import get_logger
 from tacotoolbox._metadata import MetadataPackage
 from tacotoolbox._progress import ProgressContext
+from tacotoolbox._utils import is_padding_id
 from tacotoolbox._virtual_zip import VirtualTACOZIP
 
 logger = get_logger(__name__)
@@ -131,7 +69,6 @@ class ZipWriter:
         self,
         output_path: pathlib.Path,
         quiet: bool = False,
-        debug: bool = False,
         temp_dir: pathlib.Path | None = None,
     ) -> None:
         """
@@ -140,7 +77,6 @@ class ZipWriter:
         Args:
             output_path: Path for output .tacozip file
             quiet: If True, hide progress bars (default: False)
-            debug: If True, enable debug logging (default: False)
             temp_dir: Directory for temporary files (default: system temp)
         """
         self.output_path = output_path
@@ -187,7 +123,7 @@ class ZipWriter:
 
         Raises:
             ZipWriterError: If ZIP creation fails
-            
+
         Example:
             >>> writer.create_complete_zip(
             ...     src_files, arc_files, metadata_package,
@@ -308,9 +244,6 @@ class ZipWriter:
                         ]
 
                     # Align schemas before concatenating
-                    # Different folders may have children with different extensions
-                    # (e.g., folder_A has [cloudmask, s2data], folder_B has [cloudmask, thumbnail])
-                    # Without this, pl.concat fails with: ShapeError: unable to append DataFrame
                     aligned_dfs = align_dataframe_schemas(enriched_dfs)
                     concatenated = pl.concat(aligned_dfs, how="vertical")
 
@@ -352,11 +285,12 @@ class ZipWriter:
                 arc_path = f"METADATA/level{i}.parquet"
                 temp_path = self.temp_dir / f"{uuid.uuid4().hex}_level{i}.parquet"
                 arrow_table = level_df.to_arrow()
-                
+
                 # Merge CDC defaults with user kwargs
                 from tacotoolbox._constants import PARQUET_CDC_DEFAULT_CONFIG
+
                 parquet_config = {**PARQUET_CDC_DEFAULT_CONFIG, **parquet_kwargs}
-                
+
                 pq.write_table(arrow_table, temp_path, **parquet_config)
                 real_size = temp_path.stat().st_size
                 virtual_zip.add_file(str(temp_path), arc_path, file_size=real_size)
@@ -441,28 +375,11 @@ class ZipWriter:
             self._cleanup()
 
     def _register_temp_file(self, path: pathlib.Path) -> None:
-        """
-        Register temporary file for automatic cleanup.
-
-        Uses ExitStack to ensure cleanup even if exceptions occur.
-
-        Args:
-            path: Path to temporary file
-        """
+        """Register temporary file for automatic cleanup."""
         self._cleanup_stack.callback(path.unlink, missing_ok=True)
 
     def _extract_folder_order(self, arc_files: list[str]) -> list[str]:
-        """
-        Extract folder paths that need __meta__ files.
-
-        Only includes Level 1+ folders (not DATA/ root).
-
-        Args:
-            arc_files: List of archive file paths
-
-        Returns:
-            list[str]: Sorted list of folder paths needing __meta__
-        """
+        """Extract folder paths that need __meta__ files (Level 1+ only)."""
         folder_set = set()
 
         for arc_path in arc_files:
@@ -476,15 +393,7 @@ class ZipWriter:
         return sorted(folder_set)
 
     def _group_folders_by_depth(self, folder_order: list[str]) -> dict[int, list[str]]:
-        """
-        Group folders by depth for bottom-up processing.
-
-        Args:
-            folder_order: List of folder paths
-
-        Returns:
-            dict[int, list[str]]: Folders grouped by depth level
-        """
+        """Group folders by depth for bottom-up processing."""
         by_depth: dict[int, list[str]] = {}
 
         for folder in folder_order:
@@ -497,58 +406,32 @@ class ZipWriter:
         return by_depth
 
     def _write_single_parquet(
-        self, 
-        df: pl.DataFrame, 
-        folder_path: str,
-        **parquet_kwargs: Any
+        self, df: pl.DataFrame, folder_path: str, **parquet_kwargs: Any
     ) -> pathlib.Path:
-        """
-        Write a single __meta__ Parquet file to temp directory.
-
-        Args:
-            df: DataFrame to write
-            folder_path: Folder path (used for filename)
-            **parquet_kwargs: Additional Parquet writer parameters
-
-        Returns:
-            pathlib.Path: Path to created temp file
-        """
+        """Write a single __meta__ Parquet file to temp directory."""
         identifier = folder_path.replace("/", "_").strip("_")
         temp_path = self.temp_dir / f"{uuid.uuid4().hex}_{identifier}.parquet"
 
         filtered_df = self._filter_metadata_columns(df)
         arrow_table = filtered_df.to_arrow()
-        
+
         # Default config for local __meta__ (simple, no CDC)
         default_config = {"compression": "zstd"}
         parquet_config = {**default_config, **parquet_kwargs}
-        
+
         pq.write_table(arrow_table, temp_path, **parquet_config)
 
         self._register_temp_file(temp_path)
         return temp_path
 
     def _filter_metadata_columns(self, df: pl.DataFrame) -> pl.DataFrame:
-        """
-        Filter columns for __meta__ files (removes 'path' column).
-
-        Args:
-            df: DataFrame to filter
-
-        Returns:
-            pl.DataFrame: Filtered DataFrame
-        """
+        """Filter columns for __meta__ files (removes 'path' column)."""
         exclude_columns = {"path"}
         cols_to_keep = [col for col in df.columns if col not in exclude_columns]
         return df.select(cols_to_keep) if cols_to_keep else df
 
     def _get_metadata_offsets(self) -> tuple[list[int], list[int]]:
-        """
-        Get offsets and sizes for METADATA/levelX.parquet files.
-
-        Returns:
-            tuple[list[int], list[int]]: (offsets, sizes) for metadata files
-        """
+        """Get offsets and sizes for METADATA/levelX.parquet files."""
         offsets = []
         sizes = []
 
@@ -579,12 +462,7 @@ class ZipWriter:
         return offsets, sizes
 
     def _get_collection_offset(self) -> tuple[int, int]:
-        """
-        Get offset and size for COLLECTION.json.
-
-        Returns:
-            tuple[int, int]: (offset, size) for COLLECTION.json
-        """
+        """Get offset and size for COLLECTION.json."""
         with zipfile.ZipFile(self.output_path, "r") as zf:
             with open(self.output_path, "rb") as f:
                 info = zf.getinfo("COLLECTION.json")
@@ -601,11 +479,7 @@ class ZipWriter:
                 return data_offset, data_size
 
     def _cleanup(self) -> None:
-        """
-        Clean up all temporary files created during ZIP creation.
-
-        Uses ExitStack for robust cleanup that works even when exceptions occur.
-        """
+        """Clean up all temporary files created during ZIP creation."""
         logger.debug("Cleaning up temporary files")
         self._cleanup_stack.close()
 
@@ -623,17 +497,6 @@ def _add_zip_offsets(
     Critical behavior:
     - FILE samples: offset points to actual data file in ZIP
     - FOLDER samples: offset points to child's __meta__ file in ZIP
-
-    Args:
-        metadata_df: DataFrame with sample metadata
-        offsets_map: Dictionary mapping arc_path -> (offset, size)
-        folder_path: Current folder path (e.g., "DATA/folder_A/")
-
-    Returns:
-        pl.DataFrame: DataFrame with added internal:offset and internal:size columns
-
-    Raises:
-        ValueError: If offsets missing for non-padding samples
     """
     offsets = []
     sizes = []
