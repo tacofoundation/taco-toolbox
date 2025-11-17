@@ -417,34 +417,44 @@ def _calculate_temporal_extent(
     time_middle_col: str | None,
 ) -> list[str] | None:
     """
-    Calculate temporal interval from timestamp columns.
+    Calculate temporal interval from Datetime columns.
 
-    Converts integer timestamps to ISO 8601 datetime strings.
+    Uses Polars native operations to find min/max datetime values.
     Skips None values (padding samples).
 
     Priority cascade: time_middle > time_start > time_end
     """
-    time_values = []
-
+    # Select the time column to use (priority: middle > start > end)
+    time_col = None
     if time_middle_col and time_middle_col in df.columns:
-        time_values = [t for t in df[time_middle_col].to_list() if t is not None]
+        time_col = time_middle_col
+    elif time_start_col in df.columns:
+        time_col = time_start_col
+    elif time_end_col and time_end_col in df.columns:
+        time_col = time_end_col
 
-    if not time_values:
-        time_values = [t for t in df[time_start_col].to_list() if t is not None]
-
-    if not time_values and time_end_col and time_end_col in df.columns:
-        time_values = [t for t in df[time_end_col].to_list() if t is not None]
-
-    if not time_values:
+    if time_col is None:
         return None
 
-    min_time = min(time_values)
-    max_time = max(time_values)
+    # Filter out None values and get min/max using Polars operations
+    time_series = df[time_col].drop_nulls()
 
-    start_dt = datetime.fromtimestamp(min_time, tz=timezone.utc)
-    end_dt = datetime.fromtimestamp(max_time, tz=timezone.utc)
+    if len(time_series) == 0:
+        return None
 
+    # Get min and max as Python datetime objects
+    min_dt = time_series.min()
+    max_dt = time_series.max()
+
+    # Convert to UTC if not already (Polars Datetime without timezone is naive)
+    # We need to make them timezone-aware for proper ISO formatting
+    if min_dt.tzinfo is None:
+        min_dt = min_dt.replace(tzinfo=timezone.utc)
+    if max_dt.tzinfo is None:
+        max_dt = max_dt.replace(tzinfo=timezone.utc)
+
+    # Convert to ISO 8601 strings with 'Z' suffix
     return [
-        start_dt.isoformat().replace("+00:00", "Z"),
-        end_dt.isoformat().replace("+00:00", "Z"),
+        min_dt.isoformat().replace("+00:00", "Z"),
+        max_dt.isoformat().replace("+00:00", "Z"),
     ]

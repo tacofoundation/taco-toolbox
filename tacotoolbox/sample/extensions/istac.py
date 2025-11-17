@@ -31,8 +31,8 @@ class ISTAC(SampleExtension):
 
     Notes
     -----
-    - Timestamps stored as Parquet native TIMESTAMP type (seconds precision)
-    - Accepts epoch seconds (int) which are converted to proper Parquet timestamps
+    - Timestamps stored as Parquet TIMESTAMP with microsecond precision
+    - int inputs are treated as epoch seconds and converted to microseconds
     - Centroid is always in EPSG:4326 regardless of source geometry CRS
     - For regular raster grids, use the STAC extension instead
     - WKB binary format for efficient storage and GeoParquet compatibility
@@ -50,12 +50,19 @@ class ISTAC(SampleExtension):
 
     @pydantic.model_validator(mode="after")
     def check_times(self) -> "ISTAC":
-        """Validate that time_start <= time_end if time_end is provided."""
-        if self.time_end is not None and self.time_start > self.time_end:
-            raise ValueError(
-                f"Invalid temporal interval: time_start ({self.time_start}) "
-                f"> time_end ({self.time_end})"
-            )
+        """Validate that time_start <= time_end if time_end is provided and convert to microseconds."""
+        # Convert seconds to microseconds if needed
+        # Assume input is in seconds (epoch), convert to microseconds
+        self.time_start = int(self.time_start * 1_000_000)
+        
+        if self.time_end is not None:
+            self.time_end = int(self.time_end * 1_000_000)
+            
+            if self.time_start > self.time_end:
+                raise ValueError(
+                    f"Invalid temporal interval: time_start ({self.time_start}) "
+                    f"> time_end ({self.time_end})"
+                )
         return self
 
     @pydantic.model_validator(mode="after")
@@ -112,9 +119,9 @@ class ISTAC(SampleExtension):
         return {
             "istac:crs": pl.Utf8(),
             "istac:geometry": pl.Binary(),
-            "istac:time_start": pl.Datetime(time_unit="s", time_zone=None),
-            "istac:time_end": pl.Datetime(time_unit="s", time_zone=None),
-            "istac:time_middle": pl.Datetime(time_unit="s", time_zone=None),
+            "istac:time_start": pl.Datetime(time_unit="us", time_zone=None),
+            "istac:time_end": pl.Datetime(time_unit="us", time_zone=None),
+            "istac:time_middle": pl.Datetime(time_unit="us", time_zone=None),
             "istac:centroid": pl.Binary(),
         }
 

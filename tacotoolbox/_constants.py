@@ -43,6 +43,7 @@ METADATA_COLUMNS_ORDER = [
 SHARED_CORE_FIELDS = {"id", "type", "path"}
 """Core Sample fields that cannot be overwritten by extensions."""
 
+
 # =============================================================================
 # HIERARCHY LIMITS (SHARED)
 # =============================================================================

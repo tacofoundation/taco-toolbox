@@ -37,9 +37,10 @@ from tacotoolbox._column_utils import (
 )
 from tacotoolbox._constants import (
     METADATA_PARENT_ID,
-    METADATA_RELATIVE_PATH,
-    is_padding_id,
+    METADATA_RELATIVE_PATH    
 )
+from tacotoolbox._utils import is_padding_id
+
 
 if TYPE_CHECKING:
     from tacotoolbox.sample.datamodel import Sample

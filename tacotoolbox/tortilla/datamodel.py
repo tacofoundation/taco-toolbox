@@ -27,8 +27,9 @@ from tacotoolbox._column_utils import align_dataframe_schemas
 from tacotoolbox._constants import (
     METADATA_PARENT_ID,
     PADDING_PREFIX,
-    validate_depth,
 )
+from tacotoolbox._utils import validate_depth
+
 
 if TYPE_CHECKING:
     from tacotoolbox.sample.datamodel import Sample

@@ -115,9 +115,9 @@ class STAC(SampleExtension):
 
     Notes
     -----
-    - Timestamps stored as Parquet native TIMESTAMP type (seconds precision)
-    - datetime.datetime inputs are automatically converted to epoch seconds internally,
-      then stored as proper Parquet timestamps for efficient storage and queries
+    - Timestamps stored as Parquet TIMESTAMP with microsecond precision
+    - datetime.datetime inputs are automatically converted to microseconds (int64)
+    - int/float inputs in seconds are converted to microseconds
     - Enforces non-decreasing temporal interval: time_start <= time_end
     - time_middle is auto-computed when both start and end times exist
     - Set check_antimeridian=True for Pacific/Polar rasters (requires: pip install antimeridian)
@@ -134,18 +134,20 @@ class STAC(SampleExtension):
 
     @pydantic.model_validator(mode="after")
     def check_times(cls, values):
-        """Validates that time_start <= time_end."""
-        # Convert datetime to timestamp
+        """Validates that time_start <= time_end and converts to microseconds."""
+        # Convert datetime to microseconds (int64)
         if isinstance(values.time_start, datetime.datetime):
-            values.time_start = int(values.time_start.timestamp())
+            values.time_start = int(values.time_start.timestamp() * 1_000_000)
         else:
-            values.time_start = int(values.time_start)
+            # Assume seconds, convert to microseconds
+            values.time_start = int(values.time_start * 1_000_000)
 
         if values.time_end is not None:
             if isinstance(values.time_end, datetime.datetime):
-                values.time_end = int(values.time_end.timestamp())
+                values.time_end = int(values.time_end.timestamp() * 1_000_000)
             else:
-                values.time_end = int(values.time_end)
+                # Assume seconds, convert to microseconds
+                values.time_end = int(values.time_end * 1_000_000)
 
             if values.time_start > values.time_end:
                 raise ValueError(
@@ -193,10 +195,10 @@ class STAC(SampleExtension):
             "stac:crs": pl.Utf8(),
             "stac:tensor_shape": pl.List(pl.Int64()),
             "stac:geotransform": pl.List(pl.Float64()),
-            "stac:time_start": pl.Datetime(time_unit="s", time_zone=None),
+            "stac:time_start": pl.Datetime(time_unit="us", time_zone=None),
             "stac:centroid": pl.Binary(),
-            "stac:time_end": pl.Datetime(time_unit="s", time_zone=None),
-            "stac:time_middle": pl.Datetime(time_unit="s", time_zone=None),
+            "stac:time_end": pl.Datetime(time_unit="us", time_zone=None),
+            "stac:time_middle": pl.Datetime(time_unit="us", time_zone=None),
         }
 
     def _compute(self, sample) -> pl.DataFrame:

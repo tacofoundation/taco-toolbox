@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any, Literal
 import polars as pl
 import pydantic
 
-from tacotoolbox._constants import SHARED_CORE_FIELDS, SHARED_PROTECTED_FIELDS
+from tacotoolbox._constants import SHARED_CORE_FIELDS
 from tacotoolbox.tortilla.datamodel import Tortilla
 
 if TYPE_CHECKING:
@@ -149,8 +149,7 @@ class Sample(pydantic.BaseModel):
             object.__setattr__(self, "_temp_files", [temp_path])
 
         # Extract extension fields (anything not a core field)
-        core_fields = SHARED_CORE_FIELDS | {"type"}  # Include 'type' as core
-        extension_fields = {k: v for k, v in data.items() if k not in core_fields}
+        extension_fields = {k: v for k, v in data.items() if k not in SHARED_CORE_FIELDS}
 
         # Initialize with all fields (Pydantic accepts them due to extra="allow")
         super().__init__(**data)
@@ -390,7 +389,7 @@ class Sample(pydantic.BaseModel):
         """Add metadata fields to the sample with validation."""
         for key, value in metadata_dict.items():
             self._validate_key(key)
-            if key in SHARED_PROTECTED_FIELDS:
+            if key in SHARED_CORE_FIELDS:
                 raise ValueError(f"Cannot override core field: {key}")
             setattr(self, key, value)
 
