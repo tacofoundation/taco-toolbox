@@ -149,7 +149,9 @@ class Sample(pydantic.BaseModel):
             object.__setattr__(self, "_temp_files", [temp_path])
 
         # Extract extension fields (anything not a core field)
-        extension_fields = {k: v for k, v in data.items() if k not in SHARED_CORE_FIELDS}
+        extension_fields = {
+            k: v for k, v in data.items() if k not in SHARED_CORE_FIELDS
+        }
 
         # Initialize with all fields (Pydantic accepts them due to extra="allow")
         super().__init__(**data)

@@ -419,42 +419,44 @@ def _calculate_temporal_extent(
     """
     Calculate temporal interval from Datetime columns.
 
-    Uses Polars native operations to find min/max datetime values.
+    Extracts datetime values, computes min/max in Python.
     Skips None values (padding samples).
 
     Priority cascade: time_middle > time_start > time_end
+    Tries each column until finding one with valid values.
     """
-    # Select the time column to use (priority: middle > start > end)
-    time_col = None
+    # Try columns in priority order until finding one with valid values
+    candidate_cols = []
     if time_middle_col and time_middle_col in df.columns:
-        time_col = time_middle_col
-    elif time_start_col in df.columns:
-        time_col = time_start_col
-    elif time_end_col and time_end_col in df.columns:
-        time_col = time_end_col
+        candidate_cols.append(time_middle_col)
+    if time_start_col in df.columns:
+        candidate_cols.append(time_start_col)
+    if time_end_col and time_end_col in df.columns:
+        candidate_cols.append(time_end_col)
 
-    if time_col is None:
+    if not candidate_cols:
         return None
 
-    # Filter out None values and get min/max using Polars operations
-    time_series = df[time_col].drop_nulls()
+    # Try each candidate until finding one with non-None values
+    for time_col in candidate_cols:
+        time_values = [dt for dt in df[time_col].to_list() if dt is not None]
 
-    if len(time_series) == 0:
-        return None
+        if time_values:
+            # Found valid values, compute extent
+            min_dt = min(time_values)
+            max_dt = max(time_values)
 
-    # Get min and max as Python datetime objects
-    min_dt = time_series.min()
-    max_dt = time_series.max()
+            # Convert to UTC if not already (Polars Datetime without timezone is naive)
+            if min_dt.tzinfo is None:
+                min_dt = min_dt.replace(tzinfo=timezone.utc)
+            if max_dt.tzinfo is None:
+                max_dt = max_dt.replace(tzinfo=timezone.utc)
 
-    # Convert to UTC if not already (Polars Datetime without timezone is naive)
-    # We need to make them timezone-aware for proper ISO formatting
-    if min_dt.tzinfo is None:
-        min_dt = min_dt.replace(tzinfo=timezone.utc)
-    if max_dt.tzinfo is None:
-        max_dt = max_dt.replace(tzinfo=timezone.utc)
+            # Convert to ISO 8601 strings with 'Z' suffix
+            return [
+                min_dt.isoformat().replace("+00:00", "Z"),
+                max_dt.isoformat().replace("+00:00", "Z"),
+            ]
 
-    # Convert to ISO 8601 strings with 'Z' suffix
-    return [
-        min_dt.isoformat().replace("+00:00", "Z"),
-        max_dt.isoformat().replace("+00:00", "Z"),
-    ]
+    # No column had valid values
+    return None

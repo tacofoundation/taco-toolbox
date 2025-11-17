@@ -35,10 +35,7 @@ from tacotoolbox._column_utils import (
     remove_empty_columns,
     reorder_internal_columns,
 )
-from tacotoolbox._constants import (
-    METADATA_PARENT_ID,
-    METADATA_RELATIVE_PATH    
-)
+from tacotoolbox._constants import METADATA_PARENT_ID, METADATA_RELATIVE_PATH
 from tacotoolbox._utils import is_padding_id
 
 

@@ -382,6 +382,11 @@ def _create_with_splitting(
             chunk_tortilla = Tortilla(samples=chunk_samples)
             chunk_taco_data = taco.model_dump()
             chunk_taco_data["tortilla"] = chunk_tortilla
+
+            # Force extent recalculation for chunk-specific spatial/temporal bounds
+            # Without this, chunks inherit global extent which is incorrect
+            chunk_taco_data.pop("extent", None)
+
             chunk_taco = Taco(**chunk_taco_data)
 
             chunk_filename = f"{base_name}_part{i:04d}{extension}"

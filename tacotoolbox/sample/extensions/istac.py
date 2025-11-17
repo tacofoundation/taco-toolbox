@@ -54,10 +54,10 @@ class ISTAC(SampleExtension):
         # Convert seconds to microseconds if needed
         # Assume input is in seconds (epoch), convert to microseconds
         self.time_start = int(self.time_start * 1_000_000)
-        
+
         if self.time_end is not None:
             self.time_end = int(self.time_end * 1_000_000)
-            
+
             if self.time_start > self.time_end:
                 raise ValueError(
                     f"Invalid temporal interval: time_start ({self.time_start}) "
