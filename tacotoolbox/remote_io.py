@@ -6,9 +6,13 @@ Uses obstore backend but designed for easy replacement.
 The use of obstore is temporary until I have time to properly review OpenDAL.
 
 Currently only used by export_writer.py for downloading remote ZIP entries.
+
+NOTE: This module was renamed from 'io.py' to 'remote_io.py' to avoid
+shadowing Python's standard library 'io' module.
 """
 
 import obstore as obs
+from obstore.store import ObjectStore
 
 from tacotoolbox._constants import PROTOCOL_MAPPINGS
 
@@ -24,7 +28,7 @@ def _create_store(url: str):
     - http://, https:// → HTTPStore
     """
     # Build mapping from standard protocol to store class
-    protocol_handlers = {
+    protocol_handlers: dict[str, type[ObjectStore]] = {
         PROTOCOL_MAPPINGS["s3"]["standard"]: obs.store.S3Store,
         PROTOCOL_MAPPINGS["gcs"]["standard"]: obs.store.GCSStore,
         PROTOCOL_MAPPINGS["azure"]["standard"]: obs.store.AzureStore,
@@ -36,10 +40,10 @@ def _create_store(url: str):
     # Find matching protocol
     for protocol, store_class in protocol_handlers.items():
         if url.startswith(protocol):
-            return store_class.from_url(url)
+            return store_class.from_url(url)  # type: ignore[union-attr, attr-defined]
 
     # Build error message with all supported protocols
-    supported = sorted(set(PROTOCOL_MAPPINGS[p]["standard"] for p in PROTOCOL_MAPPINGS))
+    supported = sorted({PROTOCOL_MAPPINGS[p]["standard"] for p in PROTOCOL_MAPPINGS})
     raise ValueError(
         f"Unsupported URL scheme: {url}\n" f"Supported: {', '.join(supported)}"
     )
@@ -70,4 +74,4 @@ def download_range(url: str, offset: int, size: int, subpath: str = "") -> bytes
     except Exception as e:
         raise OSError(
             f"Failed to download range [{offset}:{offset+size}] from {url}{subpath}: {e}"
-        )
+        ) from e

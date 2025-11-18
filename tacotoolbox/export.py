@@ -12,9 +12,9 @@ Example:
 """
 
 import asyncio
+import shutil
 from pathlib import Path
 from typing import Literal
-import shutil
 
 from tacoreader import TacoDataset
 
@@ -32,7 +32,7 @@ logger = get_logger(__name__)
 def export(
     dataset: TacoDataset,
     output: str | Path,
-    format: Literal["zip", "folder"] | None = None,
+    output_format: Literal["zip", "folder"] | None = None,
     concurrency: int = 100,
     quiet: bool = False,
     temp_dir: str | Path | None = None,
@@ -44,14 +44,14 @@ def export(
     Always returns Path synchronously - no need to await.
     """
     return asyncio.run(
-        _export_async(dataset, output, format, concurrency, quiet, temp_dir)
+        _export_async(dataset, output, output_format, concurrency, quiet, temp_dir)
     )
 
 
 async def _export_async(
     dataset: TacoDataset,
     output: str | Path,
-    format: Literal["zip", "folder"] | None = None,
+    output_format: Literal["zip", "folder"] | None = None,
     concurrency: int = 100,
     quiet: bool = False,
     temp_dir: str | Path | None = None,
@@ -64,13 +64,13 @@ async def _export_async(
     """
     output = Path(output)
 
-    if format is None:
-        format = _detect_format(output)
-        logger.debug(f"Auto-detected format: {format}")
+    if output_format is None:
+        output_format = _detect_format(output)
+        logger.debug(f"Auto-detected format: {output_format}")
 
-    logger.info(f"Exporting to {format.upper()}: {output}")
+    logger.info(f"Exporting to {output_format.upper()}: {output}")
 
-    if format == "folder":
+    if output_format == "folder":
         writer = ExportWriter(
             dataset=dataset,
             output=output,
@@ -81,7 +81,7 @@ async def _export_async(
         logger.info(f"Export complete: {result}")
         return result
 
-    elif format == "zip":
+    elif output_format == "zip":
         temp_folder = (
             output.parent / f".{output.stem}_temp"
             if temp_dir is None
@@ -111,18 +111,18 @@ async def _export_async(
             logger.debug(f"Cleaning up temporary folder: {temp_folder}")
             shutil.rmtree(temp_folder)
 
-            logger.info(f"Export complete: {output}")
-            return output
-
-        except Exception as e:
-            logger.error(f"Failed to export to ZIP: {e}")
+        except Exception:
+            logger.exception("Failed to export to ZIP")
             if temp_folder.exists():
                 logger.debug(f"Cleaning up failed export: {temp_folder}")
                 shutil.rmtree(temp_folder, ignore_errors=True)
-            raise e
+            raise
+        else:
+            logger.info(f"Export complete: {output}")
+            return output
 
     else:
-        raise ValueError(f"Invalid format: {format}. Must be 'zip' or 'folder'.")
+        raise ValueError(f"Invalid format: {output_format}. Must be 'zip' or 'folder'.")
 
 
 def _detect_format(output: Path) -> Literal["zip", "folder"]:

@@ -9,7 +9,7 @@ This module generates the dual metadata system used by both ZIP and FOLDER conta
    - Includes internal:parent_id for relational queries (all levels)
    - Includes internal:relative_path for fast SQL queries (level 1+ only)
    - Used for: sql queries, navigation, statistics
-   
+
 2. LOCAL METADATA (DATA/folder/__meta__ files):
    - One file per FOLDER (only for level 1+)
    - Contains only the direct children of that specific folder
@@ -26,7 +26,7 @@ CRITICAL DESIGN PRINCIPLES:
   * Padding (__TACOPAD__*) ensures structural uniformity
 """
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import polars as pl
 
@@ -37,7 +37,7 @@ from tacotoolbox._column_utils import (
 )
 from tacotoolbox._constants import METADATA_PARENT_ID, METADATA_RELATIVE_PATH
 from tacotoolbox._utils import is_padding_id
-
+from tacotoolbox.tortilla.datamodel import Tortilla
 
 if TYPE_CHECKING:
     from tacotoolbox.sample.datamodel import Sample
@@ -222,7 +222,9 @@ class MetadataGenerator:
         Critical: Children may have different extensions (e.g., cloudmask vs s2data vs thumbnail),
         resulting in different schema widths. Must align schemas before concatenation.
         """
-        samples = folder_sample.path.samples
+        # Cast path to Tortilla to access .samples
+        tortilla = cast(Tortilla, folder_sample.path)
+        samples = tortilla.samples
         metadata_dfs = [s.export_metadata() for s in samples]
 
         # Align schemas before concatenating (samples may have different extensions)
@@ -238,7 +240,9 @@ class MetadataGenerator:
         """Recursively generate local metadata for nested folders."""
         result = {}
 
-        for child in parent_sample.path.samples:
+        # Cast path to Tortilla to access .samples
+        tortilla = cast(Tortilla, parent_sample.path)
+        for child in tortilla.samples:
             if child.type == "FOLDER":
                 folder_path = f"{parent_path}{child.id}/"
                 folder_df = self._generate_folder_metadata(child)
@@ -401,10 +405,16 @@ def generate_field_schema(levels: list[pl.DataFrame]) -> dict[str, Any]:
     return field_schema
 
 
-def generate_pit_schema(
+def generate_pit_schema(  # noqa: C901
     dataframes: list[pl.DataFrame], debug: bool = False
 ) -> dict[str, Any]:
-    """Generate Position-Isomorphic Tree (PIT) schema."""
+    """
+    Generate Position-Isomorphic Tree (PIT) schema.
+
+    NOTE: This function has high cyclomatic complexity (C901) but is intentionally
+    kept as a single function for algorithmic clarity. The PIT schema generation
+    is inherently complex and splitting it would reduce readability.
+    """
     if not dataframes:
         raise PITValidationError("Need at least one DataFrame to generate schema")
 

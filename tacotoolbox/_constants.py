@@ -4,7 +4,7 @@ Global constants for tacotoolbox.
 Organization:
 - SHARED_*    : Used by both ZIP and FOLDER containers
 - ZIP_*       : ZIP container specific
-- FOLDER_*    : FOLDER container specific  
+- FOLDER_*    : FOLDER container specific
 - TACOCAT_*   : TacoCat format specific
 - METADATA_*  : Metadata column names
 - PADDING_*   : Padding-related constants
@@ -54,7 +54,7 @@ SHARED_MAX_DEPTH = 5
 SHARED_MAX_LEVELS = 6
 """
 Total number of possible levels (0 through 5) plus COLLECTION.json location.
-In TACO containers, we have 5 metadata levels (level0-level5) plus the 
+In TACO containers, we have 5 metadata levels (level0-level5) plus the
 COLLECTION.json entry, making 6 entries total in the TACO_HEADER.
 """
 
@@ -79,7 +79,7 @@ PARQUET_CDC_DEFAULT_CONFIG = {
 """
 Default Parquet config with CDC enabled for consolidated metadata.
 
-Content-Defined Chunking (CDC) ensures consistent data page boundaries for 
+Content-Defined Chunking (CDC) ensures consistent data page boundaries for
 efficient deduplication on content-addressable storage systems.
 
 CRITICAL: This config is for PyArrow's pq.write_table(), NOT Polars df.write_parquet().

@@ -6,7 +6,7 @@ Users can configure logging behavior externally via standard logging config.
 
 Usage:
     from tacotoolbox._logging import get_logger
-    
+
     logger = get_logger(__name__)
     logger.debug("Detailed info for debugging")
     logger.info("General information")
@@ -15,13 +15,13 @@ Usage:
 
 Configuration (by user):
     import logging
-    
+
     # Set level for all tacotoolbox
     logging.getLogger("tacotoolbox").setLevel(logging.DEBUG)
-    
+
     # Set level for specific module
     logging.getLogger("tacotoolbox.create").setLevel(logging.INFO)
-    
+
     # Add custom handler
     handler = logging.FileHandler("taco.log")
     handler.setFormatter(logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s"))
@@ -29,8 +29,6 @@ Configuration (by user):
 """
 
 import logging
-from typing import Optional
-
 
 # Default format for tacotoolbox logs
 DEFAULT_FORMAT = "%(levelname)s [%(name)s] %(message)s"
@@ -56,17 +54,12 @@ def get_logger(name: str) -> logging.Logger:
     """
     # Ensure name is within tacotoolbox namespace
     if not name.startswith("tacotoolbox"):
-        if name == "__main__":
-            name = "tacotoolbox"
-        else:
-            name = f"tacotoolbox.{name}"
+        name = "tacotoolbox" if name == "__main__" else f"tacotoolbox.{name}"
 
     return logging.getLogger(name)
 
 
-def setup_basic_logging(
-    level: int = logging.INFO, format: Optional[str] = None
-) -> None:
+def setup_basic_logging(level: int = logging.INFO, fmt: str | None = None) -> None:
     """
     Setup basic logging configuration for tacotoolbox.
 
@@ -76,7 +69,7 @@ def setup_basic_logging(
 
     Args:
         level: Logging level (default: INFO)
-        format: Log message format (default: DEFAULT_FORMAT)
+        fmt: Log message format (default: DEFAULT_FORMAT)
 
     Example:
         >>> from tacotoolbox._logging import setup_basic_logging
@@ -86,10 +79,10 @@ def setup_basic_logging(
         >>> setup_basic_logging(level=logging.DEBUG)
         >>>
         >>> # Custom format
-        >>> setup_basic_logging(format="%(asctime)s - %(message)s")
+        >>> setup_basic_logging(fmt="%(asctime)s - %(message)s")
     """
-    if format is None:
-        format = DEFAULT_FORMAT
+    if fmt is None:
+        fmt = DEFAULT_FORMAT
 
     # Configure root tacotoolbox logger
     logger = logging.getLogger("tacotoolbox")
@@ -99,7 +92,7 @@ def setup_basic_logging(
     if not logger.handlers:
         handler = logging.StreamHandler()
         handler.setLevel(level)
-        handler.setFormatter(logging.Formatter(format))
+        handler.setFormatter(logging.Formatter(fmt))
         logger.addHandler(handler)
 
     # Prevent propagation to root logger (avoid duplicate logs)

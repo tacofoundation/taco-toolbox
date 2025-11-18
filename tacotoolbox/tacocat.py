@@ -58,12 +58,12 @@ consolidates all datasets into a single file with optimal query performance.
 │  ┌────────────────────────────────────────────────────────────────────┐     │
 │  │ Standard columns from original tacozip files, plus:                │     │
 │  │ internal:source_file : str  │  Source tacozip filename             │     │
-│  │                                                                     │     │
+│  │                                                                    │     │
 │  │ Original internal:offset and internal:size are preserved.          │     │
-│  │ GDAL VSI construction:                                              │     │
+│  │ GDAL VSI construction:                                             │     │
 │  │ /vsisubfile/{offset}_{size},{base_path}/{internal:source_file}     │     │
-│  │                                                                     │     │
-│  │ Example:                                                            │     │
+│  │                                                                    │     │
+│  │ Example:                                                           │     │
 │  │ /vsisubfile/1024_5000,/vsis3/bucket/base_dir/part0001.tacozip      │     │
 │  └────────────────────────────────────────────────────────────────────┘     │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -73,7 +73,7 @@ import json
 import struct
 from io import BytesIO
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import polars as pl
 import tacozip
@@ -184,7 +184,7 @@ class TacoCatWriter:
         except Exception as e:
             raise TacoCatError(
                 f"Invalid TACO file (cannot read header): {path}\n  Error: {e}"
-            )
+            ) from e
 
         self.datasets.append(path)
 
@@ -226,52 +226,86 @@ class TacoCatWriter:
         levels_data: dict[int, list[pl.DataFrame]] = {}
         reference_schemas: dict[int, dict] = {}
 
+        # Process each dataset
         for idx, dataset_path in enumerate(self.datasets):
             if not self.quiet:
                 print(
                     f"  [{idx+1}/{len(self.datasets)}] Processing {dataset_path.name}"
                 )
 
-            try:
-                entries = tacozip.read_header(str(dataset_path))
-            except Exception as e:
-                raise TacoCatError(f"Failed to read header from {dataset_path}: {e}")
+            self._process_single_dataset(
+                dataset_path, levels_data, reference_schemas, validate_schema
+            )
 
-            with open(dataset_path, "rb") as f:
-                for level_idx, (offset, size) in enumerate(entries[:-1]):
-                    level = level_idx
+        # Consolidate all levels
+        return self._consolidate_levels(levels_data)
 
-                    if size == 0:
-                        continue
+    def _process_single_dataset(
+        self,
+        dataset_path: Path,
+        levels_data: dict[int, list[pl.DataFrame]],
+        reference_schemas: dict[int, dict],
+        validate_schema: bool,
+    ) -> None:
+        """Process a single dataset and add its DataFrames to levels_data."""
+        try:
+            entries = tacozip.read_header(str(dataset_path))
+        except Exception as e:
+            raise TacoCatError(f"Failed to read header from {dataset_path}: {e}") from e
 
-                    self.max_depth = max(self.max_depth, level)
+        with open(dataset_path, "rb") as f:
+            for level_idx, (offset, size) in enumerate(entries[:-1]):
+                if size == 0:
+                    continue
 
-                    f.seek(offset)
-                    parquet_bytes = f.read(size)
-                    df = pl.read_parquet(BytesIO(parquet_bytes))
+                level = level_idx
+                self.max_depth = max(self.max_depth, level)
 
-                    df = df.with_columns(
-                        pl.lit(dataset_path.name).alias("internal:source_file")
+                df = self._read_level_dataframe(f, offset, size, dataset_path)
+
+                if validate_schema:
+                    self._validate_schema_for_level(
+                        df, level, dataset_path, reference_schemas
                     )
 
-                    if validate_schema:
-                        current_schema = dict(df.schema)
+                if level not in levels_data:
+                    levels_data[level] = []
 
-                        if level in reference_schemas:
-                            if current_schema != reference_schemas[level]:
-                                raise SchemaValidationError(
-                                    f"Schema mismatch at level {level} in {dataset_path.name}\n"
-                                    f"Expected columns: {list(reference_schemas[level].keys())}\n"
-                                    f"Got columns: {list(current_schema.keys())}"
-                                )
-                        else:
-                            reference_schemas[level] = current_schema
+                levels_data[level].append(df)
 
-                    if level not in levels_data:
-                        levels_data[level] = []
+    def _read_level_dataframe(
+        self, f: Any, offset: int, size: int, dataset_path: Path
+    ) -> pl.DataFrame:
+        """Read a single level DataFrame from file."""
+        f.seek(offset)
+        parquet_bytes = f.read(size)
+        df = pl.read_parquet(BytesIO(parquet_bytes))
+        return df.with_columns(pl.lit(dataset_path.name).alias("internal:source_file"))
 
-                    levels_data[level].append(df)
+    def _validate_schema_for_level(
+        self,
+        df: pl.DataFrame,
+        level: int,
+        dataset_path: Path,
+        reference_schemas: dict[int, dict],
+    ) -> None:
+        """Validate DataFrame schema against reference schema for level."""
+        current_schema = dict(df.schema)
 
+        if level in reference_schemas:
+            if current_schema != reference_schemas[level]:
+                raise SchemaValidationError(
+                    f"Schema mismatch at level {level} in {dataset_path.name}\n"
+                    f"Expected columns: {list(reference_schemas[level].keys())}\n"
+                    f"Got columns: {list(current_schema.keys())}"
+                )
+        else:
+            reference_schemas[level] = current_schema
+
+    def _consolidate_levels(
+        self, levels_data: dict[int, list[pl.DataFrame]]
+    ) -> tuple[dict[int, bytes], dict[int, int]]:
+        """Consolidate DataFrames by level and serialize to bytes."""
         levels_bytes = {}
         consolidated_counts = {}
 
@@ -281,15 +315,12 @@ class TacoCatWriter:
                     f"  Consolidating level {level} ({len(levels_data[level])} DataFrames)..."
                 )
 
-            # Align schemas before concatenating
-            # Different tacozips may have different extensions (geotiff:stats vs scaling:scale_factor)
-            # Without this, pl.concat fails with: ShapeError: unable to append DataFrame of width X with width Y
             aligned_dfs = align_dataframe_schemas(levels_data[level])
             consolidated_df = pl.concat(aligned_dfs, how="vertical")
             consolidated_counts[level] = len(consolidated_df)
 
             buffer = BytesIO()
-            consolidated_df.write_parquet(buffer, **self.parquet_config)
+            consolidated_df.write_parquet(buffer, **cast(Any, self.parquet_config))
             levels_bytes[level] = buffer.getvalue()
 
             if not self.quiet:
@@ -299,6 +330,14 @@ class TacoCatWriter:
                 )
 
         return levels_bytes, consolidated_counts
+
+    def _raise_empty_header_error(self, dataset_name: str) -> None:
+        """Helper to raise empty header error."""
+        raise TacoCatError(f"Empty header in {dataset_name}")
+
+    def _raise_empty_collection_error(self, dataset_name: str) -> None:
+        """Helper to raise empty collection error."""
+        raise TacoCatError(f"Empty collection in {dataset_name}")
 
     def _merge_collections(self, consolidated_counts: dict[int, int]) -> bytes:
         """
@@ -310,49 +349,70 @@ class TacoCatWriter:
         collections = []
 
         for dataset_path in self.datasets:
-            try:
-                entries = tacozip.read_header(str(dataset_path))
-
-                if len(entries) == 0:
-                    raise TacoCatError(f"Empty header in {dataset_path.name}")
-
-                collection_offset, collection_size = entries[-1]
-
-                if collection_size == 0:
-                    raise TacoCatError(f"Empty collection in {dataset_path.name}")
-
-                with open(dataset_path, "rb") as f:
-                    f.seek(collection_offset)
-                    collection_bytes = f.read(collection_size)
-                    collection = json.loads(collection_bytes)
-                    collections.append(collection)
-            except Exception as e:
-                raise TacoCatError(
-                    f"Failed to read collection from {dataset_path.name}: {e}"
-                )
+            collection = self._read_single_collection(dataset_path)
+            collections.append(collection)
 
         if not collections:
             raise TacoCatError("No valid collections found in any dataset")
 
         merged_collection = collections[0].copy()
+        self._update_pit_schema_counts(merged_collection, consolidated_counts)
+        self._add_tacocat_metadata(merged_collection)
 
-        if "taco:pit_schema" in merged_collection:
-            pit_schema = merged_collection["taco:pit_schema"]
+        return json.dumps(merged_collection, indent=2).encode("utf-8")
 
-            if 0 in consolidated_counts:
-                pit_schema["root"]["n"] = consolidated_counts[0]
+    def _read_single_collection(self, dataset_path: Path) -> dict[str, Any]:
+        """Read COLLECTION.json from a single dataset."""
+        try:
+            entries = tacozip.read_header(str(dataset_path))
 
-            if "hierarchy" in pit_schema:
-                for depth_str, patterns in pit_schema["hierarchy"].items():
-                    depth = int(depth_str)
-                    if depth in consolidated_counts:
-                        for pattern in patterns:
-                            pattern["n"] = consolidated_counts[depth]
+            if len(entries) == 0:
+                self._raise_empty_header_error(dataset_path.name)
 
-        # Store source filenames for provenance tracking
-        # Maps directly to internal:source_file column in metadata
-        # Sorted alphabetically for consistency
-        merged_collection["_tacocat"] = {
+            collection_offset, collection_size = entries[-1]
+
+            if collection_size == 0:
+                self._raise_empty_collection_error(dataset_path.name)
+
+            with open(dataset_path, "rb") as f:
+                f.seek(collection_offset)
+                collection_bytes = f.read(collection_size)
+                return json.loads(collection_bytes)
+        except Exception as e:
+            raise TacoCatError(
+                f"Failed to read collection from {dataset_path.name}: {e}"
+            ) from e
+
+    def _raise_empty_header_error(self, dataset_name: str) -> None:
+        """Helper to raise empty header error."""
+        raise TacoCatError(f"Empty header in {dataset_name}")
+
+    def _raise_empty_collection_error(self, dataset_name: str) -> None:
+        """Helper to raise empty collection error."""
+        raise TacoCatError(f"Empty collection in {dataset_name}")
+
+    def _update_pit_schema_counts(
+        self, collection: dict[str, Any], consolidated_counts: dict[int, int]
+    ) -> None:
+        """Update PIT schema counts with consolidated values."""
+        if "taco:pit_schema" not in collection:
+            return
+
+        pit_schema = collection["taco:pit_schema"]
+
+        if 0 in consolidated_counts:
+            pit_schema["root"]["n"] = consolidated_counts[0]
+
+        if "hierarchy" in pit_schema:
+            for depth_str, patterns in pit_schema["hierarchy"].items():
+                depth = int(depth_str)
+                if depth in consolidated_counts:
+                    for pattern in patterns:
+                        pattern["n"] = consolidated_counts[depth]
+
+    def _add_tacocat_metadata(self, collection: dict[str, Any]) -> None:
+        """Add TacoCat-specific metadata to collection."""
+        collection["_tacocat"] = {
             "version": TACOCAT_VERSION,
             "num_datasets": len(self.datasets),
             "dataset_sources": sorted(
@@ -360,13 +420,11 @@ class TacoCatWriter:
             ),
         }
 
-        return json.dumps(merged_collection, indent=2).encode("utf-8")
-
     def _calculate_offsets(
         self, levels_bytes: dict[int, bytes], collection_bytes: bytes
     ) -> dict[int | str, tuple[int, int]]:
         """Calculate byte offsets for all data sections."""
-        offsets = {}
+        offsets: dict[int | str, tuple[int, int]] = {}
         current_offset = TACOCAT_TOTAL_HEADER_SIZE
 
         for level in range(TACOCAT_MAX_LEVELS):

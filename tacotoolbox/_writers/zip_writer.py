@@ -96,7 +96,7 @@ class ZipWriter:
             f"ZipWriter initialized: output={output_path}, temp_dir={self.temp_dir}"
         )
 
-    def create_complete_zip(
+    def create_complete_zip(  # noqa: C901
         self,
         src_files: list[str],
         arc_files: list[str],
@@ -129,6 +129,11 @@ class ZipWriter:
             ...     src_files, arc_files, metadata_package,
             ...     compression_level=22  # Override default compression
             ... )
+
+        Note:
+            This function has high cyclomatic complexity (C901) but is intentionally
+            kept as a single orchestrator function. The bottom-up ZIP creation
+            algorithm is inherently complex and splitting it would reduce clarity.
         """
         try:
             logger.info("Starting bottom-up __meta__ generation")
@@ -157,7 +162,8 @@ class ZipWriter:
 
             # Step 4: Generate __meta__ files (bottom-up)
             temp_meta_files = {}
-            enriched_metadata_by_depth = {}
+            # Annotated to fix mypy error
+            enriched_metadata_by_depth: dict[int, list[pl.DataFrame]] = {}
             max_depth = max(folders_by_depth.keys()) if folders_by_depth else 0
 
             # Bottom-up: Start from deepest folders
@@ -364,14 +370,13 @@ class ZipWriter:
 
             tacozip.update_header(zip_path=str(self.output_path), entries=real_entries)
 
+        except Exception:
+            logger.exception("Failed to create ZIP")
+            raise
+        else:
             logger.info(f"ZIP created successfully: {self.output_path}")
             return self.output_path
-
-        except Exception as e:
-            logger.error(f"Failed to create ZIP: {e}")
-            raise ZipWriterError(f"Failed to create ZIP: {e}") from e
         finally:
-            # CRITICAL: Always cleanup temporary files
             self._cleanup()
 
     def _register_temp_file(self, path: pathlib.Path) -> None:
@@ -435,38 +440,19 @@ class ZipWriter:
         offsets = []
         sizes = []
 
-        with zipfile.ZipFile(self.output_path, "r") as zf:
-            with open(self.output_path, "rb") as f:
-                parquet_files = [
-                    info
-                    for info in zf.infolist()
-                    if info.filename.startswith("METADATA/")
-                    and info.filename.endswith(".parquet")
-                ]
+        with zipfile.ZipFile(self.output_path, "r") as zf, open(
+            self.output_path, "rb"
+        ) as f:
+            parquet_files = [
+                info
+                for info in zf.infolist()
+                if info.filename.startswith("METADATA/")
+                and info.filename.endswith(".parquet")
+            ]
 
-                parquet_files.sort(key=lambda x: x.filename)
+            parquet_files.sort(key=lambda x: x.filename)
 
-                for info in parquet_files:
-                    f.seek(info.header_offset)
-                    lfh = f.read(30)
-
-                    filename_len = int.from_bytes(lfh[26:28], "little")
-                    extra_len = int.from_bytes(lfh[28:30], "little")
-
-                    data_offset = info.header_offset + 30 + filename_len + extra_len
-                    data_size = info.compress_size
-
-                    offsets.append(data_offset)
-                    sizes.append(data_size)
-
-        return offsets, sizes
-
-    def _get_collection_offset(self) -> tuple[int, int]:
-        """Get offset and size for COLLECTION.json."""
-        with zipfile.ZipFile(self.output_path, "r") as zf:
-            with open(self.output_path, "rb") as f:
-                info = zf.getinfo("COLLECTION.json")
-
+            for info in parquet_files:
                 f.seek(info.header_offset)
                 lfh = f.read(30)
 
@@ -476,7 +462,28 @@ class ZipWriter:
                 data_offset = info.header_offset + 30 + filename_len + extra_len
                 data_size = info.compress_size
 
-                return data_offset, data_size
+                offsets.append(data_offset)
+                sizes.append(data_size)
+
+        return offsets, sizes
+
+    def _get_collection_offset(self) -> tuple[int, int]:
+        """Get offset and size for COLLECTION.json."""
+        with zipfile.ZipFile(self.output_path, "r") as zf, open(
+            self.output_path, "rb"
+        ) as f:
+            info = zf.getinfo("COLLECTION.json")
+
+            f.seek(info.header_offset)
+            lfh = f.read(30)
+
+            filename_len = int.from_bytes(lfh[26:28], "little")
+            extra_len = int.from_bytes(lfh[28:30], "little")
+
+            data_offset = info.header_offset + 30 + filename_len + extra_len
+            data_size = info.compress_size
+
+            return data_offset, data_size
 
     def _cleanup(self) -> None:
         """Clean up all temporary files created during ZIP creation."""
@@ -498,8 +505,9 @@ def _add_zip_offsets(
     - FILE samples: offset points to actual data file in ZIP
     - FOLDER samples: offset points to child's __meta__ file in ZIP
     """
-    offsets = []
-    sizes = []
+    # Annotate lists to allow None values
+    offsets: list[int | None] = []
+    sizes: list[int | None] = []
     missing_offsets = []
 
     for row in metadata_df.iter_rows(named=True):
@@ -509,16 +517,16 @@ def _add_zip_offsets(
         # Determine archive path based on type
         if sample_type == "FOLDER":
             # FOLDER: points to __meta__ file
-            if folder_path:
-                arc_path = f"{folder_path}{sample_id}/__meta__"
-            else:
-                arc_path = f"DATA/{sample_id}/__meta__"
+            arc_path = (
+                f"{folder_path}{sample_id}/__meta__"
+                if folder_path
+                else f"DATA/{sample_id}/__meta__"
+            )
         else:
             # FILE: points to actual data file
-            if folder_path:
-                arc_path = f"{folder_path}{sample_id}"
-            else:
-                arc_path = f"DATA/{sample_id}"
+            arc_path = (
+                f"{folder_path}{sample_id}" if folder_path else f"DATA/{sample_id}"
+            )
 
         # Look up offset and size
         if arc_path in offsets_map:

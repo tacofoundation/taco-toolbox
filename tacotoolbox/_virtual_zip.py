@@ -83,7 +83,7 @@ class VirtualTACOZIP:
         - Total archive size >= 4GB
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize empty virtual ZIP structure."""
         self.files: list[VirtualFile] = []
         self.current_offset: int = 0

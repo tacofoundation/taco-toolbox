@@ -112,53 +112,80 @@ def _read_collections(tacozips: list[str | Path]) -> list[dict[str, Any]]:
     collections = []
 
     for tacozip_path in tacozips:
-        path = Path(tacozip_path)
-
-        if not path.exists():
-            raise CollectionError(f"File not found: {path}")
-
-        if not path.is_file():
-            raise CollectionError(f"Path is not a file: {path}")
-
-        if path.stat().st_size == 0:
-            raise CollectionError(f"File is empty: {path}")
-
-        try:
-            # Read TACO_HEADER
-            entries = tacozip.read_header(str(path))
-
-            if len(entries) == 0:
-                raise CollectionError(f"Empty TACO_HEADER in {path}")
-
-            # COLLECTION.json is always the LAST entry
-            collection_offset, collection_size = entries[-1]
-
-            if collection_size == 0:
-                raise CollectionError(f"Empty COLLECTION.json in {path}")
-
-            # Read COLLECTION.json directly
-            with open(path, "rb") as f:
-                f.seek(collection_offset)
-                collection_bytes = f.read(collection_size)
-                collection = json.loads(collection_bytes)
-
-                # Validate required fields
-                if "taco:pit_schema" not in collection:
-                    raise CollectionError(f"Missing 'taco:pit_schema' in {path}")
-
-                if "taco:field_schema" not in collection:
-                    raise CollectionError(f"Missing 'taco:field_schema' in {path}")
-
-                collections.append(collection)
-
-        except json.JSONDecodeError as e:
-            raise CollectionError(f"Invalid JSON in {path}: {e}")
-        except CollectionError:
-            raise
-        except Exception as e:
-            raise CollectionError(f"Failed to read collection from {path}: {e}")
+        collection = _read_single_collection(tacozip_path)
+        collections.append(collection)
 
     return collections
+
+
+def _read_single_collection(tacozip_path: str | Path) -> dict[str, Any]:
+    """Read COLLECTION.json from a single tacozip file."""
+    path = Path(tacozip_path)
+
+    # Validate file
+    _validate_tacozip_file(path)
+
+    # Read header and collection
+    try:
+        entries = tacozip.read_header(str(path))
+
+        if len(entries) == 0:
+            _raise_empty_header_error(path)
+
+        # COLLECTION.json is always the LAST entry
+        collection_offset, collection_size = entries[-1]
+
+        if collection_size == 0:
+            _raise_empty_collection_error(path)
+
+        # Read COLLECTION.json directly
+        with open(path, "rb") as f:
+            f.seek(collection_offset)
+            collection_bytes = f.read(collection_size)
+            collection = json.loads(collection_bytes)
+
+            # Validate required fields
+            _validate_collection_fields(collection, path)
+
+            return collection
+
+    except json.JSONDecodeError as e:
+        raise CollectionError(f"Invalid JSON in {path}: {e}") from e
+    except CollectionError:
+        raise
+    except Exception as e:
+        raise CollectionError(f"Failed to read collection from {path}: {e}") from e
+
+
+def _raise_empty_header_error(path: Path) -> None:
+    """Helper to raise empty TACO_HEADER error."""
+    raise CollectionError(f"Empty TACO_HEADER in {path}")
+
+
+def _raise_empty_collection_error(path: Path) -> None:
+    """Helper to raise empty COLLECTION.json error."""
+    raise CollectionError(f"Empty COLLECTION.json in {path}")
+
+
+def _validate_tacozip_file(path: Path) -> None:
+    """Validate that the tacozip file exists and is readable."""
+    if not path.exists():
+        raise CollectionError(f"File not found: {path}")
+
+    if not path.is_file():
+        raise CollectionError(f"Path is not a file: {path}")
+
+    if path.stat().st_size == 0:
+        raise CollectionError(f"File is empty: {path}")
+
+
+def _validate_collection_fields(collection: dict[str, Any], path: Path) -> None:
+    """Validate that collection has required fields."""
+    if "taco:pit_schema" not in collection:
+        raise CollectionError(f"Missing 'taco:pit_schema' in {path}")
+
+    if "taco:field_schema" not in collection:
+        raise CollectionError(f"Missing 'taco:field_schema' in {path}")
 
 
 def _validate_pit_structure(collections: list[dict[str, Any]]) -> None:
@@ -182,66 +209,98 @@ def _validate_pit_structure(collections: list[dict[str, Any]]) -> None:
     reference_hierarchy = reference_pit.get("hierarchy", {})
 
     for idx, collection in enumerate(collections[1:], start=1):
-        current_pit = collection.get("taco:pit_schema")
-        if not current_pit:
-            raise SchemaValidationError(f"Collection {idx} missing taco:pit_schema")
+        _validate_single_pit_structure(
+            collection, idx, reference_root_type, reference_hierarchy
+        )
 
-        # Validate root type
-        current_root_type = current_pit.get("root", {}).get("type")
-        if current_root_type != reference_root_type:
+
+def _validate_single_pit_structure(
+    collection: dict[str, Any],
+    idx: int,
+    reference_root_type: Any,
+    reference_hierarchy: dict[str, Any],
+) -> None:
+    """Validate PIT structure for a single collection against reference."""
+    current_pit = collection.get("taco:pit_schema")
+    if not current_pit:
+        raise SchemaValidationError(f"Collection {idx} missing taco:pit_schema")
+
+    # Validate root type
+    current_root_type = current_pit.get("root", {}).get("type")
+    if current_root_type != reference_root_type:
+        raise SchemaValidationError(
+            f"Collection {idx} has different root type:\n"
+            f"  Expected: {reference_root_type}\n"
+            f"  Got: {current_root_type}"
+        )
+
+    # Validate hierarchy structure
+    current_hierarchy = current_pit.get("hierarchy", {})
+
+    if set(current_hierarchy.keys()) != set(reference_hierarchy.keys()):
+        raise SchemaValidationError(
+            f"Collection {idx} has different hierarchy levels:\n"
+            f"  Expected: {sorted(reference_hierarchy.keys())}\n"
+            f"  Got: {sorted(current_hierarchy.keys())}"
+        )
+
+    # Validate type/id arrays per level
+    _validate_hierarchy_patterns(idx, reference_hierarchy, current_hierarchy)
+
+
+def _validate_hierarchy_patterns(
+    idx: int,
+    reference_hierarchy: dict[str, Any],
+    current_hierarchy: dict[str, Any],
+) -> None:
+    """Validate hierarchy patterns for a single collection."""
+    for level, ref_patterns in reference_hierarchy.items():
+        curr_patterns = current_hierarchy[level]
+
+        if len(ref_patterns) != len(curr_patterns):
             raise SchemaValidationError(
-                f"Collection {idx} has different root type:\n"
-                f"  Expected: {reference_root_type}\n"
-                f"  Got: {current_root_type}"
+                f"Collection {idx} level {level} has different pattern count:\n"
+                f"  Expected: {len(ref_patterns)}\n"
+                f"  Got: {len(curr_patterns)}"
             )
 
-        # Validate hierarchy structure
-        current_hierarchy = current_pit.get("hierarchy", {})
+        for pattern_idx, (ref_pattern, curr_pattern) in enumerate(
+            zip(ref_patterns, curr_patterns, strict=False)
+        ):
+            _validate_single_pattern(idx, level, pattern_idx, ref_pattern, curr_pattern)
 
-        if set(current_hierarchy.keys()) != set(reference_hierarchy.keys()):
-            raise SchemaValidationError(
-                f"Collection {idx} has different hierarchy levels:\n"
-                f"  Expected: {sorted(reference_hierarchy.keys())}\n"
-                f"  Got: {sorted(current_hierarchy.keys())}"
-            )
 
-        # Validate type/id arrays per level
-        for level, ref_patterns in reference_hierarchy.items():
-            curr_patterns = current_hierarchy[level]
+def _validate_single_pattern(
+    idx: int,
+    level: str,
+    pattern_idx: int,
+    ref_pattern: dict[str, Any],
+    curr_pattern: dict[str, Any],
+) -> None:
+    """Validate a single pattern against reference."""
+    # Check type arrays
+    ref_types = ref_pattern.get("type", [])
+    curr_types = curr_pattern.get("type", [])
 
-            if len(ref_patterns) != len(curr_patterns):
-                raise SchemaValidationError(
-                    f"Collection {idx} level {level} has different pattern count:\n"
-                    f"  Expected: {len(ref_patterns)}\n"
-                    f"  Got: {len(curr_patterns)}"
-                )
+    if ref_types != curr_types:
+        raise SchemaValidationError(
+            f"Collection {idx} level {level} pattern {pattern_idx} "
+            f"has different types:\n"
+            f"  Expected: {ref_types}\n"
+            f"  Got: {curr_types}"
+        )
 
-            for pattern_idx, (ref_pattern, curr_pattern) in enumerate(
-                zip(ref_patterns, curr_patterns, strict=False)
-            ):
-                # Check type arrays
-                ref_types = ref_pattern.get("type", [])
-                curr_types = curr_pattern.get("type", [])
+    # Check id arrays
+    ref_ids = ref_pattern.get("id", [])
+    curr_ids = curr_pattern.get("id", [])
 
-                if ref_types != curr_types:
-                    raise SchemaValidationError(
-                        f"Collection {idx} level {level} pattern {pattern_idx} "
-                        f"has different types:\n"
-                        f"  Expected: {ref_types}\n"
-                        f"  Got: {curr_types}"
-                    )
-
-                # Check id arrays
-                ref_ids = ref_pattern.get("id", [])
-                curr_ids = curr_pattern.get("id", [])
-
-                if ref_ids != curr_ids:
-                    raise SchemaValidationError(
-                        f"Collection {idx} level {level} pattern {pattern_idx} "
-                        f"has different ids:\n"
-                        f"  Expected: {ref_ids}\n"
-                        f"  Got: {curr_ids}"
-                    )
+    if ref_ids != curr_ids:
+        raise SchemaValidationError(
+            f"Collection {idx} level {level} pattern {pattern_idx} "
+            f"has different ids:\n"
+            f"  Expected: {ref_ids}\n"
+            f"  Got: {curr_ids}"
+        )
 
 
 def _validate_field_schema(collections: list[dict[str, Any]]) -> None:

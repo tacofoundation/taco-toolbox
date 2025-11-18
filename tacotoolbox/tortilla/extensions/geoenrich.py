@@ -15,11 +15,12 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import lru_cache
 from importlib.resources import as_file, files
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import polars as pl
 import pydantic
 from pydantic import Field
+from shapely.geometry import Point
 from shapely.wkb import loads as wkb_loads
 from tqdm import tqdm
 
@@ -192,7 +193,7 @@ PRODUCT_CONFIGS = [
 
 # Auto-generated schema from PRODUCT_CONFIGS (never edit this manually)
 PRODUCT_SCHEMA: dict[str, pl.DataType] = {
-    name: dtype
+    name: dtype()
     for name, _path, _reducer, _band, _coll_type, _unmask, dtype in PRODUCT_CONFIGS
 }
 
@@ -202,21 +203,22 @@ PRODUCT_SCHEMA: dict[str, pl.DataType] = {
 # ============================================================================
 
 
-def _import_earth_engine():
+def _import_earth_engine() -> Any:
     """Lazy import of Earth Engine with helpful error message."""
     try:
         import ee
 
-        return ee
     except ImportError as e:
         raise ImportError(
             "Google Earth Engine API is required for the GeoEnrich extension.\n"
             "Install with: pip install earthengine-api\n"
             "Then authenticate: earthengine authenticate"
         ) from e
+    else:
+        return ee
 
 
-def get_geoenrich_products() -> list[dict]:
+def get_geoenrich_products() -> list[dict[str, Any]]:
     """
     Get all available Earth Engine products for geospatial enrichment.
 
@@ -296,7 +298,7 @@ def morton_key(lon: float, lat: float, bits: int = 24) -> int:
     return (_part1by1(xi) << 1) | _part1by1(yi)
 
 
-def _chunks(seq: list, size: int):
+def _chunks(seq: list, size: int) -> Any:
     """Yield consecutive chunks from sequence of specified size."""
     for i in range(0, len(seq), size):
         yield seq[i : i + size]
@@ -434,7 +436,8 @@ class GeoEnrich(TortillaExtension):
         """Extract coordinate points from DataFrame and sort spatially."""
         points = []
         for i, row in enumerate(df.iter_rows(named=True)):
-            geom = wkb_loads(row["stac:centroid"])
+            # Cast to Point to access .x and .y attributes safely
+            geom = cast(Point, wkb_loads(row["stac:centroid"]))
             points.append((i, float(geom.x), float(geom.y)))
 
         # Sort spatially using Morton key for better EE cache locality
@@ -463,7 +466,7 @@ class GeoEnrich(TortillaExtension):
         mode_cols = ["mode"] + [f"mode_{i}" for i in range(1, len(products))]
         rename_map = {
             mode_col: product["name"]
-            for mode_col, product in zip(mode_cols, products)
+            for mode_col, product in zip(mode_cols, products, strict=False)
             if mode_col in df.columns
         }
         return df.rename(rename_map)

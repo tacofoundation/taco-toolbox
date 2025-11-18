@@ -16,6 +16,9 @@ Key features:
 import asyncio
 import json
 import pathlib
+import re
+from datetime import UTC, datetime
+from typing import Any, cast
 
 import polars as pl
 from tacoreader import TacoDataset
@@ -29,7 +32,7 @@ from tacotoolbox._column_utils import (
 from tacotoolbox._constants import FOLDER_DATA_DIR, FOLDER_METADATA_DIR
 from tacotoolbox._logging import get_logger
 from tacotoolbox._progress import progress_gather
-from tacotoolbox.io import download_range
+from tacotoolbox.remote_io import download_range
 
 logger = get_logger(__name__)
 
@@ -42,6 +45,30 @@ def _get_available_levels(dataset: TacoDataset) -> list[str]:
     """Get list of available level views from pit_schema.max_depth()."""
     max_depth = dataset.pit_schema.max_depth()
     return [f"level{i}" for i in range(max_depth + 1)]
+
+
+def _sanitize_sql_identifier(identifier: str) -> str:
+    """
+    Sanitize SQL table/view name to prevent injection.
+
+    Validates that identifier contains only alphanumeric characters and underscores.
+    Used for level names (level0, level1, etc.) to satisfy S608 checks.
+
+    Args:
+        identifier: SQL identifier to sanitize
+
+    Returns:
+        The same identifier if valid
+
+    Raises:
+        ValueError: If identifier contains invalid characters
+    """
+    if not re.match(r"^[a-zA-Z0-9_]+$", identifier):
+        raise ValueError(
+            f"Invalid SQL identifier: '{identifier}'. "
+            f"Must contain only alphanumeric characters and underscores."
+        )
+    return identifier
 
 
 class ExportWriter:
@@ -109,12 +136,12 @@ class ExportWriter:
             self._generate_consolidated_metadata()
             self._generate_collection_json()
 
+        except Exception:
+            logger.exception("Failed to export FOLDER")
+            raise
+        else:
             logger.info(f"FOLDER export complete: {self.output}")
             return self.output
-
-        except Exception as e:
-            logger.error(f"Failed to export FOLDER: {e}")
-            raise ExportWriterError(f"Failed to export FOLDER: {e}") from e
 
     def _validate_dataset(self) -> None:
         """
@@ -169,10 +196,11 @@ class ExportWriter:
             for row in files_df.iter_rows(named=True):
                 vsi_path = row["internal:gdal_vsi"]
 
-                if "internal:relative_path" in row and row["internal:relative_path"]:
-                    relative_path = row["internal:relative_path"]
-                else:
-                    relative_path = row["id"]
+                relative_path = (
+                    row["internal:relative_path"]
+                    if row.get("internal:relative_path")
+                    else row["id"]
+                )
 
                 dest = self.data_dir / relative_path
 
@@ -208,7 +236,7 @@ class ExportWriter:
         - /vsisubfile/... paths (ZIP entries): Downloads bytes from offset/size
         - Regular filesystem paths: Direct file copy
 
-        Uses tacotoolbox.io for all remote downloads (S3/HTTP/GCS).
+        Uses tacotoolbox.remote_io for all remote downloads (S3/HTTP/GCS).
         Local file I/O uses sync operations as they're fast and not the bottleneck.
         """
         async with semaphore:
@@ -225,7 +253,7 @@ class ExportWriter:
                         f.seek(offset)
                         data = f.read(size)
                 else:
-                    # Remote file: use tacotoolbox.io.download_range
+                    # Remote file: use tacotoolbox.remote_io.download_range
                     # Convert sync download_range to async with to_thread
                     data = await asyncio.to_thread(
                         download_range, clean_url, offset, size
@@ -243,7 +271,7 @@ class ExportWriter:
 
     async def _copy_folder_recursive(
         self,
-        folder_row: dict,
+        folder_row: dict[str, Any],
         level: int,
         semaphore: asyncio.Semaphore,
     ) -> None:
@@ -256,10 +284,9 @@ class ExportWriter:
         3. Process all children concurrently (both FOLDERs and FILEs)
         4. Write local __meta__ file with children metadata (PARQUET format)
         """
-        if level == 0:
-            relative_path = folder_row["id"]
-        else:
-            relative_path = folder_row["internal:relative_path"]
+        relative_path = (
+            folder_row["id"] if level == 0 else folder_row["internal:relative_path"]
+        )
 
         folder_path = self.data_dir / relative_path
         folder_path.mkdir(parents=True, exist_ok=True)
@@ -274,23 +301,25 @@ class ExportWriter:
         if view_name not in available_levels:
             return
 
+        # Sanitize view_name before using in SQL
+        safe_view_name = _sanitize_sql_identifier(view_name)
+
         # Query children from next level
-        if "internal:source_file" in folder_row and folder_row["internal:source_file"]:
+        if folder_row.get("internal:source_file"):
             # TacoCat case: need to filter by both parent_id AND source_file
-            children_df = pl.from_arrow(
-                self.dataset._duckdb.execute(
-                    f'SELECT * FROM {view_name} WHERE "internal:parent_id" = ? AND "internal:source_file" = ?',
-                    [parent_id, folder_row["internal:source_file"]],
-                ).fetch_arrow_table()
-            )
+            arrow_table = self.dataset._duckdb.execute(
+                f'SELECT * FROM {safe_view_name} WHERE "internal:parent_id" = ? AND "internal:source_file" = ?',  # noqa: S608
+                [parent_id, folder_row["internal:source_file"]],
+            ).fetch_arrow_table()
         else:
             # Single TACO case: only filter by parent_id
-            children_df = pl.from_arrow(
-                self.dataset._duckdb.execute(
-                    f'SELECT * FROM {view_name} WHERE "internal:parent_id" = ?',
-                    [parent_id],
-                ).fetch_arrow_table()
-            )
+            arrow_table = self.dataset._duckdb.execute(
+                f'SELECT * FROM {safe_view_name} WHERE "internal:parent_id" = ?',  # noqa: S608
+                [parent_id],
+            ).fetch_arrow_table()
+
+        # Cast to DataFrame because pl.from_arrow returns DataFrame | Series
+        children_df = cast(pl.DataFrame, pl.from_arrow(arrow_table))
 
         # Process each child concurrently
         tasks = []
@@ -299,10 +328,7 @@ class ExportWriter:
             child_vsi = child_row["internal:gdal_vsi"]
 
             # Level 1+ has internal:relative_path, level 0 uses id
-            if (
-                "internal:relative_path" in child_row
-                and child_row["internal:relative_path"]
-            ):
+            if child_row.get("internal:relative_path"):
                 child_rel = child_row["internal:relative_path"]
             else:
                 child_rel = child_row["id"]
@@ -340,15 +366,19 @@ class ExportWriter:
         # Get available levels from pit_schema
         level_names = _get_available_levels(self.dataset)
 
-        parent_id_mapping = None
+        parent_id_mapping: dict[int, int] | None = None
 
         for level_name in level_names:
+            # Sanitize level_name before using in SQL
+            safe_level_name = _sanitize_sql_identifier(level_name)
+
             # Read from DuckDB instead of physical files
-            df = pl.from_arrow(
-                self.dataset._duckdb.execute(
-                    f"SELECT * FROM {level_name}"
-                ).fetch_arrow_table()
-            )
+            arrow_table = self.dataset._duckdb.execute(
+                f"SELECT * FROM {safe_level_name}"  # noqa: S608
+            ).fetch_arrow_table()
+
+            # Cast to DataFrame because pl.from_arrow returns DataFrame | Series
+            df = cast(pl.DataFrame, pl.from_arrow(arrow_table))
 
             if level_name == "level0":
                 # Filter to selected samples
@@ -367,6 +397,13 @@ class ExportWriter:
                 filtered_df = filtered_df.rechunk()
                 filtered_df = reorder_internal_columns(filtered_df)
             else:
+                # Replace assert with explicit raise
+                if parent_id_mapping is None:
+                    raise RuntimeError(
+                        "Logic error: level0 must be processed before sublevels. "
+                        "This indicates a bug in metadata generation ordering."
+                    )
+
                 # Filter to children of selected parents
                 old_parent_ids_to_keep = set(parent_id_mapping.keys())
                 filtered_df = df.filter(
@@ -415,10 +452,7 @@ class ExportWriter:
 
         # Add subset provenance
         collection["taco:subset_of"] = collection.get("id", "unknown")
-
-        from datetime import datetime, timezone
-
-        collection["taco:subset_date"] = datetime.now(timezone.utc).isoformat()
+        collection["taco:subset_date"] = datetime.now(UTC).isoformat()
 
         # Write to file
         output_path = self.output / "COLLECTION.json"

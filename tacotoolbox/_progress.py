@@ -6,24 +6,24 @@ and easy suppression via context manager.
 
 Usage:
     from tacotoolbox._progress import ProgressContext, progress_bar
-    
+
     # Suppress all progress bars in a block
     with ProgressContext(quiet=True):
         # No progress bars shown here
         for item in progress_bar(items, desc="Processing"):
             process(item)
-    
+
     # Normal usage with progress
     for item in progress_bar(items, desc="Processing", colour="green"):
         process(item)
 """
 
+from collections.abc import Generator, Iterable
 from contextlib import contextmanager
-from typing import Any, Generator, Iterable, Optional
+from typing import Any, Optional
 
 from tqdm import tqdm
 from tqdm.asyncio import tqdm as tqdm_asyncio
-
 
 # Global state for progress suppression
 _SUPPRESS_PROGRESS = False
@@ -61,10 +61,10 @@ def is_progress_suppressed() -> bool:
 
 def progress_bar(
     iterable: Iterable,
-    desc: Optional[str] = None,
-    total: Optional[int] = None,
+    desc: str | None = None,
+    total: int | None = None,
     unit: str = "it",
-    colour: Optional[str] = None,
+    colour: str | None = None,
     leave: bool = True,
     **kwargs: Any
 ) -> tqdm:
@@ -92,9 +92,9 @@ def progress_bar(
 
 async def progress_gather(
     *tasks,
-    desc: Optional[str] = None,
+    desc: str | None = None,
     unit: str = "task",
-    colour: Optional[str] = None,
+    colour: str | None = None,
     **kwargs: Any
 ):
     """
@@ -118,7 +118,7 @@ def progress_scope(
     desc: str,
     total: int,
     unit: str = "it",
-    colour: Optional[str] = None,
+    colour: str | None = None,
 ) -> Generator[tqdm, None, None]:
     """
     Context manager for manual progress bar updates.
@@ -149,8 +149,8 @@ def progress_scope(
 async def progress_map_async(
     func,
     items: Iterable,
-    desc: Optional[str] = None,
-    colour: Optional[str] = None,
+    desc: str | None = None,
+    colour: str | None = None,
     concurrency: int = 100,
 ):
     """Map async function over items with progress bar and concurrency limit."""

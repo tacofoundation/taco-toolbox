@@ -12,6 +12,7 @@ Key features:
 - Automatic cleanup of temporary files from bytes
 """
 
+import contextlib
 import pathlib
 import re
 import tempfile
@@ -119,7 +120,7 @@ class Sample(pydantic.BaseModel):
         extra="allow",  # Allow dynamic fields from extensions
     )
 
-    def __init__(self, temp_dir: pathlib.Path | None = None, **data):
+    def __init__(self, temp_dir: pathlib.Path | None = None, **data: Any) -> None:
         """Initialize Sample with optional temp_dir for bytes conversion."""
         # Handle temp_dir for bytes conversion without storing it
         if "path" in data and isinstance(data["path"], bytes):
@@ -208,22 +209,16 @@ class Sample(pydantic.BaseModel):
             return
 
         for temp_file in self._temp_files:
-            try:
+            with contextlib.suppress(Exception):
                 if temp_file.exists():
                     temp_file.unlink()
-            except Exception:
-                # Silently ignore cleanup errors
-                pass
 
         self._temp_files.clear()
 
-    def __del__(self):
+    def __del__(self) -> None:
         """Cleanup on garbage collection."""
-        try:
+        with contextlib.suppress(Exception):
             self.cleanup()
-        except Exception:
-            # Silently ignore cleanup errors during garbage collection
-            pass
 
     @pydantic.field_validator("id")
     @classmethod
@@ -278,7 +273,7 @@ class Sample(pydantic.BaseModel):
         )
 
     @pydantic.model_validator(mode="after")
-    def infer_and_validate_type(self):
+    def infer_and_validate_type(self) -> "Sample":
         """
         Infer type from path or validate explicit type.
 
@@ -335,7 +330,7 @@ class Sample(pydantic.BaseModel):
 
         return None
 
-    def _handle_sample_extension(self, extension) -> None:
+    def _handle_sample_extension(self, extension: Any) -> None:
         """Handle SampleExtension (callable with model_dump)."""
         computed_metadata = extension(self)
         if isinstance(computed_metadata, pl.DataFrame):
@@ -362,7 +357,7 @@ class Sample(pydantic.BaseModel):
         metadata_dict = extension.to_dicts()[0]
         self._add_metadata_fields(metadata_dict)
 
-    def _handle_dict_extension(self, extension: dict) -> None:
+    def _handle_dict_extension(self, extension: dict[str, Any]) -> None:
         """Handle dictionary extension."""
         # First, infer schemas from dict values and update _extension_schemas
         for key, value in extension.items():
@@ -372,7 +367,7 @@ class Sample(pydantic.BaseModel):
         # Then add the fields
         self._add_metadata_fields(extension)
 
-    def _handle_pydantic_extension(self, extension, name: str | None) -> None:
+    def _handle_pydantic_extension(self, extension: Any, name: str | None) -> None:
         """Handle Pydantic model extension."""
         namespace = name if name else extension.__class__.__name__.lower()
         if hasattr(extension, "model_dump"):
@@ -387,7 +382,7 @@ class Sample(pydantic.BaseModel):
                 f"Extension must be pydantic model or dict, got: {type(extension)}"
             )
 
-    def _add_metadata_fields(self, metadata_dict: dict) -> None:
+    def _add_metadata_fields(self, metadata_dict: dict[str, Any]) -> None:
         """Add metadata fields to the sample with validation."""
         for key, value in metadata_dict.items():
             self._validate_key(key)

@@ -19,6 +19,7 @@ import pathlib
 import shutil
 from typing import Any
 
+from tacotoolbox._column_utils import write_parquet_file, write_parquet_file_with_cdc
 from tacotoolbox._constants import (
     FOLDER_COLLECTION_FILENAME,
     FOLDER_DATA_DIR,
@@ -26,7 +27,6 @@ from tacotoolbox._constants import (
     FOLDER_METADATA_DIR,
     METADATA_PARENT_ID,
 )
-from tacotoolbox._column_utils import write_parquet_file, write_parquet_file_with_cdc
 from tacotoolbox._logging import get_logger
 from tacotoolbox._metadata import MetadataPackage
 from tacotoolbox._progress import ProgressContext, progress_bar, progress_scope
@@ -86,12 +86,12 @@ class FolderWriter:
                 self._write_consolidated_metadata(metadata_package, **kwargs)
                 self._write_collection_json(metadata_package)
 
+        except Exception:
+            logger.exception("Failed to create folder container")
+            raise
+        else:
             logger.info(f"Folder container created: {self.output_dir}/")
             return self.output_dir
-
-        except Exception as e:
-            logger.error(f"Failed to create folder container: {e}")
-            raise FolderWriterError(f"Failed to create folder container: {e}") from e
 
     def _create_structure(self) -> None:
         """Create base DATA/ and METADATA/ folders."""

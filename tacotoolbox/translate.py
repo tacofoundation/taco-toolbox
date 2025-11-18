@@ -61,12 +61,13 @@ async def zip2folder(
         )
 
         result = await writer.create_folder()
-        logger.info(f"Conversion complete: {result}")
-        return result
 
     except Exception as e:
-        logger.error(f"Failed to convert ZIP to FOLDER: {e}")
+        logger.exception("Failed to convert ZIP to FOLDER")
         raise TranslateError(f"Failed to convert ZIP to FOLDER: {e}") from e
+    else:
+        logger.info(f"Conversion complete: {result}")
+        return result
 
 
 def folder2zip(
@@ -92,6 +93,10 @@ def folder2zip(
     """
     folder_path = Path(folder_path)
     zip_output = Path(zip_output)
+
+    # Convert temp_dir to Path if string
+    if isinstance(temp_dir, str):
+        temp_dir = Path(temp_dir)
 
     try:
         logger.info(f"Converting FOLDER to ZIP: {folder_path} → {zip_output}")
@@ -134,12 +139,12 @@ def folder2zip(
                 **kwargs,
             )
 
+    except Exception as e:
+        logger.exception("Failed to convert FOLDER to ZIP")
+        raise TranslateError(f"Failed to convert FOLDER to ZIP: {e}") from e
+    else:
         logger.info(f"Conversion complete: {result}")
         return result
-
-    except Exception as e:
-        logger.error(f"Failed to convert FOLDER to ZIP: {e}")
-        raise TranslateError(f"Failed to convert FOLDER to ZIP: {e}") from e
 
 
 # =============================================================================
@@ -155,7 +160,7 @@ def _read_collection(folder_path: Path) -> dict:
         raise TranslateError(f"COLLECTION.json not found in {folder_path}")
 
     try:
-        with open(collection_path, "r", encoding="utf-8") as f:
+        with open(collection_path, encoding="utf-8") as f:
             collection = json.load(f)
     except json.JSONDecodeError as e:
         raise TranslateError(f"Invalid COLLECTION.json: {e}") from e

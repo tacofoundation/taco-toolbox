@@ -30,7 +30,6 @@ from tacotoolbox._constants import (
 )
 from tacotoolbox._utils import validate_depth
 
-
 if TYPE_CHECKING:
     from tacotoolbox.sample.datamodel import Sample
 
@@ -204,12 +203,15 @@ class Tortilla:
         resulting in missing files in the final container.
         """
         ids = [s.id for s in self.samples]
-        duplicates = {id: count for id, count in Counter(ids).items() if count > 1}
+        duplicates = {
+            sample_id: count for sample_id, count in Counter(ids).items() if count > 1
+        }
 
         if duplicates:
             # Show first 10 duplicates for debugging
             dup_list = ", ".join(
-                f"'{id}' ({count}x)" for id, count in list(duplicates.items())[:10]
+                f"'{sample_id}' ({count}x)"
+                for sample_id, count in list(duplicates.items())[:10]
             )
 
             raise ValueError(
@@ -286,14 +288,17 @@ class Tortilla:
             (i for i, sample in enumerate(self.samples) if sample.type == "FILE"), None
         )
 
-        if first_file_idx is not None and first_folder_idx is not None:
-            if first_file_idx < first_folder_idx:
-                warnings.warn(
-                    f"Consider placing FOLDERs before FILEs for better organization. "
-                    f"Found FILE at position {first_file_idx} before FOLDER at position {first_folder_idx}.",
-                    UserWarning,
-                    stacklevel=3,
-                )
+        if (
+            first_file_idx is not None
+            and first_folder_idx is not None
+            and first_file_idx < first_folder_idx
+        ):
+            warnings.warn(
+                f"Consider placing FOLDERs before FILEs for better organization. "
+                f"Found FILE at position {first_file_idx} before FOLDER at position {first_folder_idx}.",
+                UserWarning,
+                stacklevel=3,
+            )
 
     def _validate_inclusive_ids(self) -> None:
         """
@@ -458,30 +463,27 @@ class Tortilla:
             next_dfs = []
             next_samples = []
 
-            # Track cumulative global index across all parents
-            # Ensures parent_id references the correct row in consolidated DataFrame
-            global_parent_idx = 0
+            # Use enumerate instead of manual counter
+            for global_parent_idx, sample in enumerate(current_samples):
+                if sample.type == "FOLDER":
+                    # Cast to Tortilla to ensure mypy knows it has .samples
+                    tortilla_path = cast(Tortilla, sample.path)
 
-            for sample in current_samples:
-                if sample.type == "FOLDER" and sample.path.samples:
-                    # Sample has children - process them
-                    for child_sample in sample.path.samples:
-                        child_metadata_df = child_sample.export_metadata()
+                    if tortilla_path.samples:
+                        # Sample has children - process them
+                        for child_sample in tortilla_path.samples:
+                            child_metadata_df = child_sample.export_metadata()
 
-                        # Use Int64 for parent_id consistency across ALL levels
-                        # This ensures level0 (Int64) and level1+ (Int64) match for JOINs
-                        child_metadata_df = child_metadata_df.with_columns(
-                            pl.lit(global_parent_idx, dtype=pl.Int64).alias(
-                                METADATA_PARENT_ID
+                            # Use Int64 for parent_id consistency across ALL levels
+                            # This ensures level0 (Int64) and level1+ (Int64) match for JOINs
+                            child_metadata_df = child_metadata_df.with_columns(
+                                pl.lit(global_parent_idx, dtype=pl.Int64).alias(
+                                    METADATA_PARENT_ID
+                                )
                             )
-                        )
 
-                        next_dfs.append(child_metadata_df)
-                        next_samples.append(child_sample)
-
-                # Increment for every parent sample (FILE or FOLDER)
-                # Ensures parent_id mapping stays aligned with parent DataFrame indices
-                global_parent_idx += 1
+                            next_dfs.append(child_metadata_df)
+                            next_samples.append(child_sample)
 
             current_dfs = next_dfs
             current_samples = next_samples

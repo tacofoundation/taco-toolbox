@@ -14,11 +14,12 @@ Main components:
 """
 
 from abc import ABC, abstractmethod
-from datetime import datetime, timezone
-from typing import Literal
+from datetime import UTC, datetime, timezone
+from typing import Any, Literal, cast
 
 import polars as pl
 import pydantic
+from shapely.geometry import Point
 from shapely.wkb import loads as wkb_loads
 
 from tacotoolbox.tortilla.datamodel import Tortilla
@@ -82,7 +83,7 @@ class Contact(TacoExtension):
     role: str | None = None
 
     @pydantic.model_validator(mode="after")
-    def check_name_or_organization(self):
+    def check_name_or_organization(self) -> "Contact":
         if not self.name and not self.organization:
             raise ValueError("Either 'name' or 'organization' must be provided")
         return self
@@ -306,7 +307,7 @@ class Taco(pydantic.BaseModel):
         self.extent = Extent(spatial=[-180.0, -90.0, 180.0, 90.0], temporal=None)
         return self
 
-    def extend_with(self, extension):
+    def extend_with(self, extension: Any) -> None:
         """
         Add extension data to dataset.
 
@@ -346,11 +347,11 @@ class Taco(pydantic.BaseModel):
         extension_data = extension.to_dicts()[0]
         self._set_extension_attributes(extension_data)
 
-    def _handle_dict_extension(self, extension: dict) -> None:
+    def _handle_dict_extension(self, extension: dict[str, Any]) -> None:
         """Handle dictionary extension."""
         self._set_extension_attributes(extension)
 
-    def _handle_pydantic_extension(self, extension) -> None:
+    def _handle_pydantic_extension(self, extension: Any) -> None:
         """Handle Pydantic model extension."""
         if hasattr(extension, "model_dump"):
             extension_data = extension.model_dump()
@@ -360,7 +361,7 @@ class Taco(pydantic.BaseModel):
                 "Extension must be TacoExtension, DataFrame, dict, or pydantic model"
             )
 
-    def _set_extension_attributes(self, extension_data: dict) -> None:
+    def _set_extension_attributes(self, extension_data: dict[str, Any]) -> None:
         """Set extension fields as instance attributes."""
         for key, value in extension_data.items():
             setattr(self, key, value)
@@ -372,13 +373,13 @@ class Taco(pydantic.BaseModel):
         Preserves nested structures (Contact, Extent) without flattening.
         Includes core fields, Tortilla reference, and all extensions.
         """
-        metadata: dict = {}
+        metadata: dict[str, Any] = {}
 
         for key, value in self.__dict__.items():
             if key.startswith("_"):
                 continue
 
-            if isinstance(value, Contact) or isinstance(value, Extent):
+            if isinstance(value, Contact | Extent):
                 metadata[key] = value.model_dump()
 
             elif isinstance(value, list) and value and isinstance(value[0], Contact):
@@ -398,7 +399,9 @@ def _calculate_spatial_extent(df: pl.DataFrame, centroid_col: str) -> list[float
     Skips None values (padding samples).
     """
     centroids = [
-        wkb_loads(wkb) for wkb in df[centroid_col].to_list() if wkb is not None
+        cast(Point, wkb_loads(wkb))
+        for wkb in df[centroid_col].to_list()
+        if wkb is not None
     ]
 
     if not centroids:
@@ -448,9 +451,9 @@ def _calculate_temporal_extent(
 
             # Convert to UTC if not already (Polars Datetime without timezone is naive)
             if min_dt.tzinfo is None:
-                min_dt = min_dt.replace(tzinfo=timezone.utc)
+                min_dt = min_dt.replace(tzinfo=UTC)
             if max_dt.tzinfo is None:
-                max_dt = max_dt.replace(tzinfo=timezone.utc)
+                max_dt = max_dt.replace(tzinfo=UTC)
 
             # Convert to ISO 8601 strings with 'Z' suffix
             return [

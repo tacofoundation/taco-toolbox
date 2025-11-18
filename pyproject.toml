@@ -46,6 +46,9 @@ testpaths = ["tests"]
 [tool.ruff]
 target-version = "py311"
 line-length = 120
+exclude = [
+    "_nest_asyncio.py"    
+]
 
 [tool.ruff.lint]
 select = [
@@ -68,7 +71,7 @@ source = ["tacotoolbox"]
 
 
 [tool.mypy]
-exclude = [
-    "^tacotoolbox/v1/",
+exclude = [    
+    "^tacotoolbox/_nest_asyncio.py",
 ]
 ignore_missing_imports = true

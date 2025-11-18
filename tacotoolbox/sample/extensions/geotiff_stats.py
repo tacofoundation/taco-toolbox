@@ -1,6 +1,6 @@
 import functools
 import pathlib
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import polars as pl
@@ -10,6 +10,8 @@ from tacotoolbox.sample.datamodel import SampleExtension
 
 if TYPE_CHECKING:
     from osgeo import gdal  # type: ignore[import-untyped]
+
+    from tacotoolbox.sample.datamodel import Sample
 
 
 def requires_gdal(func):
@@ -68,7 +70,7 @@ class GeotiffStats(SampleExtension):
         return {"geotiff:stats": pl.List(pl.List(pl.Float32))}
 
     @requires_gdal
-    def _compute(self, sample) -> pl.DataFrame:
+    def _compute(self, sample: "Sample") -> pl.DataFrame:
         """Extract statistics and apply scaling if present."""
         stats = self._extract_stats(sample.path)
 
@@ -84,7 +86,11 @@ class GeotiffStats(SampleExtension):
         )
 
         if not self.categorical and has_scaling:
-            stats = self._apply_scaling(stats, scaling_factor, scaling_offset)
+            stats = self._apply_scaling(
+                stats,
+                float(cast(Any, scaling_factor)),
+                float(cast(Any, scaling_offset)),
+            )
 
         return pl.DataFrame({"geotiff:stats": [stats]}, schema=self.get_schema())
 

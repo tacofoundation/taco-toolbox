@@ -11,12 +11,13 @@ Key functions:
 """
 
 from pathlib import Path
+from typing import Any
 
 import polars as pl
 
 from tacotoolbox._constants import (
-    PARQUET_CDC_DEFAULT_CONFIG,
     METADATA_COLUMNS_ORDER,
+    PARQUET_CDC_DEFAULT_CONFIG,
     SHARED_CORE_FIELDS,
 )
 from tacotoolbox._utils import is_internal_column
@@ -54,7 +55,7 @@ def align_dataframe_schemas(
 
     # Define column ordering: core first, then extensions alphabetically
     extension_fields = sorted(
-        [col for col in complete_schema.keys() if col not in core_fields]
+        [col for col in complete_schema if col not in core_fields]
     )
 
     ordered_columns = [
@@ -210,7 +211,9 @@ def read_metadata_file(file_path: Path | str) -> pl.DataFrame:
         )
 
 
-def write_parquet_file(df: pl.DataFrame, output_path: Path | str, **kwargs) -> None:
+def write_parquet_file(
+    df: pl.DataFrame, output_path: Path | str, **kwargs: Any
+) -> None:
     """
     Write DataFrame to Parquet (for local __meta__ files).
 
@@ -223,7 +226,7 @@ def write_parquet_file(df: pl.DataFrame, output_path: Path | str, **kwargs) -> N
 
 
 def write_parquet_file_with_cdc(
-    df: pl.DataFrame, output_path: Path | str, **kwargs
+    df: pl.DataFrame, output_path: Path | str, **kwargs: Any
 ) -> None:
     """
     Write Parquet with Content-Defined Chunking (for consolidated metadata).
@@ -241,7 +244,9 @@ def write_parquet_file_with_cdc(
     pq.write_table(arrow_table, output_path, **parquet_config)
 
 
-def cast_dataframe_to_schema(df: pl.DataFrame, schema_spec: list) -> pl.DataFrame:
+def cast_dataframe_to_schema(
+    df: pl.DataFrame, schema_spec: list[list[str]]
+) -> pl.DataFrame:
     """
     Cast DataFrame columns to match schema spec from taco:field_schema.
 
@@ -250,14 +255,16 @@ def cast_dataframe_to_schema(df: pl.DataFrame, schema_spec: list) -> pl.DataFram
 
     schema_spec: List of [column_name, type_string] from taco:field_schema
     """
-    type_mapping = {
-        "string": pl.Utf8,
-        "int64": pl.Int64,
-        "int32": pl.Int32,
-        "float64": pl.Float64,
-        "float32": pl.Float32,
-        "binary": pl.Binary,
-        "bool": pl.Boolean,
+    # Note: Instantiating types (e.g., pl.Utf8()) creates pl.DataType instances,
+    # ensuring the dictionary values are homogeneous for type checking.
+    type_mapping: dict[str, pl.DataType] = {
+        "string": pl.Utf8(),
+        "int64": pl.Int64(),
+        "int32": pl.Int32(),
+        "float64": pl.Float64(),
+        "float32": pl.Float32(),
+        "binary": pl.Binary(),
+        "bool": pl.Boolean(),
         "list(int64)": pl.List(pl.Int64),
         "list(float32)": pl.List(pl.Float32),
         "list(float64)": pl.List(pl.Float64),

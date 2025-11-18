@@ -1,11 +1,12 @@
+import logging
+
 from tacotoolbox import datamodel, validator
+from tacotoolbox._logging import disable_logging, setup_basic_logging
 from tacotoolbox.create import create
+from tacotoolbox.export import export
 from tacotoolbox.tacocat import create_tacocat
 from tacotoolbox.tacollection import create_tacollection
-from tacotoolbox.export import export
 from tacotoolbox.translate import folder2zip, zip2folder
-from tacotoolbox._logging import setup_basic_logging, disable_logging
-import logging
 
 
 def _get_version() -> str:
@@ -60,9 +61,9 @@ __all__ = [
     "create_tacocat",
     "create_tacollection",
     "datamodel",
-    "validator",
     "export",
-    "zip2folder",
     "folder2zip",
+    "validator",
     "verbose",
+    "zip2folder",
 ]
