@@ -383,14 +383,6 @@ class TacoCatWriter:
                 f"Failed to read collection from {dataset_path.name}: {e}"
             ) from e
 
-    def _raise_empty_header_error(self, dataset_name: str) -> None:
-        """Helper to raise empty header error."""
-        raise TacoCatError(f"Empty header in {dataset_name}")
-
-    def _raise_empty_collection_error(self, dataset_name: str) -> None:
-        """Helper to raise empty collection error."""
-        raise TacoCatError(f"Empty collection in {dataset_name}")
-
     def _update_pit_schema_counts(
         self, collection: dict[str, Any], consolidated_counts: dict[int, int]
     ) -> None:

@@ -17,7 +17,7 @@ import asyncio
 import json
 import pathlib
 import re
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any, cast
 
 import polars as pl
@@ -452,7 +452,7 @@ class ExportWriter:
 
         # Add subset provenance
         collection["taco:subset_of"] = collection.get("id", "unknown")
-        collection["taco:subset_date"] = datetime.now(UTC).isoformat()
+        collection["taco:subset_date"] = datetime.now(timezone.utc).isoformat()
 
         # Write to file
         output_path = self.output / "COLLECTION.json"

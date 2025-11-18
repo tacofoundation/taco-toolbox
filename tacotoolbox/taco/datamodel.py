@@ -14,7 +14,7 @@ Main components:
 """
 
 from abc import ABC, abstractmethod
-from datetime import UTC, datetime, timezone
+from datetime import datetime, timezone
 from typing import Any, Literal, cast
 
 import polars as pl
@@ -451,9 +451,9 @@ def _calculate_temporal_extent(
 
             # Convert to UTC if not already (Polars Datetime without timezone is naive)
             if min_dt.tzinfo is None:
-                min_dt = min_dt.replace(tzinfo=UTC)
+                min_dt = min_dt.replace(tzinfo=timezone.utc)
             if max_dt.tzinfo is None:
-                max_dt = max_dt.replace(tzinfo=UTC)
+                max_dt = max_dt.replace(tzinfo=timezone.utc)
 
             # Convert to ISO 8601 strings with 'Z' suffix
             return [
