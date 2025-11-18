@@ -9,6 +9,7 @@ Key features:
 - Read COLLECTION.json from multiple TACO files
 - Validate schema consistency (pit_schema and field_schema)
 - Sum 'n' values across datasets
+- Merge spatial/temporal extents into global coverage
 - Generate global COLLECTION.json with consolidated metadata
 
 Main function:
@@ -16,6 +17,7 @@ Main function:
 """
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -84,9 +86,20 @@ def create_tacollection(
     # Sum pit_schema n values
     global_pit = _sum_pit_schemas(collections)
 
+    # Merge extents from all partitions into global coverage
+    global_spatial = _merge_spatial_extents(collections)
+    global_temporal = _merge_temporal_extents(collections)
+
     # Create global collection
     global_collection = collections[0].copy()
     global_collection["taco:pit_schema"] = global_pit
+
+    # Add global extent (merged from all partitions)
+    global_collection["extent"] = {
+        "spatial": global_spatial,
+        "temporal": global_temporal,
+    }
+
     global_collection["taco:sources"] = {
         "count": len(tacozips),
         "ids": [c.get("id", "unknown") for c in collections],
@@ -376,3 +389,107 @@ def _sum_pit_schemas(collections: list[dict[str, Any]]) -> dict[str, Any]:
                 result["hierarchy"][level][pattern_idx]["n"] = n_sum
 
     return result
+
+
+def _merge_spatial_extents(collections: list[dict[str, Any]]) -> list[float]:
+    """
+    Merge spatial extents from all collections into global bounding box.
+
+    Computes the union of all spatial extents to create a global bbox that
+    covers all partitions. If no extents found, defaults to global coverage.
+
+    Args:
+        collections: List of COLLECTION.json dictionaries from all partitions
+
+    Returns:
+        Global bbox as [min_lon, min_lat, max_lon, max_lat]
+
+    Examples:
+        Partition 1: [-10, 30, 0, 40]  (Europe)
+        Partition 2: [100, -10, 110, 0]  (Indonesia)
+        Result: [-10, -10, 110, 40]  (covers both regions)
+    """
+    all_extents = []
+
+    for collection in collections:
+        extent = collection.get("extent")
+        if extent and "spatial" in extent and extent["spatial"]:
+            all_extents.append(extent["spatial"])
+
+    if not all_extents:
+        # Default to global extent if none found
+        return [-180.0, -90.0, 180.0, 90.0]
+
+    # Extract min/max from all bboxes: [min_lon, min_lat, max_lon, max_lat]
+    min_lons = [e[0] for e in all_extents]
+    min_lats = [e[1] for e in all_extents]
+    max_lons = [e[2] for e in all_extents]
+    max_lats = [e[3] for e in all_extents]
+
+    return [min(min_lons), min(min_lats), max(max_lons), max(max_lats)]
+
+
+def _merge_temporal_extents(collections: list[dict[str, Any]]) -> list[str] | None:
+    """
+    Merge temporal extents from all collections into global time range.
+
+    Finds the earliest start datetime and latest end datetime across all
+    partitions to create a global temporal coverage.
+
+    Args:
+        collections: List of COLLECTION.json dictionaries from all partitions
+
+    Returns:
+        [earliest_start_iso, latest_end_iso] or None if no temporal data
+
+    Examples:
+        Partition 1: ["2023-01-01T00:00:00Z", "2023-06-30T23:59:59Z"]
+        Partition 2: ["2023-07-01T00:00:00Z", "2023-12-31T23:59:59Z"]
+        Result: ["2023-01-01T00:00:00Z", "2023-12-31T23:59:59Z"]
+    """
+    all_temporals = []
+
+    for collection in collections:
+        extent = collection.get("extent")
+        if extent and "temporal" in extent and extent["temporal"]:
+            all_temporals.append(extent["temporal"])
+
+    if not all_temporals:
+        return None
+
+    # Parse all datetime strings to find global range
+    starts = []
+    ends = []
+
+    for temporal in all_temporals:
+        start_str, end_str = temporal
+
+        # Parse ISO 8601 strings, handle 'Z' suffix
+        if start_str.endswith("Z"):
+            start_dt = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
+        else:
+            start_dt = datetime.fromisoformat(start_str)
+
+        if end_str.endswith("Z"):
+            end_dt = datetime.fromisoformat(end_str.replace("Z", "+00:00"))
+        else:
+            end_dt = datetime.fromisoformat(end_str)
+
+        # Ensure UTC timezone for comparison
+        if start_dt.tzinfo is None:
+            start_dt = start_dt.replace(tzinfo=timezone.utc)
+        if end_dt.tzinfo is None:
+            end_dt = end_dt.replace(tzinfo=timezone.utc)
+
+        starts.append(start_dt)
+        ends.append(end_dt)
+
+    # Get global temporal range
+    earliest = min(starts)
+    latest = max(ends)
+
+    # Convert back to ISO 8601 strings with 'Z' suffix
+    return [
+        earliest.isoformat().replace("+00:00", "Z"),
+        latest.isoformat().replace("+00:00", "Z"),
+    ]
