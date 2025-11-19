@@ -10,7 +10,8 @@ Key features:
 - Validate schema consistency (pit_schema and field_schema)
 - Sum 'n' values across datasets
 - Merge spatial/temporal extents into global coverage
-- Generate global COLLECTION.json with consolidated metadata
+- Store individual partition extents for query routing
+- Generate standard TACOLLECTION.json with consolidated metadata
 
 Main function:
     create_tacollection(): Merge multiple TACO datasets into single collection
@@ -43,18 +44,27 @@ class SchemaValidationError(CollectionError):
 
 def create_tacollection(
     tacozips: list[str | Path],
-    output_path: str | Path,
+    output_dir: str | Path,
     validate_schema: bool = True,
 ) -> None:
     """
-    Create global COLLECTION.json from multiple TACO datasets.
+    Create global TACOLLECTION.json from multiple TACO datasets.
+
+    Always generates a file named TACOLLECTION.json in the output directory.
+    This is a standard naming convention for global TACO collections.
 
     Validates that all datasets have:
     - Identical taco:pit_schema structure (types)
     - Identical taco:field_schema (columns and types)
 
     Sums 'n' values across all datasets.
+    Stores individual partition extents for query routing.
     Uses first dataset as base for other metadata.
+
+    Args:
+        tacozips: List of paths to TACO zip files to merge
+        output_dir: Directory where TACOLLECTION.json will be created
+        validate_schema: Whether to validate schema consistency
     """
     if not tacozips:
         raise CollectionError("No datasets provided")
@@ -64,13 +74,20 @@ def create_tacollection(
             f"Need at least 2 datasets to create collection, got {len(tacozips)}"
         )
 
-    # Validate output path
-    output_path = Path(output_path)
-    if output_path.exists():
-        raise CollectionError(f"Output file already exists: {output_path}")
+    # Validate output directory
+    output_dir = Path(output_dir)
 
-    if not output_path.parent.exists():
-        raise CollectionError(f"Parent directory does not exist: {output_path.parent}")
+    if not output_dir.exists():
+        raise CollectionError(f"Output directory does not exist: {output_dir}")
+
+    if not output_dir.is_dir():
+        raise CollectionError(f"Output path must be a directory: {output_dir}")
+
+    # Standard output filename
+    output_path = output_dir / "TACOLLECTION.json"
+
+    if output_path.exists():
+        raise CollectionError(f"TACOLLECTION.json already exists in {output_dir}")
 
     # Read all collections
     collections = _read_collections(tacozips)
@@ -90,6 +107,9 @@ def create_tacollection(
     global_spatial = _merge_spatial_extents(collections)
     global_temporal = _merge_temporal_extents(collections)
 
+    # Collect individual partition extents
+    partition_extents = _collect_partition_extents(collections, tacozips)
+
     # Create global collection
     global_collection = collections[0].copy()
     global_collection["taco:pit_schema"] = global_pit
@@ -104,6 +124,7 @@ def create_tacollection(
         "count": len(tacozips),
         "ids": [c.get("id", "unknown") for c in collections],
         "files": [Path(p).name for p in tacozips],
+        "extents": partition_extents,
     }
 
     # Write to file
@@ -493,3 +514,57 @@ def _merge_temporal_extents(collections: list[dict[str, Any]]) -> list[str] | No
         earliest.isoformat().replace("+00:00", "Z"),
         latest.isoformat().replace("+00:00", "Z"),
     ]
+
+
+def _collect_partition_extents(
+    collections: list[dict[str, Any]], tacozips: list[str | Path]
+) -> list[dict[str, Any]]:
+    """
+    Collect individual spatial/temporal extents from each partition.
+
+    Stores each partition's coverage for query routing and visualization.
+
+    Args:
+        collections: List of COLLECTION.json dictionaries
+        tacozips: List of paths to TACO zip files
+
+    Returns:
+        List of partition extent information with file, id, spatial, temporal
+
+    Examples:
+        [
+            {
+                "file": "europe.taco",
+                "id": "europe",
+                "spatial": [-10, 30, 0, 40],
+                "temporal": ["2020-01-01Z", "2022-12-31Z"]
+            },
+            {
+                "file": "asia.taco",
+                "id": "asia",
+                "spatial": [100, -10, 110, 0],
+                "temporal": ["2021-01-01Z", "2023-12-31Z"]
+            }
+        ]
+    """
+    partition_extents = []
+
+    for collection, tacozip_path in zip(collections, tacozips, strict=True):
+        extent = collection.get("extent", {})
+
+        partition_info = {
+            "file": Path(tacozip_path).name,
+            "id": collection.get("id", "unknown"),
+        }
+
+        # Add spatial if exists
+        if extent.get("spatial"):
+            partition_info["spatial"] = extent["spatial"]
+
+        # Add temporal if exists
+        if extent.get("temporal"):
+            partition_info["temporal"] = extent["temporal"]
+
+        partition_extents.append(partition_info)
+
+    return partition_extents
