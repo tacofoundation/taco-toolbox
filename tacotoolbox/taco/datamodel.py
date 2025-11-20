@@ -11,6 +11,27 @@ Main components:
 - Contact: Contributor information
 - Extent: Spatial/temporal boundaries
 - TaskType: ML task categories
+
+Positional-Invariance Tree (PIT):
+    PIT validates that all root samples are isomorphic. For hierarchical datasets
+    (all FOLDER samples), this means:
+    - Same number of children at each position
+    - Same ID at each position across all roots
+    - Same type at each position across all roots
+    - Recursive validation for nested FOLDERs
+    
+    Rule: Root[i].children[k] must be identical for all i at position k.
+    
+    Example (valid):
+        Date_0/ -> [GLORYS/, L4/, L3/]
+        Date_1/ -> [GLORYS/, L4/, L3/]
+        Date_2/ -> [GLORYS/, L4/, L3/]
+    
+    Example (invalid):
+        Date_0/ -> [GLORYS/, L4/]
+        Date_1/ -> [L4/, GLORYS/]  # Position 0 must be GLORYS
+    
+    Validation occurs at Taco creation to ensure structural consistency.
 """
 
 from abc import ABC, abstractmethod
@@ -22,6 +43,7 @@ import pydantic
 from shapely.geometry import Point
 from shapely.wkb import loads as wkb_loads
 
+from tacotoolbox._constants import PADDING_PREFIX
 from tacotoolbox.tortilla.datamodel import Tortilla
 
 
@@ -251,7 +273,119 @@ class Taco(pydantic.BaseModel):
         return value
 
     @pydantic.model_validator(mode="after")
-    def auto_calculate_extent(self) -> "Taco":
+    def validate_and_initialize(self) -> "Taco":
+        """Validate PIT compliance and auto-calculate extent."""
+        self._validate_pit_compliance()
+        self._auto_calculate_extent()
+        return self
+
+    def _validate_pit_compliance(self) -> None:
+        """
+        Validate Positional-Invariance Tree (PIT) constraint for root tortilla.
+        
+        This is the only place where PIT validation occurs because Taco knows
+        its tortilla is the root of the dataset tree. Validates that all root
+        samples are structurally isomorphic.
+        """
+        samples = self.tortilla.samples
+        
+        # Validate all root samples have same type
+        root_types = [s.type for s in samples]
+        unique_types = set(root_types)
+        
+        if len(unique_types) > 1:
+            raise ValueError(
+                f"PIT violation: All root samples must have the same type.\n"
+                f"Found mixed types at root level: {unique_types}\n"
+                f"All root samples must be either all FILE or all FOLDER."
+            )
+        
+        # If all FILEs, no further validation needed
+        if "FOLDER" not in unique_types:
+            return
+
+        # Collect FOLDER samples
+        folder_samples = [s for s in samples if s.type == "FOLDER"]
+
+        if len(folder_samples) <= 1:
+            return
+
+        # Get non-padding children from each folder
+        folder_children: list[tuple[str, list]] = []
+        for folder in folder_samples:
+            if hasattr(folder.path, "samples") and folder.path.samples:
+                real_children = [
+                    child
+                    for child in folder.path.samples
+                    if not child.id.startswith(PADDING_PREFIX)
+                ]
+                folder_children.append((folder.id, real_children))
+
+        if len(folder_children) <= 1:
+            return
+
+        # Validate all folders have same number of children
+        child_counts = [len(children) for _, children in folder_children]
+        if len(set(child_counts)) > 1:
+            count_report = ", ".join(
+                f"'{folder_id}': {count}"
+                for (folder_id, _), count in zip(folder_children, child_counts, strict=False)
+            )
+            raise ValueError(
+                f"PIT violation: All root samples must be isomorphic.\n"
+                f"Child counts (excluding padding): {count_report}\n"
+                f"All root samples must have the same internal structure."
+            )
+
+        # Validate PIT
+        reference_folder_id, reference_children = folder_children[0]
+        num_positions = len(reference_children)
+
+        for pos in range(num_positions):
+            reference_child = reference_children[pos]
+            reference_id = reference_child.id
+            reference_type = reference_child.type
+
+            for folder_id, children in folder_children[1:]:
+                current_child = children[pos]
+
+                if current_child.id != reference_id:
+                    raise ValueError(
+                        f"PIT violation at position {pos}:\n"
+                        f"Root sample '{reference_folder_id}' has child ID: '{reference_id}'\n"
+                        f"Root sample '{folder_id}' has child ID: '{current_child.id}'\n"
+                        f"All root samples must have the same child ID at position {pos}."
+                    )
+
+                if current_child.type != reference_type:
+                    raise ValueError(
+                        f"PIT violation at position {pos} (ID: '{reference_id}'):\n"
+                        f"Root sample '{reference_folder_id}' has child type: '{reference_type}'\n"
+                        f"Root sample '{folder_id}' has child type: '{current_child.type}'\n"
+                        f"All root samples must have the same child type at position {pos}."
+                    )
+
+        # Recursive validation for nested FOLDERs
+        for pos in range(num_positions):
+            children_at_position = [children[pos] for _, children in folder_children]
+
+            if all(child.type == "FOLDER" for child in children_at_position):
+                try:
+                    child_tortillas = [
+                        cast(Tortilla, child.path) for child in children_at_position
+                    ]
+                    for i, child_tortilla in enumerate(child_tortillas[1:], start=1):
+                        if len(child_tortilla.samples) != len(child_tortillas[0].samples):
+                            raise ValueError(
+                                f"PIT violation in nested structure at position {pos}:\n"
+                                f"Root[0].child[{pos}] ('{children_at_position[0].id}') has {len(child_tortillas[0].samples)} children\n"
+                                f"Root[{i}].child[{pos}] ('{children_at_position[i].id}') has {len(child_tortilla.samples)} children\n"
+                                f"All children at position {pos} must be isomorphic."
+                            )
+                except AttributeError:
+                    pass
+
+    def _auto_calculate_extent(self) -> None:
         """
         Calculate extent automatically from STAC/ISTAC metadata in samples.
 
@@ -302,10 +436,9 @@ class Taco(pydantic.BaseModel):
                     )
 
                 self.extent = Extent(spatial=spatial, temporal=temporal)
-                return self
+                return
 
         self.extent = Extent(spatial=[-180.0, -90.0, 180.0, 90.0], temporal=None)
-        return self
 
     def extend_with(self, extension: Any) -> None:
         """

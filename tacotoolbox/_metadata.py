@@ -44,10 +44,6 @@ if TYPE_CHECKING:
     from tacotoolbox.taco.datamodel import Taco
 
 
-class PITValidationError(Exception):
-    """Raised when Position-Isomorphic Tree (PIT) constraint is violated."""
-
-
 class MetadataPackage:
     """
     Complete metadata bundle for TACO containers.
@@ -121,12 +117,6 @@ class MetadataGenerator:
                 df = reorder_internal_columns(df)
 
             dataframes.append(df)
-
-            # Validate PIT constraints
-            if depth == 0:
-                self._validate_pit_level0(df)
-            else:
-                self._validate_pit_depth(df, dataframes[depth - 1], depth)
 
         # Add internal:relative_path for fast SQL queries
         dataframes = self._add_relative_paths(dataframes)
@@ -254,124 +244,6 @@ class MetadataGenerator:
 
         return result
 
-    def _validate_pit_level0(self, df: pl.DataFrame) -> None:
-        """Validate PIT constraint for level 0 (root)."""
-        if "type" not in df.columns:
-            raise PITValidationError("Level 0 missing 'type' column")
-
-        types = df["type"].to_list()
-        unique_types = list(set(types))
-
-        if len(unique_types) != 1:
-            raise PITValidationError(
-                f"PIT constraint violated at level 0:\n"
-                f"All nodes must have the same type (all FILE or all FOLDER).\n"
-                f"Found types: {unique_types}"
-            )
-
-    def _validate_pit_depth(
-        self, df: pl.DataFrame, parent_df: pl.DataFrame, depth: int
-    ) -> None:
-        """Validate PIT constraints for hierarchical levels (depth 1+)."""
-        if "type" not in df.columns:
-            raise PITValidationError(f"Depth {depth} missing 'type' column")
-
-        parent_types = parent_df["type"].to_list()
-        parent_pattern = self._infer_unique_pattern(parent_types, depth - 1)
-        folder_positions = [i for i, t in enumerate(parent_pattern) if t == "FOLDER"]
-
-        if not folder_positions:
-            raise PITValidationError(
-                f"Depth {depth} exists but no FOLDERs at depth {depth - 1}"
-            )
-
-        num_parents = len(parent_df)
-        child_types = df["type"].to_list()
-
-        # Validate each folder position has consistent pattern
-        for folder_idx, position in enumerate(folder_positions):
-            chunk_pattern = self._extract_chunk_pattern(
-                child_types, num_parents, len(folder_positions), folder_idx
-            )
-
-            if chunk_pattern is None:
-                raise PITValidationError(
-                    f"PIT constraint violated at depth {depth}:\n"
-                    f"Cannot extract consistent pattern for FOLDER at position {position}"
-                )
-
-            # Validate pattern consistency across all parents
-            for parent_idx in range(num_parents):
-                chunk_start = (parent_idx * len(folder_positions) + folder_idx) * len(
-                    chunk_pattern
-                )
-                chunk_end = chunk_start + len(chunk_pattern)
-                actual_chunk = child_types[chunk_start:chunk_end]
-
-                if actual_chunk != chunk_pattern:
-                    raise PITValidationError(
-                        f"PIT constraint violated at depth {depth}:\n"
-                        f"FOLDER at position {position}, parent {parent_idx} has different pattern.\n"
-                        f"Expected: {chunk_pattern}\n"
-                        f"Actual: {actual_chunk}"
-                    )
-
-    def _infer_unique_pattern(self, types: list[str], depth: int) -> list[str]:
-        """Infer the repeating pattern of types at a level."""
-        total = len(types)
-
-        # Try to find shortest repeating pattern
-        for pattern_len in range(1, total // 2 + 1):
-            if total % pattern_len != 0:
-                continue
-
-            pattern = types[:pattern_len]
-            num_repeats = total // pattern_len
-
-            # Check if pattern repeats exactly
-            if all(
-                types[i * pattern_len : (i + 1) * pattern_len] == pattern
-                for i in range(num_repeats)
-            ):
-                return pattern
-
-        # No repeating pattern found - entire list is the pattern
-        return types
-
-    def _extract_chunk_pattern(
-        self,
-        types: list[str],
-        num_parents: int,
-        num_folders_per_parent: int,
-        folder_idx: int,
-    ) -> list[str] | None:
-        """Extract the pattern for a specific folder position."""
-        total_types = len(types)
-        expected_total = num_parents * num_folders_per_parent
-
-        if total_types % expected_total != 0:
-            return None
-
-        chunk_size = total_types // expected_total
-
-        # Extract pattern from first parent's folder at this position
-        first_chunk_start = folder_idx * chunk_size
-        first_chunk_end = first_chunk_start + chunk_size
-        pattern = types[first_chunk_start:first_chunk_end]
-
-        # Validate pattern is consistent across all parents
-        for parent_idx in range(num_parents):
-            for fld_idx in range(num_folders_per_parent):
-                if fld_idx == folder_idx:
-                    chunk_start = (
-                        parent_idx * num_folders_per_parent + fld_idx
-                    ) * chunk_size
-                    chunk_end = chunk_start + chunk_size
-                    if types[chunk_start:chunk_end] != pattern:
-                        return None
-
-        return pattern
-
     def _clean_dataframe(self, df: pl.DataFrame) -> pl.DataFrame:
         """Clean DataFrame by removing unnecessary columns."""
         # Remove path column (filesystem-specific, not container-relevant)
@@ -409,18 +281,18 @@ def generate_pit_schema(  # noqa: C901
     dataframes: list[pl.DataFrame], debug: bool = False
 ) -> dict[str, Any]:
     """
-    Generate Position-Isomorphic Tree (PIT) schema.
+    Generate Positional Invariance Tree (PIT) schema.
 
     NOTE: This function has high cyclomatic complexity (C901) but is intentionally
     kept as a single function for algorithmic clarity. The PIT schema generation
     is inherently complex and splitting it would reduce readability.
     """
     if not dataframes:
-        raise PITValidationError("Need at least one DataFrame to generate schema")
+        raise ValueError("Need at least one DataFrame to generate schema")
 
     df0 = dataframes[0]
     if "type" not in df0.columns:
-        raise PITValidationError("Level 0 missing 'type' column")
+        raise ValueError("Level 0 missing 'type' column")
 
     # Root level
     root_type = df0["type"][0]
@@ -437,7 +309,7 @@ def generate_pit_schema(  # noqa: C901
             continue
 
         if METADATA_PARENT_ID not in df.columns:
-            raise PITValidationError(
+            raise ValueError(
                 f"Depth {depth} missing '{METADATA_PARENT_ID}' column"
             )
 

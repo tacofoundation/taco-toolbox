@@ -6,13 +6,12 @@ Supports nested sample structures with position tracking.
 
 Key features:
 - Hierarchical metadata export (up to SHARED_MAX_DEPTH levels)
-- Position-Isomorphic Tree (PIT) validation
 - Auto-padding for homogeneous structures
 - Efficient DataFrame construction with schema validation
 - Configurable schema strictness (strict_schema parameter)
 
-Best Practice: When mixing FOLDERs and FILEs, place all FOLDERs before FILEs
-for better organization and readability.
+Best Practice: When mixing FOLDERs and FILEs in the same Tortilla,
+place all FOLDERs before FILEs for better organization and readability.
 """
 
 import warnings
@@ -96,7 +95,7 @@ class Tortilla:
 
         Raises:
             ValueError: If samples have inconsistent metadata schemas (strict_schema=True)
-                       or empty list or if Inclusive ID Rule is violated or duplicate IDs
+                       or empty list or duplicate IDs
         """
         if not samples:
             raise ValueError("Cannot create Tortilla with empty samples list")
@@ -112,9 +111,6 @@ class Tortilla:
 
         # Check ordering best practice (only for mixed types)
         self._check_sample_ordering()
-
-        # Validate Inclusive ID Rule
-        self._validate_inclusive_ids()
 
         # Extract metadata from all samples
         metadata_dfs = []
@@ -167,7 +163,7 @@ class Tortilla:
 
         error_msg += (
             "\n"
-            "  💡 Hint: If you want to combine samples with different schemas, use:\n"
+            "  Hint: If you want to combine samples with different schemas, use:\n"
             "      Tortilla(samples=[...], strict_schema=False)\n\n"
             "  This will auto-fill missing columns with None values.\n\n"
             "  To inspect sample schemas before creating Tortilla:\n"
@@ -299,82 +295,6 @@ class Tortilla:
                 UserWarning,
                 stacklevel=3,
             )
-
-    def _validate_inclusive_ids(self) -> None:
-        """
-        Validate Inclusive ID Rule: The folder with maximum non-padding IDs
-        must contain ALL IDs from folders with fewer IDs (subset relationship).
-
-        IDs starting with '__TACOPAD__' are IGNORED in validation as they
-        represent padding placeholders, not real data.
-
-        This ensures that dataset.read("some_id") only fails if that ID
-        doesn't exist in ANY folder, not just some.
-        """
-        # Collect FOLDER samples
-        folder_samples = [s for s in self.samples if s.type == "FOLDER"]
-
-        # Skip validation if no folders or only one folder
-        if len(folder_samples) <= 1:
-            return
-
-        # Extract NON-PADDING child ID sets from each FOLDER
-        id_sets: list[tuple[str, frozenset[str]]] = []
-
-        for folder in folder_samples:
-            if hasattr(folder.path, "samples") and folder.path.samples:
-                real_ids = frozenset(
-                    sample.id
-                    for sample in folder.path.samples
-                    if not sample.id.startswith(PADDING_PREFIX)
-                )
-                id_sets.append((folder.id, real_ids))
-
-        # If only one folder has children, skip
-        if len(id_sets) <= 1:
-            return
-
-        # Find the folder with maximum IDs (the superset)
-        max_folder_id, max_id_set = max(id_sets, key=lambda x: len(x[1]))
-
-        # Validate: ALL other folders must be SUBSETS of max_id_set
-        for folder_id, child_set in id_sets:
-            if folder_id == max_folder_id:
-                continue
-
-            if not child_set.issubset(max_id_set):
-                # Found IDs that are NOT in the maximum set
-                extra_ids = child_set - max_id_set
-
-                # Build error message
-                error_parts = [
-                    "Inclusive ID Rule violated:",
-                    "The folder with maximum IDs must contain ALL IDs from other folders.",
-                    "(IDs starting with '__TACOPAD__' are ignored in validation)",
-                    "",
-                    f"Maximum ID folder: '{max_folder_id}'",
-                    f"  Non-padding IDs ({len(max_id_set)}): {sorted(max_id_set)}",
-                    "",
-                    f"Problematic folder: '{folder_id}'",
-                    f"  Non-padding IDs ({len(child_set)}): {sorted(child_set)}",
-                    "",
-                    f"IDs in '{folder_id}' NOT in '{max_folder_id}': {sorted(extra_ids)}",
-                    "",
-                    "How to fix:",
-                    "1. Ensure the folder with most files contains ALL possible IDs",
-                    "2. Other folders can have fewer files (will be padded automatically)",
-                    "3. Use Tortilla(samples, pad_to=N) to fill missing slots with '__TACOPAD__'",
-                    "",
-                    "Valid example:",
-                    "  Folder A: ['cloudmask', 'data', 'thumbnail']  # Maximum",
-                    "  Folder B: ['cloudmask', 'data']  # Subset of A, OK",
-                    "",
-                    "Invalid example:",
-                    "  Folder A: ['cloudmask', 'data']",
-                    "  Folder B: ['cloudmask', 'thumbnail']  # 'thumbnail' not in A, FAIL",
-                ]
-
-                raise ValueError("\n".join(error_parts))
 
     def _calculate_current_depth(self) -> int:
         """Calculate current depth by examining samples."""
