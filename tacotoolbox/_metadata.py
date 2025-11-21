@@ -281,7 +281,7 @@ def generate_pit_schema(  # noqa: C901
     dataframes: list[pl.DataFrame], debug: bool = False
 ) -> dict[str, Any]:
     """
-    Generate Positional Invariance Tree (PIT) schema.
+    Generate PIT schema.
 
     NOTE: This function has high cyclomatic complexity (C901) but is intentionally
     kept as a single function for algorithmic clarity. The PIT schema generation

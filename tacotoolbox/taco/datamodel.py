@@ -281,7 +281,7 @@ class Taco(pydantic.BaseModel):
 
     def _validate_pit_compliance(self) -> None:
         """
-        Validate Positional-Invariance Tree (PIT) constraint for root tortilla.
+        Validate PIT constraint for root tortilla.
         
         This is the only place where PIT validation occurs because Taco knows
         its tortilla is the root of the dataset tree. Validates that all root
