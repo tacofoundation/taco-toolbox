@@ -24,10 +24,6 @@ from typing import Any
 
 import tacozip
 
-# ============================================================================
-# EXCEPTIONS
-# ============================================================================
-
 
 class CollectionError(Exception):
     """Base exception for collection operations."""
@@ -37,14 +33,9 @@ class SchemaValidationError(CollectionError):
     """Raised when schema validation fails."""
 
 
-# ============================================================================
-# MAIN API
-# ============================================================================
-
-
 def create_tacollection(
-    tacozips: list[str | Path],
-    output_dir: str | Path,
+    inputs: list[str | Path],
+    output: str | Path,
     validate_schema: bool = True,
 ) -> None:
     """
@@ -60,37 +51,32 @@ def create_tacollection(
     Sums 'n' values across all datasets.
     Stores individual partition extents for query routing.
     Uses first dataset as base for other metadata.
-
-    Args:
-        tacozips: List of paths to TACO zip files to merge
-        output_dir: Directory where TACOLLECTION.json will be created
-        validate_schema: Whether to validate schema consistency
     """
-    if not tacozips:
+    if not inputs:
         raise CollectionError("No datasets provided")
 
-    if len(tacozips) < 2:
+    if len(inputs) < 2:
         raise CollectionError(
-            f"Need at least 2 datasets to create collection, got {len(tacozips)}"
+            f"Need at least 2 datasets to create collection, got {len(inputs)}"
         )
 
     # Validate output directory
-    output_dir = Path(output_dir)
+    output = Path(output)
 
-    if not output_dir.exists():
-        raise CollectionError(f"Output directory does not exist: {output_dir}")
+    if not output.exists():
+        raise CollectionError(f"Output directory does not exist: {output}")
 
-    if not output_dir.is_dir():
-        raise CollectionError(f"Output path must be a directory: {output_dir}")
+    if not output.is_dir():
+        raise CollectionError(f"Output path must be a directory: {output}")
 
     # Standard output filename
-    output_path = output_dir / "TACOLLECTION.json"
+    output_path = output / "TACOLLECTION.json"
 
     if output_path.exists():
-        raise CollectionError(f"TACOLLECTION.json already exists in {output_dir}")
+        raise CollectionError(f"TACOLLECTION.json already exists in {output}")
 
     # Read all collections
-    collections = _read_collections(tacozips)
+    collections = _read_collections(inputs)
 
     if not collections:
         raise CollectionError("No valid collections could be read")
@@ -108,7 +94,7 @@ def create_tacollection(
     global_temporal = _merge_temporal_extents(collections)
 
     # Collect individual partition extents
-    partition_extents = _collect_partition_extents(collections, tacozips)
+    partition_extents = _collect_partition_extents(collections, inputs)
 
     # Create global collection
     global_collection = collections[0].copy()
@@ -121,20 +107,15 @@ def create_tacollection(
     }
 
     global_collection["taco:sources"] = {
-        "count": len(tacozips),
+        "count": len(inputs),
         "ids": [c.get("id", "unknown") for c in collections],
-        "files": [Path(p).name for p in tacozips],
+        "files": [Path(p).name for p in inputs],
         "extents": partition_extents,
     }
 
     # Write to file
     with open(output_path, "w") as f:
         json.dump(global_collection, f, indent=4)
-
-
-# ============================================================================
-# INTERNAL FUNCTIONS
-# ============================================================================
 
 
 def _read_collections(tacozips: list[str | Path]) -> list[dict[str, Any]]:
@@ -419,12 +400,6 @@ def _merge_spatial_extents(collections: list[dict[str, Any]]) -> list[float]:
     Computes the union of all spatial extents to create a global bbox that
     covers all partitions. If no extents found, defaults to global coverage.
 
-    Args:
-        collections: List of COLLECTION.json dictionaries from all partitions
-
-    Returns:
-        Global bbox as [min_lon, min_lat, max_lon, max_lat]
-
     Examples:
         Partition 1: [-10, 30, 0, 40]  (Europe)
         Partition 2: [100, -10, 110, 0]  (Indonesia)
@@ -456,12 +431,6 @@ def _merge_temporal_extents(collections: list[dict[str, Any]]) -> list[str] | No
 
     Finds the earliest start datetime and latest end datetime across all
     partitions to create a global temporal coverage.
-
-    Args:
-        collections: List of COLLECTION.json dictionaries from all partitions
-
-    Returns:
-        [earliest_start_iso, latest_end_iso] or None if no temporal data
 
     Examples:
         Partition 1: ["2023-01-01T00:00:00Z", "2023-06-30T23:59:59Z"]
@@ -523,13 +492,6 @@ def _collect_partition_extents(
     Collect individual spatial/temporal extents from each partition.
 
     Stores each partition's coverage for query routing and visualization.
-
-    Args:
-        collections: List of COLLECTION.json dictionaries
-        tacozips: List of paths to TACO zip files
-
-    Returns:
-        List of partition extent information with file, id, spatial, temporal
 
     Examples:
         [

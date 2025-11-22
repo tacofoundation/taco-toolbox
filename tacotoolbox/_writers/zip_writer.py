@@ -296,7 +296,7 @@ class ZipWriter:
                 from tacotoolbox._constants import PARQUET_CDC_DEFAULT_CONFIG
 
                 parquet_config = {**PARQUET_CDC_DEFAULT_CONFIG, **parquet_kwargs}
-                parquet_config.pop('mode', None)
+                parquet_config.pop("mode", None)
 
                 pq.write_table(arrow_table, temp_path, **parquet_config)
                 real_size = temp_path.stat().st_size
@@ -424,7 +424,7 @@ class ZipWriter:
         # Default config for local __meta__ (simple, no CDC)
         default_config = {"compression": "zstd"}
         parquet_config = {**default_config, **parquet_kwargs}
-        parquet_config.pop('mode', None)
+        parquet_config.pop("mode", None)
 
         pq.write_table(arrow_table, temp_path, **parquet_config)
 

@@ -8,7 +8,7 @@ Auto-detects format from extension:
 Example:
     >>> dataset = TacoDataset("big.tacozip")
     >>> filtered = dataset.sql("SELECT * FROM level0 WHERE country = 'ZA'")
-    >>> export(filtered, "south_africa.tacozip")  # works everywhere!
+    >>> export(filtered, "south_africa.tacozip")
 """
 
 import asyncio
@@ -23,7 +23,6 @@ from tacotoolbox._nest_asyncio import apply as nest_asyncio_apply
 from tacotoolbox._writers.export_writer import ExportWriter
 from tacotoolbox.translate import folder2zip
 
-# Apply nest_asyncio to allow nested event loops (Jupyter/Colab compatibility)
 nest_asyncio_apply()
 
 logger = get_logger(__name__)
@@ -40,8 +39,14 @@ def export(
     """
     Export filtered TacoDataset to FOLDER or ZIP.
 
-    Works in all environments (REPL, Jupyter, Colab) thanks to nest_asyncio.
-    Always returns Path synchronously - no need to await.
+    Returns:
+        Path to created output
+
+    Example:
+        >>> dataset = TacoDataset("global.tacozip")
+        >>> filtered = dataset.sql("SELECT * FROM level0 WHERE country='ES'")
+        >>> export(filtered, "spain.tacozip")
+        PosixPath('spain.tacozip')
     """
     return asyncio.run(
         _export_async(dataset, output, output_format, concurrency, quiet, temp_dir)
@@ -102,8 +107,8 @@ async def _export_async(
             logger.debug(f"Converting FOLDER to ZIP: {output}")
 
             folder2zip(
-                folder_path=temp_folder,
-                zip_output=output,
+                input=temp_folder,
+                output=output,
                 quiet=quiet,
                 temp_dir=temp_folder.parent,
             )

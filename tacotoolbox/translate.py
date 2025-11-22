@@ -31,14 +31,9 @@ class TranslateError(Exception):
     """Raised when translation operations fail."""
 
 
-# =============================================================================
-# PUBLIC API
-# =============================================================================
-
-
 async def zip2folder(
-    zip_path: str | Path,
-    folder_output: str | Path,
+    input: str | Path,
+    output: str | Path,
     concurrency: int = 100,
     quiet: bool = False,
 ) -> Path:
@@ -47,15 +42,19 @@ async def zip2folder(
 
     This is a wrapper around ExportWriter that converts a complete
     ZIP container to FOLDER format without any filtering.
+
+    Example:
+        >>> await zip2folder("dataset.tacozip", "dataset_folder/")
+        PosixPath('dataset_folder')
     """
     try:
-        logger.info(f"Converting ZIP to FOLDER: {zip_path} → {folder_output}")
+        logger.info(f"Converting ZIP to FOLDER: {input} → {output}")
 
-        dataset = TacoDataset(str(zip_path))
+        dataset = TacoDataset(str(input))
 
         writer = ExportWriter(
             dataset=dataset,
-            output=Path(folder_output),
+            output=Path(output),
             concurrency=concurrency,
             quiet=quiet,
         )
@@ -71,8 +70,8 @@ async def zip2folder(
 
 
 def folder2zip(
-    folder_path: str | Path,
-    zip_output: str | Path,
+    input: str | Path,
+    output: str | Path,
     quiet: bool = False,
     temp_dir: str | Path | None = None,
     **kwargs,
@@ -84,30 +83,34 @@ def folder2zip(
     container with correct offsets. The __meta__ files are regenerated
     with internal:offset and internal:size columns.
 
+    Example:
+        >>> folder2zip("dataset_folder/", "dataset.tacozip")
+        PosixPath('dataset.tacozip')
+
     Process:
-    1. Read COLLECTION.json
-    2. Read consolidated metadata (METADATA/levelX.parquet)
-    3. Reconstruct local_metadata from consolidated (for __meta__ generation)
-    4. Scan DATA/ for physical files
-    5. Use ZipWriter to create ZIP (regenerates __meta__ with offsets)
+        1. Read COLLECTION.json
+        2. Read consolidated metadata (METADATA/levelX.parquet)
+        3. Reconstruct local_metadata from consolidated (for __meta__ generation)
+        4. Scan DATA/ for physical files
+        5. Use ZipWriter to create ZIP (regenerates __meta__ with offsets)
     """
-    folder_path = Path(folder_path)
-    zip_output = Path(zip_output)
+    input = Path(input)
+    output = Path(output)
 
     # Convert temp_dir to Path if string
     if isinstance(temp_dir, str):
         temp_dir = Path(temp_dir)
 
     try:
-        logger.info(f"Converting FOLDER to ZIP: {folder_path} → {zip_output}")
+        logger.info(f"Converting FOLDER to ZIP: {input} → {output}")
 
         # 1. Read COLLECTION.json
         logger.debug("Reading COLLECTION.json")
-        collection = _read_collection(folder_path)
+        collection = _read_collection(input)
 
         # 2. Read consolidated metadata from METADATA/levelX.parquet
         logger.debug("Reading consolidated metadata")
-        levels = _read_consolidated_metadata(folder_path)
+        levels = _read_consolidated_metadata(input)
 
         # 3. Reconstruct local_metadata from consolidated
         logger.debug("Reconstructing local metadata")
@@ -115,7 +118,7 @@ def folder2zip(
 
         # 4. Scan DATA/ for physical files
         logger.debug("Scanning data files")
-        src_files, arc_files = _scan_data_files(folder_path)
+        src_files, arc_files = _scan_data_files(input)
 
         # 5. Create MetadataPackage
         metadata_package = MetadataPackage(
@@ -131,7 +134,7 @@ def folder2zip(
         logger.debug("Creating ZIP container")
 
         with ProgressContext(quiet=quiet):
-            writer = ZipWriter(output_path=zip_output, quiet=quiet, temp_dir=temp_dir)
+            writer = ZipWriter(output_path=output, quiet=quiet, temp_dir=temp_dir)
             result = writer.create_complete_zip(
                 src_files=src_files,
                 arc_files=arc_files,
@@ -145,11 +148,6 @@ def folder2zip(
     else:
         logger.info(f"Conversion complete: {result}")
         return result
-
-
-# =============================================================================
-# INTERNAL FUNCTIONS
-# =============================================================================
 
 
 def _read_collection(folder_path: Path) -> dict:

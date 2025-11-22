@@ -309,9 +309,7 @@ def generate_pit_schema(  # noqa: C901
             continue
 
         if METADATA_PARENT_ID not in df.columns:
-            raise ValueError(
-                f"Depth {depth} missing '{METADATA_PARENT_ID}' column"
-            )
+            raise ValueError(f"Depth {depth} missing '{METADATA_PARENT_ID}' column")
 
         if depth == 1:
             # LEVEL 1: Find folder with MOST real (non-padding) samples

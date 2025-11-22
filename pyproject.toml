@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "tacotoolbox"
-version = "0.16.8"
+version = "0.16.9"
 description = "We make tacos 🔨"
 authors = ["Cesar Aybar <cesar.aybar@uv.es>"]
 repository = "https://github.com/taco-toolbox/tacotoolbox"
@@ -56,7 +56,7 @@ select = [
     "I", "C90", "E", "W", "F", "PGH", "UP",
     "RUF", "TRY",
 ]
-ignore = ["E501", "E731", "TRY003", "F401", "F821", "S311", "UP017"]
+ignore = ["E501", "E731", "TRY003", "F401", "F821", "S311", "UP017", "A001", "A002"]
 per-file-ignores = { "tests/*" = ["S101"],  "tacotoolbox/v1/*" = ["ALL"] }
 
 [tool.ruff.format]

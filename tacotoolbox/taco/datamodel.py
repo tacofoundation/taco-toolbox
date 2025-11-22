@@ -19,18 +19,18 @@ Positional-Invariance Tree (PIT):
     - Same ID at each position across all roots
     - Same type at each position across all roots
     - Recursive validation for nested FOLDERs
-    
+
     Rule: Root[i].children[k] must be identical for all i at position k.
-    
+
     Example (valid):
         Date_0/ -> [GLORYS/, L4/, L3/]
         Date_1/ -> [GLORYS/, L4/, L3/]
         Date_2/ -> [GLORYS/, L4/, L3/]
-    
+
     Example (invalid):
         Date_0/ -> [GLORYS/, L4/]
         Date_1/ -> [L4/, GLORYS/]  # Position 0 must be GLORYS
-    
+
     Validation occurs at Taco creation to ensure structural consistency.
 """
 
@@ -279,27 +279,27 @@ class Taco(pydantic.BaseModel):
         self._auto_calculate_extent()
         return self
 
-    def _validate_pit_compliance(self) -> None:
+    def _validate_pit_compliance(self) -> None: #noqa: C901
         """
         Validate PIT constraint for root tortilla.
-        
+
         This is the only place where PIT validation occurs because Taco knows
         its tortilla is the root of the dataset tree. Validates that all root
         samples are structurally isomorphic.
         """
         samples = self.tortilla.samples
-        
+
         # Validate all root samples have same type
         root_types = [s.type for s in samples]
         unique_types = set(root_types)
-        
+
         if len(unique_types) > 1:
             raise ValueError(
                 f"PIT violation: All root samples must have the same type.\n"
                 f"Found mixed types at root level: {unique_types}\n"
                 f"All root samples must be either all FILE or all FOLDER."
             )
-        
+
         # If all FILEs, no further validation needed
         if "FOLDER" not in unique_types:
             return
@@ -329,7 +329,9 @@ class Taco(pydantic.BaseModel):
         if len(set(child_counts)) > 1:
             count_report = ", ".join(
                 f"'{folder_id}': {count}"
-                for (folder_id, _), count in zip(folder_children, child_counts, strict=False)
+                for (folder_id, _), count in zip(
+                    folder_children, child_counts, strict=False
+                )
             )
             raise ValueError(
                 f"PIT violation: All root samples must be isomorphic.\n"
@@ -375,7 +377,9 @@ class Taco(pydantic.BaseModel):
                         cast(Tortilla, child.path) for child in children_at_position
                     ]
                     for i, child_tortilla in enumerate(child_tortillas[1:], start=1):
-                        if len(child_tortilla.samples) != len(child_tortillas[0].samples):
+                        if len(child_tortilla.samples) != len(
+                            child_tortillas[0].samples
+                        ):
                             raise ValueError(
                                 f"PIT violation in nested structure at position {pos}:\n"
                                 f"Root[0].child[{pos}] ('{children_at_position[0].id}') has {len(child_tortillas[0].samples)} children\n"

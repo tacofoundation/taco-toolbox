@@ -98,8 +98,8 @@ class SchemaValidationError(TacoCatError):
 
 
 def create_tacocat(
-    tacozips: list[str | Path],
-    output_path: str | Path,
+    inputs: list[str | Path],
+    output: str | Path,
     parquet_kwargs: dict[str, Any] | None = None,
     validate_schema: bool = True,
     quiet: bool = True,
@@ -116,17 +116,17 @@ def create_tacocat(
         row_group_size: 122_880
         statistics: True
     """
-    output_dir = Path(output_path)
+    output_dir = Path(output)
 
     if output_dir.exists() and output_dir.is_file():
         raise ValueError(
-            f"output_path must be a directory, not a file: {output_path}\n"
+            f"output must be a directory, not a file: {output}\n"
             f"Example: create_tacocat(datasets, '/data/output_dir/')"
         )
 
     if output_dir.suffix:
         raise ValueError(
-            f"output_path should not have a file extension: {output_path}\n"
+            f"output should not have a file extension: {output}\n"
             f"The file will be automatically named '{TACOCAT_FILENAME}'\n"
             f"Example: create_tacocat(datasets, '/data/output_dir/')"
         )
@@ -141,7 +141,7 @@ def create_tacocat(
         quiet=quiet,
     )
 
-    for tacozip_path in tacozips:
+    for tacozip_path in inputs:
         writer.add_dataset(tacozip_path)
 
     writer.write(validate_schema=validate_schema)
