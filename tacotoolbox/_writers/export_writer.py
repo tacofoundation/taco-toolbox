@@ -84,8 +84,9 @@ class ExportWriter:
         self,
         dataset: TacoDataset,
         output: pathlib.Path,
-        concurrency: int = 100,
+        limit: int = 100,
         quiet: bool = False,
+        **kwargs,
     ) -> None:
         """
         Initialize export writer.
@@ -93,20 +94,20 @@ class ExportWriter:
         Args:
             dataset: TacoDataset with applied filters (e.g., from .sql())
             output: Path to output folder
-            concurrency: Maximum concurrent async operations (default: 100)
+            limit: Maximum concurrent async operations (default: 100)
             quiet: If True, hide progress bars (default: False - shows progress)
+            **kwargs: Parquet config (compression, compression_level, row_group_size)
         """
         self.dataset = dataset
         self.output = pathlib.Path(output)
-        self.concurrency = concurrency
+        self.limit = limit
         self.quiet = quiet
+        self.parquet_kwargs = kwargs
 
         self.data_dir = self.output / FOLDER_DATA_DIR
         self.metadata_dir = self.output / FOLDER_METADATA_DIR
 
-        logger.debug(
-            f"ExportWriter initialized: output={output}, concurrency={concurrency}"
-        )
+        logger.debug(f"ExportWriter initialized: output={output}, limit={limit}")
 
     async def create_folder(self) -> pathlib.Path:
         """
@@ -186,7 +187,7 @@ class ExportWriter:
         files_df = df.filter(pl.col("type") == "FILE")
         folders_df = df.filter(pl.col("type") == "FOLDER")
 
-        semaphore = asyncio.Semaphore(self.concurrency)
+        semaphore = asyncio.Semaphore(self.limit)
 
         # Copy FILEs concurrently with progress bar
         if len(files_df) > 0:
@@ -347,7 +348,7 @@ class ExportWriter:
 
         # Write local __meta__ for this folder in PARQUET format
         meta_path = folder_path / "__meta__"
-        write_parquet_file(children_df, meta_path)
+        write_parquet_file(children_df, meta_path, **self.parquet_kwargs)
 
     def _generate_consolidated_metadata(self) -> None:
         """
@@ -429,7 +430,7 @@ class ExportWriter:
 
             # Write consolidated metadata as PARQUET with CDC
             output_path = self.metadata_dir / f"{level_name}.parquet"
-            write_parquet_file_with_cdc(filtered_df, output_path)
+            write_parquet_file_with_cdc(filtered_df, output_path, **self.parquet_kwargs)
 
             logger.debug(f"{level_name}.parquet: {len(filtered_df)} samples")
 

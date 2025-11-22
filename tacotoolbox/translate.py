@@ -34,7 +34,7 @@ class TranslateError(Exception):
 async def zip2folder(
     input: str | Path,
     output: str | Path,
-    concurrency: int = 100,
+    limit: int = 100,
     quiet: bool = False,
 ) -> Path:
     """
@@ -55,7 +55,7 @@ async def zip2folder(
         writer = ExportWriter(
             dataset=dataset,
             output=Path(output),
-            concurrency=concurrency,
+            limit=limit,
             quiet=quiet,
         )
 

@@ -2,8 +2,8 @@
 Export filtered TacoDataset to FOLDER or ZIP format with auto-detection.
 
 Auto-detects format from extension:
-- .zip/.tacozip → ZIP format (via temp FOLDER)
-- anything else → FOLDER format
+- .zip/.tacozip -> ZIP format (via temp FOLDER)
+- anything else -> FOLDER format
 
 Example:
     >>> dataset = TacoDataset("big.tacozip")
@@ -31,13 +31,25 @@ logger = get_logger(__name__)
 def export(
     dataset: TacoDataset,
     output: str | Path,
-    output_format: Literal["zip", "folder"] | None = None,
-    concurrency: int = 100,
+    output_format: Literal["zip", "folder", "auto"] = "auto",
     quiet: bool = False,
+    limit: int = 100,
     temp_dir: str | Path | None = None,
+    **kwargs,
 ) -> Path:
     """
     Export filtered TacoDataset to FOLDER or ZIP.
+
+    Format auto-detected from extension (.zip/.tacozip -> ZIP, else -> FOLDER).
+
+    Args:
+        dataset: TacoDataset with applied filters
+        output: Output path (extension determines format)
+        output_format: Output format ("auto", "zip", "folder")
+        quiet: If True, suppress progress output
+        limit: Max concurrent async operations (default: 100)
+        temp_dir: Custom temp directory for ZIP creation
+        **kwargs: Parquet config (compression, compression_level, row_group_size)
 
     Returns:
         Path to created output
@@ -47,19 +59,24 @@ def export(
         >>> filtered = dataset.sql("SELECT * FROM level0 WHERE country='ES'")
         >>> export(filtered, "spain.tacozip")
         PosixPath('spain.tacozip')
+
+        >>> export(filtered, "spain.tacozip",
+        ...        compression="zstd", compression_level=20)
+        PosixPath('spain.tacozip')
     """
     return asyncio.run(
-        _export_async(dataset, output, output_format, concurrency, quiet, temp_dir)
+        _export_async(dataset, output, output_format, quiet, limit, temp_dir, **kwargs)
     )
 
 
 async def _export_async(
     dataset: TacoDataset,
     output: str | Path,
-    output_format: Literal["zip", "folder"] | None = None,
-    concurrency: int = 100,
+    output_format: Literal["zip", "folder", "auto"] = "auto",
     quiet: bool = False,
+    limit: int = 100,
     temp_dir: str | Path | None = None,
+    **kwargs,
 ) -> Path:
     """
     Internal async export implementation.
@@ -69,7 +86,8 @@ async def _export_async(
     """
     output = Path(output)
 
-    if output_format is None:
+    # Auto-detect format from extension if needed
+    if output_format == "auto":
         output_format = _detect_format(output)
         logger.debug(f"Auto-detected format: {output_format}")
 
@@ -79,8 +97,9 @@ async def _export_async(
         writer = ExportWriter(
             dataset=dataset,
             output=output,
-            concurrency=concurrency,
+            limit=limit,
             quiet=quiet,
+            **kwargs,
         )
         result = await writer.create_folder()
         logger.info(f"Export complete: {result}")
@@ -99,8 +118,9 @@ async def _export_async(
             writer = ExportWriter(
                 dataset=dataset,
                 output=temp_folder,
-                concurrency=concurrency,
+                limit=limit,
                 quiet=quiet,
+                **kwargs,
             )
             await writer.create_folder()
 
@@ -111,6 +131,7 @@ async def _export_async(
                 output=output,
                 quiet=quiet,
                 temp_dir=temp_folder.parent,
+                **kwargs,
             )
 
             logger.debug(f"Cleaning up temporary folder: {temp_folder}")
