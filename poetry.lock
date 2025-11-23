@@ -318,57 +318,6 @@ files = [
 ]
 
 [[package]]
-name = "fastavro"
-version = "1.12.0"
-description = "Fast read/write of AVRO files"
-optional = false
-python-versions = ">=3.9"
-files = [
-    {file = "fastavro-1.12.0-cp310-cp310-macosx_10_9_universal2.whl", hash = "sha256:e38497bd24136aad2c47376ee958be4f5b775d6f03c11893fc636eea8c1c3b40"},
-    {file = "fastavro-1.12.0-cp310-cp310-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:e8d8401b021f4b3dfc05e6f82365f14de8d170a041fbe3345f992c9c13d4f0ff"},
-    {file = "fastavro-1.12.0-cp310-cp310-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:531b89117422db967d4e1547b34089454e942341e50331fa71920e9d5e326330"},
-    {file = "fastavro-1.12.0-cp310-cp310-musllinux_1_2_aarch64.whl", hash = "sha256:ae541edbc6091b890532d3e50d7bcdd324219730598cf9cb4522d1decabde37e"},
-    {file = "fastavro-1.12.0-cp310-cp310-musllinux_1_2_x86_64.whl", hash = "sha256:585a11f612eaadb0dcb1d3d348b90bd0d0d3ee4cf9abafd8b319663e8a0e1dcc"},
-    {file = "fastavro-1.12.0-cp310-cp310-win_amd64.whl", hash = "sha256:425fb96fbfbc06a0cc828946dd2ae9d85a5f9ff836af033d8cb963876ecb158e"},
-    {file = "fastavro-1.12.0-cp311-cp311-macosx_10_9_universal2.whl", hash = "sha256:56f78d1d527bea4833945c3a8c716969ebd133c5762e2e34f64c795bd5a10b3e"},
-    {file = "fastavro-1.12.0-cp311-cp311-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:a7ce0d117642bb4265ef6e1619ec2d93e942a98f60636e3c0fbf1eb438c49026"},
-    {file = "fastavro-1.12.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:52e9d9648aad4cca5751bcbe2d3f98e85afb0ec6c6565707f4e2f647ba83ba85"},
-    {file = "fastavro-1.12.0-cp311-cp311-musllinux_1_2_aarch64.whl", hash = "sha256:6183875381ec1cf85a1891bf46696fd1ec2ad732980e7bccc1e52e9904e7664d"},
-    {file = "fastavro-1.12.0-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:5ad00a2b94d3c8bf9239acf92d56e3e457e1d188687a8d80f31e858ccf91a6d6"},
-    {file = "fastavro-1.12.0-cp311-cp311-win_amd64.whl", hash = "sha256:6c4d1c276ff1410f3830648bb43312894ad65709ca0cb54361e28954387a46ac"},
-    {file = "fastavro-1.12.0-cp312-cp312-macosx_10_13_universal2.whl", hash = "sha256:e849c70198e5bdf6f08df54a68db36ff72bd73e8f14b1fd664323df073c496d8"},
-    {file = "fastavro-1.12.0-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:b260e1cdc9a77853a2586b32208302c08dddfb5c20720b5179ac5330e06ce698"},
-    {file = "fastavro-1.12.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:181779688d8b80957953031f0d82ec0761be667a78e03dac642511ff996c771a"},
-    {file = "fastavro-1.12.0-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:6881caf914b36a57d1f90810f04a89bd9c837dd4a48e1b66a8b92136e85c415d"},
-    {file = "fastavro-1.12.0-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:8bf638248499eb78c422f12fedc08f9b90b5646c3368415e388691db60e7defb"},
-    {file = "fastavro-1.12.0-cp312-cp312-win_amd64.whl", hash = "sha256:ed4f18b7c2f651a5ee2233676f62aac332995086768301aa2c1741859d70b53e"},
-    {file = "fastavro-1.12.0-cp313-cp313-macosx_10_13_universal2.whl", hash = "sha256:dbe2b690d9caba7d888126cc1dd980a8fcf5ee73de41a104e3f15bb5e08c19c8"},
-    {file = "fastavro-1.12.0-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:07ff9e6c6e8739203ccced3205646fdac6141c2efc83f4dffabf5f7d0176646d"},
-    {file = "fastavro-1.12.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:6a172655add31882cab4e1a96b7d49f419906b465b4c2165081db7b1db79852f"},
-    {file = "fastavro-1.12.0-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:be20ce0331b70b35dca1a4c7808afeedf348dc517bd41602ed8fc9a1ac2247a9"},
-    {file = "fastavro-1.12.0-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:a52906681384a18b99b47e5f9eab64b4744d6e6bc91056b7e28641c7b3c59d2b"},
-    {file = "fastavro-1.12.0-cp313-cp313-win_amd64.whl", hash = "sha256:cf153531191bcfc445c21e05dd97232a634463aa717cf99fb2214a51b9886bff"},
-    {file = "fastavro-1.12.0-cp313-cp313t-macosx_10_13_universal2.whl", hash = "sha256:1928e88a760688e490118e1bedf0643b1f3727e5ba59c07ac64638dab81ae2a1"},
-    {file = "fastavro-1.12.0-cp313-cp313t-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:cd51b706a3ab3fe4af84a0b37f60d1bcd79295df18932494fc9f49db4ba2bab2"},
-    {file = "fastavro-1.12.0-cp313-cp313t-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:1148263931f6965e1942cf670f146148ca95b021ae7b7e1f98bf179f1c26cc58"},
-    {file = "fastavro-1.12.0-cp313-cp313t-musllinux_1_2_aarch64.whl", hash = "sha256:4099e0f6fb8a55f59891c0aed6bfa90c4d20a774737e5282c74181b4703ea0cb"},
-    {file = "fastavro-1.12.0-cp313-cp313t-musllinux_1_2_x86_64.whl", hash = "sha256:10c586e9e3bab34307f8e3227a2988b6e8ac49bff8f7b56635cf4928a153f464"},
-    {file = "fastavro-1.12.0-cp39-cp39-macosx_10_9_universal2.whl", hash = "sha256:638bb234821d7377d27a23bfee5bd89dadbb956c483a27acabea813c5b3e4b58"},
-    {file = "fastavro-1.12.0-cp39-cp39-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:f47a4777b6ebfeef60c5d3c7e850a32e3ec5c8727ccf90436ecdfd887815ac16"},
-    {file = "fastavro-1.12.0-cp39-cp39-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:58f743697aa63a359538b7258f5956f4f1a83d3cd4eb3c8b3c3a99b3385e4cfb"},
-    {file = "fastavro-1.12.0-cp39-cp39-musllinux_1_2_aarch64.whl", hash = "sha256:ab6744c62dd65c3507375a489680c97c93504ec37892c51c592d9f2c441a93a7"},
-    {file = "fastavro-1.12.0-cp39-cp39-musllinux_1_2_x86_64.whl", hash = "sha256:bf6bbfcef12942b45220cb7dcd222daed21223d4a02e8361570da0bedabcbc95"},
-    {file = "fastavro-1.12.0-cp39-cp39-win_amd64.whl", hash = "sha256:c7f025c69f13e34fc7281c688fedd8d4e7633eb15891ea630891ee34911bdfc2"},
-    {file = "fastavro-1.12.0.tar.gz", hash = "sha256:a67a87be149825d74006b57e52be068dfa24f3bfc6382543ec92cd72327fe152"},
-]
-
-[package.extras]
-codecs = ["cramjam", "lz4", "zstandard"]
-lz4 = ["lz4"]
-snappy = ["cramjam"]
-zstandard = ["zstandard"]
-
-[[package]]
 name = "filelock"
 version = "3.16.1"
 description = "A platform independent file lock."
@@ -1624,42 +1573,36 @@ files = [
 
 [[package]]
 name = "tacozip"
-version = "0.10.2"
-description = "Regular ZIP (STORE-only) writer with libzip backend and TACO Header at byte 0"
+version = "0.12.0"
+description = "The ZIP container for TACO files"
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "tacozip-0.10.2-cp310-cp310-macosx_11_0_universal2.whl", hash = "sha256:e071112e4797286519282b518530ab814071d50d9578326aea9de3d6296007df"},
-    {file = "tacozip-0.10.2-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:731b4cc65712fcc10465a1bc7f642bc80e30008dc802876474375db1b1ede5ce"},
-    {file = "tacozip-0.10.2-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:9953c92c3fbcb4f6b546bc3c2cfd6e5f58db46c434e6031ed07f83f3cf8258aa"},
-    {file = "tacozip-0.10.2-cp310-cp310-musllinux_1_2_aarch64.whl", hash = "sha256:a11c91ee813676c7b035924615372b24209da8402420f8ff0007536925325bfb"},
-    {file = "tacozip-0.10.2-cp310-cp310-musllinux_1_2_x86_64.whl", hash = "sha256:662960c6bd998bfd49e91c0588d602e7229180fd34aaf06c82f0dc3e0eadd005"},
-    {file = "tacozip-0.10.2-cp310-cp310-win_amd64.whl", hash = "sha256:0995bd6f988da8a363ab40f5688fab43148305dda1d5c921e998a58a644b4808"},
-    {file = "tacozip-0.10.2-cp311-cp311-macosx_11_0_universal2.whl", hash = "sha256:dcb4a8120be6e30f6ae951a107ee4c935490d4ab569a48a5d59ca400877dfddc"},
-    {file = "tacozip-0.10.2-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:dc4be57b1e73c31a2e2a72f8224dab98ec29c53c3f2e4a6e76cacf905b421852"},
-    {file = "tacozip-0.10.2-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:19921afed73a39b1a19ec55a9c073be7eae08e9ad7b5abf215cf64cedf708956"},
-    {file = "tacozip-0.10.2-cp311-cp311-musllinux_1_2_aarch64.whl", hash = "sha256:dae98cb40b17757c7238d9bf3ab666b1741a84b815759c03b0a4117cb79708d5"},
-    {file = "tacozip-0.10.2-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:38dfc6d2cb8e41456ba2cc1147c8572d48bfd64c64e0b2224933607015fedb7b"},
-    {file = "tacozip-0.10.2-cp311-cp311-win_amd64.whl", hash = "sha256:a28abc153fbe2686f0accf6f0b76fc2ebe27a645835a23529f9d57b22b41641a"},
-    {file = "tacozip-0.10.2-cp312-cp312-macosx_11_0_universal2.whl", hash = "sha256:f66cec2bee554fcefb74f3a72ec9cb04205d1eb0717936c7a257db530d50425c"},
-    {file = "tacozip-0.10.2-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:ceae2b1669e20ffa2dd58d4075501b6e60e4fc0a623455b414f1f4384fa6360f"},
-    {file = "tacozip-0.10.2-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:f9e98e6dd41763a8262f305e2dca6057febd7b0db73c29a864187904109942ff"},
-    {file = "tacozip-0.10.2-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:900f1d54b13974e586b4f4b77e9faa27896cdbad6de74211984b8be923ec0f9a"},
-    {file = "tacozip-0.10.2-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:2f55d01d9f5f4c5ed684a192cdb62e61c9d06f5709846691f1ade18bcda841a0"},
-    {file = "tacozip-0.10.2-cp312-cp312-win_amd64.whl", hash = "sha256:267884109a4b48bca440358e82d87dbfb398e5b5b72d0e10dbe394e59b505c76"},
-    {file = "tacozip-0.10.2-cp313-cp313-macosx_11_0_universal2.whl", hash = "sha256:0ae403e2064cb8eec5848fe707ae9e555f54a274a70676382aba7f7a3f5cb7de"},
-    {file = "tacozip-0.10.2-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:669efe5c26f744abffefb7deb4ebf69276dad29e6b1e2103a3edc1d554504b0d"},
-    {file = "tacozip-0.10.2-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:9b7c42217f27db80b83e6d772d3d700aff2fb2af2923c210f4a7cbf0780ba24c"},
-    {file = "tacozip-0.10.2-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:f400d434035255046b40a2a0e781a1c7fb920507516c5034a5cb4a098be65b74"},
-    {file = "tacozip-0.10.2-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:1da3418634db601ae4f9bf29dd7a5a39a89015caaea8feac8b016cb044f961b8"},
-    {file = "tacozip-0.10.2-cp313-cp313-win_amd64.whl", hash = "sha256:8f8612f2da03769d381e92a6a35dca30388a7d0d942bab006eeb802580d4c979"},
-    {file = "tacozip-0.10.2-cp39-cp39-macosx_11_0_universal2.whl", hash = "sha256:28222ee1d2b4d38b30be2170bfe71bbefe11ccf638192d795b63faadaee23b92"},
-    {file = "tacozip-0.10.2-cp39-cp39-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:e7ad01eecf3978fe343278f95d8fe66418bfdae7bb8c3fb6ab697d13f5989487"},
-    {file = "tacozip-0.10.2-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:8137345ac4e85d028a843154e05f3017712419e5b7913e6ea067966183f095d4"},
-    {file = "tacozip-0.10.2-cp39-cp39-musllinux_1_2_aarch64.whl", hash = "sha256:147b6d634c7fbbc45b3601537628b1081bfc997e39ae9f63fb5db6e83e9a0b60"},
-    {file = "tacozip-0.10.2-cp39-cp39-musllinux_1_2_x86_64.whl", hash = "sha256:e82ec172228177f1413861e40b6b4874c0fc1db27d0c45a939bb1649fc9faf09"},
-    {file = "tacozip-0.10.2-cp39-cp39-win_amd64.whl", hash = "sha256:aaed681067480ceac87e8ff5654fc2de614ed97a90982c77152e2621c8ae1a36"},
-    {file = "tacozip-0.10.2.tar.gz", hash = "sha256:f467ef102a07bb30b0983123a7757a89502ad7d25baf85dfb31b0cf5a7f71694"},
+    {file = "tacozip-0.12.0-cp310-cp310-macosx_11_0_universal2.whl", hash = "sha256:70c2c57ffee2a89706b013a384a90673f496a6732d77e14b1c1f7aedca2903ce"},
+    {file = "tacozip-0.12.0-cp310-cp310-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:596ff688985599e05b1b341a85809a6e4f13407d137049a7b8168249c62b54e4"},
+    {file = "tacozip-0.12.0-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:83bf8ff58dc0012fdcaa411dea6645d9d1178dedd5e2f1834f6464ec679ebccb"},
+    {file = "tacozip-0.12.0-cp310-cp310-musllinux_1_2_aarch64.whl", hash = "sha256:40077f7d513a044c4789bf9757b7c8c9144df5cae02d230081c250ad42052aed"},
+    {file = "tacozip-0.12.0-cp310-cp310-musllinux_1_2_x86_64.whl", hash = "sha256:e93d454b2dbac740f4642cf3a6559d0ba3110ab8d0fb3693e80c5940c87d9ca2"},
+    {file = "tacozip-0.12.0-cp310-cp310-win_amd64.whl", hash = "sha256:f15a49d49e3dc534cf9dcc7025501c692ac5bf196bc4ee418c519e33edb67a82"},
+    {file = "tacozip-0.12.0-cp311-cp311-macosx_11_0_universal2.whl", hash = "sha256:b7a9eeb384d8b7c3aa17093d3a2680f19cc069c5491024b6884500a4db01cfe4"},
+    {file = "tacozip-0.12.0-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:916deecea167ace3d635e4b0a7ac8c721e25ede7bcbacc6d63452b2e5a91b5fd"},
+    {file = "tacozip-0.12.0-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:8565946f65bcb99fe2182ee01b25630aa18deb0a0608562aa380de9ab5e096d7"},
+    {file = "tacozip-0.12.0-cp311-cp311-musllinux_1_2_aarch64.whl", hash = "sha256:a5f910d723916efb2c9cda2a1f7d5a77f245ff6ad389bc94d4faa1886165fa87"},
+    {file = "tacozip-0.12.0-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:5ea1d0ff4009bcf0a3e5851069ea109bf8eb980bea9691013c7d32d9647480d5"},
+    {file = "tacozip-0.12.0-cp311-cp311-win_amd64.whl", hash = "sha256:5fd4bd3cc4d4edf8526318efc04055d691fdecf4ece2e058cefc79dcb5bd72df"},
+    {file = "tacozip-0.12.0-cp312-cp312-macosx_11_0_universal2.whl", hash = "sha256:f757ab52ce4e695cdb007be8f9fe20163566b868b01b1d670f8149fb51d91f02"},
+    {file = "tacozip-0.12.0-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:da04e64efd0b79302956e624ee941400734e6cdb3a9eb71a618eba20a3f5654e"},
+    {file = "tacozip-0.12.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:b13301762039a423dcedd6f6b632f590cbf0e07552d053342a89a263b595336e"},
+    {file = "tacozip-0.12.0-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:6c6717245dce3c196ee2ad9f07fedb54e02f635e6d636aa7a8a433ff42485e22"},
+    {file = "tacozip-0.12.0-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:0501979e7d11b6790045089d3a40783908553d87253b36c3377e4864b875e6d1"},
+    {file = "tacozip-0.12.0-cp312-cp312-win_amd64.whl", hash = "sha256:00831bd2542ae163a4d483b07bbb4a385fc8326dd7449393b9c129b029908f80"},
+    {file = "tacozip-0.12.0-cp313-cp313-macosx_11_0_universal2.whl", hash = "sha256:34e2fad600506ec2e9279c706795370415aee6c14868411adabfd62df8c3c532"},
+    {file = "tacozip-0.12.0-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:37f0abb8ad17e57f866a52a0fd9b38514b884abfbf8a3bad47b57fb2f2eec66d"},
+    {file = "tacozip-0.12.0-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:0d19b6f177d3f9de82e1a6e6397e1f23a287500aecf950a3a563612dbd4ca93f"},
+    {file = "tacozip-0.12.0-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:a663bfa901e4f81e38e8538d426e6ef241311b509f9a88dfccbb9e365f353fa9"},
+    {file = "tacozip-0.12.0-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:f2598d5634993a70e5fc98c90cc6285125bf3460e8b096e458e80a46261f8954"},
+    {file = "tacozip-0.12.0-cp313-cp313-win_amd64.whl", hash = "sha256:f030e7675dcbe33b6868d3e87adf2d15a2b5463a9b6770769a3a1424826d5b24"},
+    {file = "tacozip-0.12.0.tar.gz", hash = "sha256:fb7ac6602b5063d4e6461c0b7182e3937dda744ed47056546312b4932393c567"},
 ]
 
 [package.extras]
@@ -1689,6 +1632,27 @@ virtualenv = ">=20.26.6"
 
 [package.extras]
 test = ["devpi-process (>=1.0.2)", "pytest (>=8.3.3)", "pytest-mock (>=3.14)"]
+
+[[package]]
+name = "tqdm"
+version = "4.67.1"
+description = "Fast, Extensible Progress Meter"
+optional = false
+python-versions = ">=3.7"
+files = [
+    {file = "tqdm-4.67.1-py3-none-any.whl", hash = "sha256:26445eca388f82e72884e0d580d5464cd801a3ea01e63e5601bdff9ba6a48de2"},
+    {file = "tqdm-4.67.1.tar.gz", hash = "sha256:f8aef9c52c08c13a65f30ea34f4e5aac3fd1a34959879d7e59e63027286627f2"},
+]
+
+[package.dependencies]
+colorama = {version = "*", markers = "platform_system == \"Windows\""}
+
+[package.extras]
+dev = ["nbval", "pytest (>=6)", "pytest-asyncio (>=0.24)", "pytest-cov", "pytest-timeout"]
+discord = ["requests"]
+notebook = ["ipywidgets (>=6)"]
+slack = ["slack-sdk"]
+telegram = ["requests"]
 
 [[package]]
 name = "typing-extensions"
@@ -1783,4 +1747,4 @@ watchmedo = ["PyYAML (>=3.10)"]
 [metadata]
 lock-version = "2.0"
 python-versions = ">=3.11,<4.0"
-content-hash = "9425cfbb645706f2b3cbc68a64d7a1aebace677d387e27ecbd2f290fa03f310a"
+content-hash = "a223e3c6731ba6c254b10cc425feed4da0ee38e6fcb53745c9ec1f0fdf89f85d"

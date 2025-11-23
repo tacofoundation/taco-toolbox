@@ -525,6 +525,10 @@ class GeoEnrich(TortillaExtension):
         reducer_groups = self._group_products_by_reducer(products)
         chunks = list(_chunks(points, self.batch_size))
 
+        # Get expected schema for casting
+        product_names = [p["name"] for p in products]
+        expected_schema = {name: PRODUCT_SCHEMA[name] for name in product_names}
+
         with ThreadPoolExecutor(max_workers=self.max_concurrency) as executor:
             futures = [
                 executor.submit(self._reduce_chunk, chunk, reducer_groups, ee)
@@ -538,10 +542,20 @@ class GeoEnrich(TortillaExtension):
                 disable=not self.show_progress,
             ) as pbar:
                 for future in as_completed(futures):
-                    results.append(future.result())
+                    df_chunk = future.result()
+
+                    # Cast to expected schema BEFORE appending
+                    df_chunk = df_chunk.select(
+                        ["idx"]
+                        + [
+                            pl.col(name).cast(expected_schema[name], strict=False)
+                            for name in product_names
+                        ]
+                    )
+
+                    results.append(df_chunk)
                     pbar.update(1)
 
-        # Concatenate all batch results
         return pl.concat(results, how="vertical")
 
     def _compute(self, tortilla: "Tortilla") -> pl.DataFrame:
@@ -575,13 +589,8 @@ class GeoEnrich(TortillaExtension):
         # Sort by idx to match original order, then drop idx
         raw_results = raw_results.sort("idx").drop("idx")
 
-        # Add prefix and ensure schema (inline _finalize_schema)
+        # Add "geoenrich:" prefix
         product_names = [p["name"] for p in active_products]
         return raw_results.select(
-            [
-                pl.col(name)
-                .cast(PRODUCT_SCHEMA[name], strict=False)
-                .alias(f"geoenrich:{name}")
-                for name in product_names
-            ]
+            [pl.col(name).alias(f"geoenrich:{name}") for name in product_names]
         )

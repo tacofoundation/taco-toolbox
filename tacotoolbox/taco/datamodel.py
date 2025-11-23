@@ -279,7 +279,7 @@ class Taco(pydantic.BaseModel):
         self._auto_calculate_extent()
         return self
 
-    def _validate_pit_compliance(self) -> None: #noqa: C901
+    def _validate_pit_compliance(self) -> None:  # noqa: C901
         """
         Validate PIT constraint for root tortilla.
 
