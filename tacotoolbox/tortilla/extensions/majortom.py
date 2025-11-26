@@ -2,7 +2,6 @@ import math
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, cast
 
-import numpy as np
 import polars as pl
 import pydantic
 from pydantic import Field, PrivateAttr
@@ -13,6 +12,12 @@ from tacotoolbox.tortilla.datamodel import TortillaExtension
 if TYPE_CHECKING:
     from tacotoolbox.tortilla.datamodel import Tortilla
 
+try:
+    import numpy as np
+
+    HAS_NUMPY = True
+except ImportError:
+    HAS_NUMPY = False
 
 class MajorTOM(TortillaExtension):
     """
@@ -326,6 +331,13 @@ class MajorTOM(TortillaExtension):
         New format: [DIST]km_[ROWID]_[COLID]
         Example: 0100km_0003U_0005R
         """
+
+        if not HAS_NUMPY:
+            raise ImportError(
+                "MajorTOM extension requires numpy.\n"
+                "Install with: pip install numpy"
+            )
+
         df = tortilla._metadata_df
 
         lats, lons = [], []
