@@ -76,7 +76,6 @@ from pathlib import Path
 from typing import Any
 
 import polars as pl
-import pyarrow as pa
 import pyarrow.parquet as pq
 import tacozip
 
@@ -88,6 +87,9 @@ from tacotoolbox._constants import (
     TACOCAT_TOTAL_HEADER_SIZE,
     TACOCAT_VERSION,
 )
+from tacotoolbox._logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class TacoCatError(Exception):
@@ -101,40 +103,34 @@ class SchemaValidationError(TacoCatError):
 def _estimate_row_group_size(num_rows: int, num_cols: int) -> int:
     """
     Estimate optimal row_group_size for Parquet files.
-    
+
     Target: ~128MB uncompressed row groups for optimal DuckDB performance.
     Assumes ~1KB average row size (conservative estimate).
-    
+
     Args:
         num_rows: Total number of rows in DataFrame
         num_cols: Number of columns in DataFrame
-    
+
     Returns:
         Optimal row_group_size (capped between 10K and 1M rows)
     """
-    # Estimate bytes per row (simple heuristic: ~100 bytes per column)
-    estimated_row_bytes = max(100 * num_cols, 500)  # At least 500 bytes per row
-    
-    # Target 128MB row groups
+    estimated_row_bytes = max(100 * num_cols, 500)
+
     target_row_group_bytes = 128 * 1024 * 1024
     estimated_row_group_size = target_row_group_bytes // estimated_row_bytes
-    
-    # Clamp between reasonable bounds
-    # Min: 10K rows (don't create tiny row groups)
-    # Max: 1M rows (don't create massive row groups)
+
     row_group_size = max(10_000, min(estimated_row_group_size, 1_000_000))
-    
-    # If dataset is small, use fewer row groups (at least 1 row group per 100K rows)
+
     if num_rows < 100_000:
         row_group_size = min(row_group_size, num_rows)
-    
+
     return int(row_group_size)
 
 
 def _get_default_parquet_config() -> dict[str, Any]:
     """
     Get default Parquet configuration optimized for DuckDB queries.
-    
+
     Returns:
         PyArrow Parquet writer configuration
     """
@@ -152,7 +148,6 @@ def create_tacocat(
     output: str | Path,
     parquet_kwargs: dict[str, Any] | None = None,
     validate_schema: bool = True,
-    quiet: bool = True,
 ) -> None:
     """
     Create TacoCat file from multiple TACO datasets.
@@ -167,13 +162,12 @@ def create_tacocat(
         write_statistics: True
         use_content_defined_chunking: True
         row_group_size: auto-estimated (10K-1M rows, ~128MB target)
-    
+
     Args:
         inputs: List of .tacozip file paths to consolidate
         output: Output directory path (file will be named 'tacocat')
         parquet_kwargs: Optional PyArrow Parquet writer parameters to override defaults
         validate_schema: If True, validate schemas match across datasets
-        quiet: If True, suppress progress output
     """
     output_dir = Path(output)
 
@@ -197,7 +191,6 @@ def create_tacocat(
     writer = TacoCatWriter(
         output_path=final_output,
         parquet_kwargs=parquet_kwargs,
-        quiet=quiet,
     )
 
     for tacozip_path in inputs:
@@ -213,22 +206,18 @@ class TacoCatWriter:
         self,
         output_path: str | Path,
         parquet_kwargs: dict[str, Any] | None = None,
-        quiet: bool = False,
     ):
         """
         Initialize TacoCat writer.
-        
+
         Args:
             output_path: Path to output tacocat file
             parquet_kwargs: Optional PyArrow Parquet writer parameters
-            quiet: If True, suppress progress output
         """
         self.output_path = Path(output_path)
         self.datasets: list[Path] = []
         self.max_depth = 0
-        self.quiet = quiet
 
-        # Start with defaults and override with user parameters
         self.parquet_config = _get_default_parquet_config()
         if parquet_kwargs:
             self.parquet_config.update(parquet_kwargs)
@@ -260,8 +249,7 @@ class TacoCatWriter:
         if not self.datasets:
             raise TacoCatError("No datasets added. Use add_dataset() first.")
 
-        if not self.quiet:
-            print(f"Consolidating {len(self.datasets)} TACO datasets into TacoCat...")
+        logger.info(f"Consolidating {len(self.datasets)} TACO datasets into TacoCat...")
 
         levels_bytes, consolidated_counts = self._consolidate_parquet_files(
             validate_schema
@@ -270,12 +258,11 @@ class TacoCatWriter:
         offsets = self._calculate_offsets(levels_bytes, collection_bytes)
         self._write_file(offsets, levels_bytes, collection_bytes)
 
-        if not self.quiet:
-            file_size_gb = self.output_path.stat().st_size / (1024**3)
-            print(f"TacoCat file created: {self.output_path}")
-            print(f"   Datasets: {len(self.datasets)}")
-            print(f"   Max depth: {self.max_depth}")
-            print(f"   File size: {file_size_gb:.2f} GB")
+        file_size_gb = self.output_path.stat().st_size / (1024**3)
+        logger.info(f"TacoCat file created: {self.output_path}")
+        logger.info(f"   Datasets: {len(self.datasets)}")
+        logger.info(f"   Max depth: {self.max_depth}")
+        logger.info(f"   File size: {file_size_gb:.2f} GB")
 
     def _consolidate_parquet_files(
         self, validate_schema: bool
@@ -293,18 +280,15 @@ class TacoCatWriter:
         levels_data: dict[int, list[pl.DataFrame]] = {}
         reference_schemas: dict[int, dict] = {}
 
-        # Process each dataset
         for idx, dataset_path in enumerate(self.datasets):
-            if not self.quiet:
-                print(
-                    f"  [{idx+1}/{len(self.datasets)}] Processing {dataset_path.name}"
-                )
+            logger.info(
+                f"  [{idx+1}/{len(self.datasets)}] Processing {dataset_path.name}"
+            )
 
             self._process_single_dataset(
                 dataset_path, levels_data, reference_schemas, validate_schema
             )
 
-        # Consolidate all levels
         return self._consolidate_levels(levels_data)
 
     def _process_single_dataset(
@@ -374,49 +358,40 @@ class TacoCatWriter:
     ) -> tuple[dict[int, bytes], dict[int, int]]:
         """
         Consolidate DataFrames by level and serialize to Parquet bytes using PyArrow.
-        
         """
         levels_bytes = {}
         consolidated_counts = {}
 
         for level in sorted(levels_data.keys()):
-            if not self.quiet:
-                print(
-                    f"  Consolidating level {level} ({len(levels_data[level])} DataFrames)..."
-                )
+            logger.info(
+                f"  Consolidating level {level} ({len(levels_data[level])} DataFrames)..."
+            )
 
-            # Align schemas and concatenate
             aligned_dfs = align_dataframe_schemas(levels_data[level])
             consolidated_df = pl.concat(aligned_dfs, how="vertical")
             consolidated_counts[level] = len(consolidated_df)
 
-            # Estimate optimal row_group_size
             num_rows = len(consolidated_df)
             num_cols = len(consolidated_df.columns)
             row_group_size = _estimate_row_group_size(num_rows, num_cols)
 
-            # Convert to PyArrow Table
             arrow_table = consolidated_df.to_arrow()
 
-            # Prepare PyArrow writer config
             pq_config = self.parquet_config.copy()
-            
-            # Override row_group_size only if not explicitly set by user
+
             if "row_group_size" not in self.parquet_config:
                 pq_config["row_group_size"] = row_group_size
 
-            # Write to bytes using PyArrow
             buffer = BytesIO()
             pq.write_table(arrow_table, buffer, **pq_config)
             levels_bytes[level] = buffer.getvalue()
 
-            if not self.quiet:
-                size_mb = len(levels_bytes[level]) / (1024**2)
-                actual_row_group_size = pq_config.get("row_group_size", row_group_size)
-                print(
-                    f"     Level {level}: {num_rows:,} rows × {num_cols} cols = {size_mb:.2f} MB "
-                    f"(row_group_size={actual_row_group_size:,})"
-                )
+            size_mb = len(levels_bytes[level]) / (1024**2)
+            actual_row_group_size = pq_config.get("row_group_size", row_group_size)
+            logger.info(
+                f"     Level {level}: {num_rows:,} rows x {num_cols} cols = {size_mb:.2f} MB "
+                f"(row_group_size={actual_row_group_size:,})"
+            )
 
         return levels_bytes, consolidated_counts
 

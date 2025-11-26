@@ -29,7 +29,7 @@ from tacotoolbox._constants import (
 )
 from tacotoolbox._logging import get_logger
 from tacotoolbox._metadata import MetadataPackage
-from tacotoolbox._progress import ProgressContext, progress_bar, progress_scope
+from tacotoolbox._progress import progress_bar, progress_scope
 
 logger = get_logger(__name__)
 
@@ -39,18 +39,19 @@ class FolderWriterError(Exception):
 
 
 class FolderWriter:
-    """Handle creation of folder container structures with dual metadata."""
+    """
+    Handle creation of folder container structures with dual metadata.
 
-    def __init__(self, output_dir: pathlib.Path, quiet: bool = False) -> None:
+    """
+
+    def __init__(self, output_dir: pathlib.Path) -> None:
         """
         Initialize folder writer.
 
         Args:
             output_dir: Output directory path
-            quiet: If True, hide progress bars (default: False)
         """
         self.output_dir = output_dir
-        self.quiet = quiet
         self.data_dir = output_dir / FOLDER_DATA_DIR
         self.metadata_dir = output_dir / FOLDER_METADATA_DIR
 
@@ -79,12 +80,11 @@ class FolderWriter:
         try:
             logger.info(f"Creating FOLDER container: {self.output_dir}")
 
-            with ProgressContext(quiet=self.quiet):
-                self._create_structure()
-                self._copy_data_files(samples)
-                self._write_local_metadata(metadata_package, **kwargs)
-                self._write_consolidated_metadata(metadata_package, **kwargs)
-                self._write_collection_json(metadata_package)
+            self._create_structure()
+            self._copy_data_files(samples)
+            self._write_local_metadata(metadata_package, **kwargs)
+            self._write_consolidated_metadata(metadata_package, **kwargs)
+            self._write_collection_json(metadata_package)
 
         except Exception:
             logger.exception("Failed to create folder container")

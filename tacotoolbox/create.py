@@ -9,6 +9,8 @@ Main workflow:
 5. Cleanup temp files automatically
 
 Example:
+    >>> import tacotoolbox
+    >>> tacotoolbox.verbose(True)  # Show progress
     >>> taco = Taco(tortilla=Tortilla(samples=[...]), ...)
     >>> paths = create(taco, "output.tacozip")  # auto-detects ZIP
     >>> paths = create(taco, "output_dataset")  # auto-detects FOLDER
@@ -20,7 +22,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from tacotoolbox._logging import get_logger
 from tacotoolbox._metadata import MetadataGenerator
-from tacotoolbox._progress import ProgressContext, progress_bar
+from tacotoolbox._progress import progress_bar
 from tacotoolbox._validation import (
     TacoValidationError,
     validate_format_value,
@@ -49,7 +51,6 @@ def create(
     split_size: str | None = "4GB",
     group_by: str | list[str] | None = None,
     temp_dir: str | pathlib.Path | None = None,
-    quiet: bool = False,
     **kwargs: Any,
 ) -> list[pathlib.Path]:
     """
@@ -65,6 +66,22 @@ def create(
     - If group_by is None: Split by size using split_size parameter
 
     Temp files from Sample(path=bytes) are always cleaned up after success.
+
+    Args:
+        taco: Taco object to write
+        output: Output path (file for ZIP, directory for FOLDER)
+        output_format: Container format ("zip", "folder", or "auto")
+        split_size: Max size per ZIP file (e.g., "4GB"), None disables splitting
+        group_by: Column(s) to group by (creates one ZIP per unique value)
+        temp_dir: Directory for temporary files (default: system temp)
+        **kwargs: Additional Parquet writer parameters
+
+    Returns:
+        list[pathlib.Path]: List of created container paths
+
+    Raises:
+        TacoCreationError: If container creation fails
+        TacoValidationError: If inputs are invalid
     """
     output_path = pathlib.Path(output)
 
@@ -104,47 +121,43 @@ def create(
     # Convert temp_dir to Path if provided
     temp_path_dir = pathlib.Path(temp_dir) if temp_dir else None
 
-    with ProgressContext(quiet=quiet):
-        try:
-            if group_by is not None:
-                logger.info(f"Creating grouped containers by column: {group_by}")
-                result = _create_grouped_zips(
-                    taco,
-                    output_path,
-                    group_by,
-                    temp_path_dir,
-                    quiet=quiet,
-                    **kwargs,
-                )
-            elif split_size is not None:
-                max_size = validate_split_size(split_size)
-                logger.info(f"Creating split containers (max_size={split_size})")
-                result = _create_with_splitting(
-                    taco,
-                    output_path,
-                    max_size,
-                    temp_path_dir,
-                    quiet=quiet,
-                    **kwargs,
-                )
-            elif final_format == "zip":
-                logger.info(f"Creating single ZIP: {output_path}")
-                result = [
-                    _create_zip(taco, output_path, temp_path_dir, quiet=quiet, **kwargs)
-                ]
-            else:
-                logger.info(f"Creating FOLDER: {output_path}")
-                result = [_create_folder(taco, output_path, quiet=quiet, **kwargs)]
-
-            logger.debug("Cleaning up temporary files from tortilla")
-            _cleanup_tortilla_temp_files(taco.tortilla)
-
-        except Exception:
-            logger.exception("Container creation failed")
-            raise
+    # Progress bars controlled by logging level
+    try:
+        if group_by is not None:
+            logger.info(f"Creating grouped containers by column: {group_by}")
+            result = _create_grouped_zips(
+                taco,
+                output_path,
+                group_by,
+                temp_path_dir,
+                **kwargs,
+            )
+        elif split_size is not None:
+            max_size = validate_split_size(split_size)
+            logger.info(f"Creating split containers (max_size={split_size})")
+            result = _create_with_splitting(
+                taco,
+                output_path,
+                max_size,
+                temp_path_dir,
+                **kwargs,
+            )
+        elif final_format == "zip":
+            logger.info(f"Creating single ZIP: {output_path}")
+            result = [_create_zip(taco, output_path, temp_path_dir, **kwargs)]
         else:
-            logger.info(f"Successfully created {len(result)} container(s)")
-            return result
+            logger.info(f"Creating FOLDER: {output_path}")
+            result = [_create_folder(taco, output_path, **kwargs)]
+
+        logger.debug("Cleaning up temporary files from tortilla")
+        _cleanup_tortilla_temp_files(taco.tortilla)
+
+    except Exception:
+        logger.exception("Container creation failed")
+        raise
+    else:
+        logger.info(f"Successfully created {len(result)} container(s)")
+        return result
 
 
 def _validate_all_inputs(
@@ -168,12 +181,11 @@ def _validate_all_inputs(
             )
         validate_split_size(split_size)
 
-    if group_by is not None:
-        if output_format == "folder":
-            raise TacoValidationError(
-                "group_by is not supported with format='folder'. "
-                "Grouping is only available for format='zip'."
-            )
+    if group_by is not None and output_format == "folder":
+        raise TacoValidationError(
+            "group_by is not supported with format='folder'. "
+            "Grouping is only available for format='zip'."
+        )
 
     if not taco.tortilla.samples:
         raise TacoValidationError("Cannot create container from empty tortilla")
@@ -209,10 +221,7 @@ def _group_samples_by_column(
         df = taco.tortilla.export_metadata(deep=0)
 
         # Handle single column or list of columns
-        if isinstance(group_by, str):
-            group_columns = [group_by]
-        else:
-            group_columns = group_by
+        group_columns = [group_by] if isinstance(group_by, str) else group_by
 
         # Validate all columns exist
         for col in group_columns:
@@ -252,12 +261,12 @@ def _group_samples_by_column(
             f"Grouped {len(taco.tortilla.samples)} samples into {len(groups)} groups"
         )
 
-        return groups
-
     except KeyError as e:
         raise TacoCreationError(f"Failed to group samples: {e}") from e
     except Exception as e:
         raise TacoCreationError(f"Failed to group samples: {e}") from e
+    else:
+        return groups
 
 
 def _create_grouped_zips(
@@ -265,7 +274,6 @@ def _create_grouped_zips(
     output_path: pathlib.Path,
     group_by: str | list[str],
     temp_dir: pathlib.Path | None,
-    quiet: bool = False,
     **kwargs: Any,
 ) -> list[pathlib.Path]:
     """
@@ -309,9 +317,7 @@ def _create_grouped_zips(
         )
 
         try:
-            created_path = _create_zip(
-                chunk_taco, group_path, temp_dir, quiet=quiet, **kwargs
-            )
+            created_path = _create_zip(chunk_taco, group_path, temp_dir, **kwargs)
             created_files.append(created_path)
         except Exception as e:
             raise TacoCreationError(f"Failed to create grouped containers: {e}") from e
@@ -405,10 +411,11 @@ def _create_zip(
     taco: Taco,
     output_path: pathlib.Path,
     temp_dir: pathlib.Path | None,
-    quiet: bool = False,
     **kwargs: Any,
 ) -> pathlib.Path:
-    """Create single ZIP container: metadata → extract paths → write ZIP."""
+    """
+    Create single ZIP container: metadata -> extract paths -> write ZIP.
+    """
     try:
         logger.debug("Generating metadata package")
         generator = MetadataGenerator(taco, debug=False)
@@ -424,8 +431,8 @@ def _create_zip(
         logger.debug(f"Extracted {len(extracted['src_files'])} data files")
 
         logger.debug(f"Creating ZIP: {output_path}")
-        # Now passing Path | None for temp_dir
-        writer = ZipWriter(output_path, quiet=quiet, temp_dir=temp_dir)
+        # Progress bars controlled by logging level
+        writer = ZipWriter(output_path=output_path, temp_dir=temp_dir)
         return writer.create_complete_zip(
             src_files=extracted["src_files"],
             arc_files=extracted["arc_files"],
@@ -440,17 +447,18 @@ def _create_zip(
 def _create_folder(
     taco: Taco,
     output_path: pathlib.Path,
-    quiet: bool = False,
     **kwargs: Any,
 ) -> pathlib.Path:
-    """Create FOLDER container: metadata → write folder structure."""
+    """
+    Create FOLDER container: metadata → write folder structure.
+    """
     try:
         logger.debug("Generating metadata package")
         generator = MetadataGenerator(taco, debug=False)
         metadata_package = generator.generate_all_levels()
 
         logger.debug(f"Creating FOLDER: {output_path}")
-        writer = FolderWriter(output_path, quiet=quiet)
+        writer = FolderWriter(output_path)
         return writer.create_complete_folder(
             samples=taco.tortilla.samples,
             metadata_package=metadata_package,
@@ -483,7 +491,6 @@ def _create_with_splitting(
     output_path: pathlib.Path,
     max_size: int,
     temp_dir: pathlib.Path | None,
-    quiet: bool = False,
     **kwargs: Any,
 ) -> list[pathlib.Path]:
     """
@@ -496,7 +503,7 @@ def _create_with_splitting(
 
     if len(sample_chunks) == 1:
         logger.info("Only one chunk needed, creating single container")
-        return [_create_zip(taco, output_path, temp_dir, quiet=quiet, **kwargs)]
+        return [_create_zip(taco, output_path, temp_dir, **kwargs)]
 
     base_name = output_path.stem
     extension = output_path.suffix
@@ -526,9 +533,7 @@ def _create_with_splitting(
         logger.info(f"Creating chunk {i}/{len(sample_chunks)}: {chunk_filename}")
 
         try:
-            created_path = _create_zip(
-                chunk_taco, chunk_path, temp_dir, quiet=quiet, **kwargs
-            )
+            created_path = _create_zip(chunk_taco, chunk_path, temp_dir, **kwargs)
             created_files.append(created_path)
         except Exception as e:
             raise TacoCreationError(f"Failed to create split containers: {e}") from e

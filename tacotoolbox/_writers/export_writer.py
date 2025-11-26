@@ -85,7 +85,6 @@ class ExportWriter:
         dataset: TacoDataset,
         output: pathlib.Path,
         limit: int = 100,
-        quiet: bool = False,
         **kwargs,
     ) -> None:
         """
@@ -95,13 +94,11 @@ class ExportWriter:
             dataset: TacoDataset with applied filters (e.g., from .sql())
             output: Path to output folder
             limit: Maximum concurrent async operations (default: 100)
-            quiet: If True, hide progress bars (default: False - shows progress)
             **kwargs: Parquet config (compression, compression_level, row_group_size)
         """
         self.dataset = dataset
         self.output = pathlib.Path(output)
         self.limit = limit
-        self.quiet = quiet
         self.parquet_kwargs = kwargs
 
         self.data_dir = self.output / FOLDER_DATA_DIR
@@ -208,7 +205,7 @@ class ExportWriter:
                 task = self._copy_single_file(vsi_path, dest, semaphore)
                 tasks.append(task)
 
-            # Progress bar for FILE copying
+            # Progress bar controlled by logging level
             await progress_gather(
                 *tasks, desc="Copying FILEs", unit="file", colour="green"
             )
@@ -222,7 +219,7 @@ class ExportWriter:
                 task = self._copy_folder_recursive(row, level=0, semaphore=semaphore)
                 tasks.append(task)
 
-            # Progress bar for FOLDER copying
+            # Progress bar controlled by logging level
             await progress_gather(
                 *tasks, desc="Copying FOLDERs", unit="folder", colour="blue"
             )

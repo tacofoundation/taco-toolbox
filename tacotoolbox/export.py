@@ -32,7 +32,6 @@ def export(
     dataset: TacoDataset,
     output: str | Path,
     output_format: Literal["zip", "folder", "auto"] = "auto",
-    quiet: bool = False,
     limit: int = 100,
     temp_dir: str | Path | None = None,
     **kwargs,
@@ -46,7 +45,6 @@ def export(
         dataset: TacoDataset with applied filters
         output: Output path (extension determines format)
         output_format: Output format ("auto", "zip", "folder")
-        quiet: If True, suppress progress output
         limit: Max concurrent async operations (default: 100)
         temp_dir: Custom temp directory for ZIP creation
         **kwargs: Parquet config (compression, compression_level, row_group_size)
@@ -55,6 +53,8 @@ def export(
         Path to created output
 
     Example:
+        >>> import tacotoolbox
+        >>> tacotoolbox.verbose(False)  # Hide progress
         >>> dataset = TacoDataset("global.tacozip")
         >>> filtered = dataset.sql("SELECT * FROM level0 WHERE country='ES'")
         >>> export(filtered, "spain.tacozip")
@@ -65,7 +65,7 @@ def export(
         PosixPath('spain.tacozip')
     """
     return asyncio.run(
-        _export_async(dataset, output, output_format, quiet, limit, temp_dir, **kwargs)
+        _export_async(dataset, output, output_format, limit, temp_dir, **kwargs)
     )
 
 
@@ -73,7 +73,6 @@ async def _export_async(
     dataset: TacoDataset,
     output: str | Path,
     output_format: Literal["zip", "folder", "auto"] = "auto",
-    quiet: bool = False,
     limit: int = 100,
     temp_dir: str | Path | None = None,
     **kwargs,
@@ -98,7 +97,6 @@ async def _export_async(
             dataset=dataset,
             output=output,
             limit=limit,
-            quiet=quiet,
             **kwargs,
         )
         result = await writer.create_folder()
@@ -119,7 +117,6 @@ async def _export_async(
                 dataset=dataset,
                 output=temp_folder,
                 limit=limit,
-                quiet=quiet,
                 **kwargs,
             )
             await writer.create_folder()
@@ -129,7 +126,6 @@ async def _export_async(
             folder2zip(
                 input=temp_folder,
                 output=output,
-                quiet=quiet,
                 temp_dir=temp_folder.parent,
                 **kwargs,
             )

@@ -43,7 +43,6 @@ from tacotoolbox._constants import (
 )
 from tacotoolbox._logging import get_logger
 from tacotoolbox._metadata import MetadataPackage
-from tacotoolbox._progress import ProgressContext
 from tacotoolbox._utils import is_padding_id
 from tacotoolbox._virtual_zip import VirtualTACOZIP
 
@@ -68,7 +67,6 @@ class ZipWriter:
     def __init__(
         self,
         output_path: pathlib.Path,
-        quiet: bool = False,
         temp_dir: pathlib.Path | None = None,
     ) -> None:
         """
@@ -76,11 +74,9 @@ class ZipWriter:
 
         Args:
             output_path: Path for output .tacozip file
-            quiet: If True, hide progress bars (default: False)
             temp_dir: Directory for temporary files (default: system temp)
         """
         self.output_path = output_path
-        self.quiet = quiet
 
         if temp_dir is None:
             self.temp_dir = pathlib.Path(tempfile.gettempdir())
@@ -352,13 +348,13 @@ class ZipWriter:
             # Write ZIP with placeholder header
             header_entries = [(0, 0) for _ in range(num_entries)]
 
-            with ProgressContext(quiet=self.quiet):
-                tacozip.create(
-                    zip_path=str(self.output_path),
-                    src_files=all_src_files,
-                    arc_files=all_arc_files,
-                    entries=header_entries,
-                )
+            # Progress bars controlled by logging level (no ProgressContext needed)
+            tacozip.create(
+                zip_path=str(self.output_path),
+                src_files=all_src_files,
+                arc_files=all_arc_files,
+                entries=header_entries,
+            )
 
             # Update TACO_HEADER with real offsets
             metadata_offsets, metadata_sizes = self._get_metadata_offsets()

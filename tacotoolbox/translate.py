@@ -2,14 +2,13 @@
 TACO Format Translation - Convert between ZIP and FOLDER formats.
 
 This module provides bidirectional conversion between TACO container formats:
-- ZIP → FOLDER: Extract complete structure with metadata
-- FOLDER → ZIP: Package with offset recalculation
+- ZIP -> FOLDER: Extract complete structure with metadata
+- FOLDER -> ZIP: Package with offset recalculation
 
 Key features:
 - Preserves all metadata and hierarchical structure
 - Regenerates __meta__ files with correct offsets for ZIP
 - Supports all PIT schema patterns
-- Progress bars for file operations
 """
 
 import json
@@ -20,7 +19,6 @@ from tacoreader import TacoDataset
 
 from tacotoolbox._logging import get_logger
 from tacotoolbox._metadata import MetadataPackage
-from tacotoolbox._progress import ProgressContext
 from tacotoolbox._writers.export_writer import ExportWriter
 from tacotoolbox._writers.zip_writer import ZipWriter
 
@@ -35,7 +33,6 @@ async def zip2folder(
     input: str | Path,
     output: str | Path,
     limit: int = 100,
-    quiet: bool = False,
 ) -> Path:
     """
     Convert ZIP format TACO to FOLDER format.
@@ -43,7 +40,20 @@ async def zip2folder(
     This is a wrapper around ExportWriter that converts a complete
     ZIP container to FOLDER format without any filtering.
 
+    Args:
+        input: Path to input .tacozip file
+        output: Path to output folder
+        limit: Maximum concurrent async operations (default: 100)
+
+    Returns:
+        Path: Path to created FOLDER
+
+    Raises:
+        TranslateError: If conversion fails
+
     Example:
+        >>> import tacotoolbox
+        >>> tacotoolbox.verbose(False)  # Hide progress
         >>> await zip2folder("dataset.tacozip", "dataset_folder/")
         PosixPath('dataset_folder')
     """
@@ -56,7 +66,6 @@ async def zip2folder(
             dataset=dataset,
             output=Path(output),
             limit=limit,
-            quiet=quiet,
         )
 
         result = await writer.create_folder()
@@ -72,7 +81,6 @@ async def zip2folder(
 def folder2zip(
     input: str | Path,
     output: str | Path,
-    quiet: bool = False,
     temp_dir: str | Path | None = None,
     **kwargs,
 ) -> Path:
@@ -83,7 +91,21 @@ def folder2zip(
     container with correct offsets. The __meta__ files are regenerated
     with internal:offset and internal:size columns.
 
+    Args:
+        input: Path to input FOLDER directory
+        output: Path to output .tacozip file
+        temp_dir: Directory for temporary files (default: system temp)
+        **kwargs: Additional Parquet writer parameters
+
+    Returns:
+        Path: Path to created .tacozip file
+
+    Raises:
+        TranslateError: If conversion fails
+
     Example:
+        >>> import tacotoolbox
+        >>> tacotoolbox.verbose(False)  # Hide progress
         >>> folder2zip("dataset_folder/", "dataset.tacozip")
         PosixPath('dataset.tacozip')
 
@@ -133,14 +155,14 @@ def folder2zip(
         # 6. Use ZipWriter to create ZIP (regenerates __meta__ with offsets)
         logger.debug("Creating ZIP container")
 
-        with ProgressContext(quiet=quiet):
-            writer = ZipWriter(output_path=output, quiet=quiet, temp_dir=temp_dir)
-            result = writer.create_complete_zip(
-                src_files=src_files,
-                arc_files=arc_files,
-                metadata_package=metadata_package,
-                **kwargs,
-            )
+        # Progress bars controlled by logging level
+        writer = ZipWriter(output_path=output, temp_dir=temp_dir)
+        result = writer.create_complete_zip(
+            src_files=src_files,
+            arc_files=arc_files,
+            metadata_package=metadata_package,
+            **kwargs,
+        )
 
     except Exception as e:
         logger.exception("Failed to convert FOLDER to ZIP")

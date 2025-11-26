@@ -5,9 +5,12 @@ Groups samples by spatial locality using space-filling curve algorithm
 for compact bbox generation without external dependencies.
 """
 
+import logging
+
 import polars as pl
 import pydantic
 from pydantic import Field
+from shapely.geometry import Point
 from shapely.wkb import loads as wkb_loads
 
 try:
@@ -18,6 +21,8 @@ except ImportError:
     HAS_NUMPY = False
 
 from tacotoolbox.tortilla.datamodel import TortillaExtension
+
+logger = logging.getLogger(__name__)
 
 
 def normalize_coords(lon: float, lat: float) -> tuple[float, float]:
@@ -133,11 +138,17 @@ class SpatialGrouping(TortillaExtension):
                 continue
 
             try:
-                point = wkb_loads(bytes(centroid_wkb))
-                lon, lat = point.x, point.y
-                coords.append((lon, lat))
-                valid_indices.append(i)
-            except Exception:
+                geom = wkb_loads(bytes(centroid_wkb))
+                if isinstance(geom, Point):
+                    lon, lat = geom.x, geom.y
+                    coords.append((lon, lat))
+                    valid_indices.append(i)
+                else:
+                    logger.debug(
+                        f"Sample {i}: Expected Point geometry, got {type(geom).__name__}"
+                    )
+            except Exception as e:
+                logger.debug(f"Sample {i}: Failed to parse centroid: {e}")
                 continue
 
         if not coords:

@@ -325,7 +325,7 @@ class MajorTOM(TortillaExtension):
         schema: dict[str, pl.DataType] = {"majortom:code": cast(pl.DataType, pl.Utf8)}
         return schema
 
-    def _compute(self, tortilla: "Tortilla") -> pl.DataFrame: # no-qa: C901
+    def _compute(self, tortilla: "Tortilla") -> pl.DataFrame:  # noqa: C901
         """
         Process Tortilla and return DataFrame with MajorTOM codes.
 
