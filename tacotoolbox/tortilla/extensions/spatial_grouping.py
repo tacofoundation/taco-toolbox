@@ -7,8 +7,9 @@ for compact bbox generation without external dependencies.
 
 import polars as pl
 import pydantic
-from shapely.wkb import loads as wkb_loads
 from pydantic import Field
+from shapely.wkb import loads as wkb_loads
+
 try:
     import numpy as np
 

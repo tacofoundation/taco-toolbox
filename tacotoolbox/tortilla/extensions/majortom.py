@@ -19,6 +19,7 @@ try:
 except ImportError:
     HAS_NUMPY = False
 
+
 class MajorTOM(TortillaExtension):
     """
     MajorTOM-like spherical grid with ~`dist_km` spacing.
@@ -324,7 +325,7 @@ class MajorTOM(TortillaExtension):
         schema: dict[str, pl.DataType] = {"majortom:code": cast(pl.DataType, pl.Utf8)}
         return schema
 
-    def _compute(self, tortilla: "Tortilla") -> pl.DataFrame:
+    def _compute(self, tortilla: "Tortilla") -> pl.DataFrame: # no-qa: C901
         """
         Process Tortilla and return DataFrame with MajorTOM codes.
 
@@ -334,8 +335,7 @@ class MajorTOM(TortillaExtension):
 
         if not HAS_NUMPY:
             raise ImportError(
-                "MajorTOM extension requires numpy.\n"
-                "Install with: pip install numpy"
+                "MajorTOM extension requires numpy.\n" "Install with: pip install numpy"
             )
 
         df = tortilla._metadata_df
