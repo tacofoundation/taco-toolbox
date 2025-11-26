@@ -45,7 +45,7 @@ def create(
     taco: Taco,
     output: str | pathlib.Path,
     output_format: Literal["zip", "folder", "auto"] = "auto",
-    split_size: str | None = None,
+    split_size: str | None = "4GB",
     sort_by: str | None = None,
     temp_dir: str | pathlib.Path | None = None,
     quiet: bool = False,
@@ -61,6 +61,8 @@ def create(
     Temp files from Sample(path=bytes) are always cleaned up after success.
     """
     output_path = pathlib.Path(output)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Auto-detect format
     final_format: Literal["zip", "folder"]

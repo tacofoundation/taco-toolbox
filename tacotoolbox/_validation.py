@@ -42,9 +42,8 @@ def validate_output_path(
     """
     Validate that output path is available for creation.
 
-    Checks that:
-    - Output path doesn't already exist (prevents accidental overwrite)
-    - Parent directory exists (can't create in non-existent directory)
+    Checks that output path doesn't already exist to prevent accidental overwrite.
+    Parent directories are created automatically if they don't exist.
     """
     if path.exists():
         if output_format == "zip":
@@ -57,12 +56,6 @@ def validate_output_path(
                 f"Output directory already exists: {path}\n"
                 f"Remove it or choose a different output path."
             )
-
-    if not path.parent.exists():
-        raise TacoValidationError(
-            f"Parent directory does not exist: {path.parent}\n"
-            f"Create the parent directory first."
-        )
 
 
 def validate_split_size(size_str: str) -> int:
@@ -130,7 +123,6 @@ def parse_size(size_str: str) -> int:
     """
     size_str = size_str.strip().upper()
 
-    # Match pattern: number + optional unit
     match = re.match(r"^(\d+(?:\.\d+)?)\s*(GB?|MB?|KB?|B?)$", size_str)
 
     if not match:
@@ -142,7 +134,6 @@ def parse_size(size_str: str) -> int:
     value = float(match.group(1))
     unit = match.group(2)
 
-    # Convert to bytes using binary prefixes (1024-based)
     multipliers = {
         "B": 1,
         "KB": 1024,
