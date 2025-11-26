@@ -15,6 +15,7 @@ Example:
 """
 
 import pathlib
+import warnings
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from tacotoolbox._logging import get_logger
@@ -46,7 +47,7 @@ def create(
     output: str | pathlib.Path,
     output_format: Literal["zip", "folder", "auto"] = "auto",
     split_size: str | None = "4GB",
-    sort_by: str | None = None,
+    group_by: str | list[str] | None = None,
     temp_dir: str | pathlib.Path | None = None,
     quiet: bool = False,
     **kwargs: Any,
@@ -57,6 +58,11 @@ def create(
     Format auto-detection (output_format="auto"):
     - .zip/.tacozip → ZIP format
     - anything else → FOLDER format
+
+    Grouping behavior:
+    - If group_by is set: Each unique group value creates one ZIP file
+      (split_size is ignored, entire group goes into single file)
+    - If group_by is None: Split by size using split_size parameter
 
     Temp files from Sample(path=bytes) are always cleaned up after success.
     """
@@ -81,7 +87,7 @@ def create(
         # but mypy doesn't know "auto" is handled above for the variable assignment
         final_format = cast(Literal["zip", "folder"], output_format)
 
-    _validate_all_inputs(taco, output_path, final_format, split_size)
+    _validate_all_inputs(taco, output_path, final_format, split_size, group_by)
 
     # Adjust output path for folder format
     if final_format == "folder" and output_path.suffix.lower() in (".zip", ".tacozip"):
@@ -91,20 +97,26 @@ def create(
     # Force folder-specific constraints
     if final_format == "folder":
         split_size = None
+        group_by = None
         temp_dir = None
-        logger.debug("Folder format: split_size and temp_dir ignored")
+        logger.debug("Folder format: split_size, group_by, and temp_dir ignored")
 
     # Convert temp_dir to Path if provided
     temp_path_dir = pathlib.Path(temp_dir) if temp_dir else None
 
-    # Sort samples if requested
-    if sort_by is not None:
-        logger.info(f"Sorting samples by column: {sort_by}")
-        taco = _sort_taco_samples(taco, sort_by, quiet)
-
     with ProgressContext(quiet=quiet):
         try:
-            if split_size is not None:
+            if group_by is not None:
+                logger.info(f"Creating grouped containers by column: {group_by}")
+                result = _create_grouped_zips(
+                    taco,
+                    output_path,
+                    group_by,
+                    temp_path_dir,
+                    quiet=quiet,
+                    **kwargs,
+                )
+            elif split_size is not None:
                 max_size = validate_split_size(split_size)
                 logger.info(f"Creating split containers (max_size={split_size})")
                 result = _create_with_splitting(
@@ -140,6 +152,7 @@ def _validate_all_inputs(
     output_path: pathlib.Path,
     output_format: Literal["zip", "folder"],
     split_size: str | None,
+    group_by: str | list[str] | None,
 ) -> None:
     """Validate all inputs before starting. Fails fast."""
     logger.debug("Validating inputs")
@@ -155,60 +168,156 @@ def _validate_all_inputs(
             )
         validate_split_size(split_size)
 
+    if group_by is not None:
+        if output_format == "folder":
+            raise TacoValidationError(
+                "group_by is not supported with format='folder'. "
+                "Grouping is only available for format='zip'."
+            )
+
     if not taco.tortilla.samples:
         raise TacoValidationError("Cannot create container from empty tortilla")
 
     logger.debug("All inputs validated successfully")
 
 
-def _validate_sort_column(sort_column: str, df_columns: list[str]) -> None:
-    """Validate that sort column exists in metadata."""
-    if sort_column not in df_columns:
+def _validate_group_column(group_column: str, df_columns: list[str]) -> None:
+    """Validate that group column exists in metadata."""
+    if group_column not in df_columns:
         available = sorted(df_columns)
         raise TacoCreationError(
-            f"Sort column '{sort_column}' not found in metadata.\n"
+            f"Group column '{group_column}' not found in metadata.\n"
             f"Available columns: {available}"
         )
 
 
-def _sort_taco_samples(taco: Taco, sort_column: str, quiet: bool) -> Taco:
+def _group_samples_by_column(
+    taco: Taco, group_by: str | list[str]
+) -> dict[str, list["Sample"]]:
     """
-    Sort taco samples by metadata column for spatial/temporal clustering.
+    Group samples by metadata column(s).
+
+    Returns dict mapping group value(s) to list of samples.
+    Converts integer values to strings with warning.
 
     Common use cases:
-    - "majortom:code": Geographic clustering
-    - "stac:time_start": Temporal ordering
-    - "custom:priority": User-defined ordering
+    - "spatial_group": Geographic grouping (e.g., "g0000", "g0001")
+    - "majortom:code": MajorTOM grid cells
+    - ["region", "sensor"]: Multiple columns combined with underscore
     """
     try:
         df = taco.tortilla.export_metadata(deep=0)
 
-        _validate_sort_column(sort_column, df.columns)
+        # Handle single column or list of columns
+        if isinstance(group_by, str):
+            group_columns = [group_by]
+        else:
+            group_columns = group_by
 
-        df_sorted = df.sort(sort_column)
-        sorted_ids = df_sorted["id"].to_list()
+        # Validate all columns exist
+        for col in group_columns:
+            _validate_group_column(col, df.columns)
 
+        # Check if any column contains integers
+        for col in group_columns:
+            sample_value = df[col][0]
+            if isinstance(sample_value, int):
+                warnings.warn(
+                    f"Group column '{col}' contains integer values. "
+                    f"Converting to strings for file naming.",
+                    UserWarning,
+                    stacklevel=3,
+                )
+
+        # Create group keys by combining column values
+        group_keys = []
+        for row in df.iter_rows(named=True):
+            values = [str(row[col]) for col in group_columns]
+            group_key = "_".join(values)
+            group_keys.append(group_key)
+
+        # Build groups dictionary
+        groups: dict[str, list[Sample]] = {}
         sample_map = {s.id: s for s in taco.tortilla.samples}
-        sorted_samples = [sample_map[sid] for sid in sorted_ids]
 
-        first_val = df_sorted[sort_column][0]
-        last_val = df_sorted[sort_column][-1]
+        for group_key, row in zip(group_keys, df.iter_rows(named=True), strict=True):
+            sample_id = row["id"]
+            sample = sample_map[sample_id]
+
+            if group_key not in groups:
+                groups[group_key] = []
+            groups[group_key].append(sample)
+
         logger.debug(
-            f"Sorted {len(sorted_samples)} samples by '{sort_column}': "
-            f"{first_val} → {last_val}"
+            f"Grouped {len(taco.tortilla.samples)} samples into {len(groups)} groups"
         )
 
-        sorted_tortilla = Tortilla(samples=sorted_samples)
-        sorted_tortilla._metadata_df = df_sorted
-
-        taco_data = taco.model_dump()
-        taco_data["tortilla"] = sorted_tortilla
-        return Taco(**taco_data)
+        return groups
 
     except KeyError as e:
-        raise TacoCreationError(f"Failed to sort samples: {e}") from e
+        raise TacoCreationError(f"Failed to group samples: {e}") from e
     except Exception as e:
-        raise TacoCreationError(f"Failed to sort samples: {e}") from e
+        raise TacoCreationError(f"Failed to group samples: {e}") from e
+
+
+def _create_grouped_zips(
+    taco: Taco,
+    output_path: pathlib.Path,
+    group_by: str | list[str],
+    temp_dir: pathlib.Path | None,
+    quiet: bool = False,
+    **kwargs: Any,
+) -> list[pathlib.Path]:
+    """
+    Create one ZIP file per group.
+
+    Each group becomes a single ZIP file regardless of size.
+    split_size is ignored when using group_by.
+
+    File naming: {base}_{group_key}.tacozip
+    Example: dataset_g0000.tacozip, dataset_g0001.tacozip
+    """
+    groups = _group_samples_by_column(taco, group_by)
+
+    base_name = output_path.stem
+    extension = output_path.suffix
+    parent_dir = output_path.parent
+
+    created_files = []
+
+    for group_key, group_samples in progress_bar(
+        groups.items(), desc="Creating grouped ZIPs", unit="group", colour="cyan"
+    ):
+        chunk_tortilla = Tortilla(samples=group_samples)
+        chunk_taco_data = taco.model_dump()
+        chunk_taco_data["tortilla"] = chunk_tortilla
+        chunk_taco_data.pop("extent", None)
+
+        chunk_taco = Taco(**chunk_taco_data)
+
+        group_filename = f"{base_name}_{group_key}{extension}"
+        group_path = parent_dir / group_filename
+
+        if group_path.exists():
+            raise TacoValidationError(
+                f"Group file already exists: {group_path}\n"
+                f"Remove existing files or choose a different output path."
+            )
+
+        logger.info(
+            f"Creating group {group_key}: {len(group_samples)} samples → {group_filename}"
+        )
+
+        try:
+            created_path = _create_zip(
+                chunk_taco, group_path, temp_dir, quiet=quiet, **kwargs
+            )
+            created_files.append(created_path)
+        except Exception as e:
+            raise TacoCreationError(f"Failed to create grouped containers: {e}") from e
+
+    logger.info(f"Created {len(created_files)} grouped ZIP files")
+    return created_files
 
 
 def _extract_files_with_ids(samples: list, path_prefix: str = "") -> dict[str, Any]:
@@ -266,9 +375,6 @@ def _estimate_sample_size(sample: "Sample") -> int:
 def _group_samples_by_size(samples: list["Sample"], max_size: int) -> list[list]:
     """
     Group samples into chunks based on size limit. Greedy packing algorithm.
-
-    IMPORTANT: Samples should be pre-sorted (e.g., by majortom:code) before
-    calling this to ensure geographic/temporal clustering in chunks.
 
     Individual samples larger than max_size will be placed alone in their chunk.
     """
@@ -384,7 +490,6 @@ def _create_with_splitting(
     Create multiple ZIP containers by splitting samples.
 
     Chunk naming: base_part0001.tacozip, base_part0002.tacozip, etc.
-    Samples should be pre-sorted (via sort_by) for clustering.
     """
     logger.debug(f"Grouping samples by size (max_size={max_size})")
     sample_chunks = _group_samples_by_size(taco.tortilla.samples, max_size)
