@@ -92,27 +92,16 @@ class SpatialGrouping(TortillaExtension):
         gt=0,
     )
 
-    centroid_column: str = Field(
-        "stac:centroid",
-        description="Column name containing WKB centroid geometry",
-    )
-
-    group_column: str = Field(
-        "spatial_group",
-        description="Output column name for spatial group IDs",
-    )
-
     model_config = pydantic.ConfigDict(arbitrary_types_allowed=True)
 
     def get_schema(self) -> dict[str, pl.DataType]:
         """Return the expected schema for this extension."""
-        return {self.group_column: pl.Utf8()}
+        return {"spatialgroup:code": pl.Utf8}
 
     def _compute(self, tortilla) -> pl.DataFrame:
         """
-        Process Tortilla and return DataFrame with spatial group IDs.
+        Process Tortilla and return DataFrame with spatial group codes.
 
-        Returns DataFrame with single column containing group IDs like "g0000", "g0001", etc.
         """
         if not HAS_NUMPY:
             raise ImportError(
@@ -121,14 +110,17 @@ class SpatialGrouping(TortillaExtension):
 
         df = tortilla._metadata_df
 
-        if self.centroid_column not in df.columns:
+        # Check for centroid column
+        centroid_column = "stac:centroid"
+
+        if centroid_column not in df.columns:
             raise ValueError(
-                f"Column '{self.centroid_column}' not found in tortilla metadata.\n"
+                f"Column '{centroid_column}' not found in tortilla metadata.\n"
                 f"Available columns: {df.columns}\n"
                 f"Ensure samples have STAC extension applied."
             )
 
-        centroids_binary = df[self.centroid_column].to_list()
+        centroids_binary = df[centroid_column].to_list()
 
         coords = []
         valid_indices = []
@@ -153,15 +145,19 @@ class SpatialGrouping(TortillaExtension):
 
         if not coords:
             raise ValueError(
-                f"No valid centroids found in column '{self.centroid_column}'"
+                f"No valid centroids found in column '{centroid_column}'"
             )
 
+        # Compute Z-order codes
         z_orders = np.array([compute_z_order(lon, lat) for lon, lat in coords])
 
+        # Sort by Z-order
         sorted_indices = np.argsort(z_orders)
 
-        group_ids: list[str | None] = [None] * len(df)
+        # Initialize all as None
+        group_codes: list[str | None] = [None] * len(df)
 
+        # Assign group codes to sorted chunks
         for group_id, chunk_start in enumerate(
             range(0, len(sorted_indices), self.target_size)
         ):
@@ -169,6 +165,9 @@ class SpatialGrouping(TortillaExtension):
 
             for local_idx in chunk_indices:
                 original_idx = valid_indices[local_idx]
-                group_ids[original_idx] = f"g{group_id:04d}"
+                # Format: sg0000, sg0001, ... (sg = spatial group)
+                group_codes[original_idx] = f"sg{group_id:04d}"
 
-        return pl.DataFrame({self.group_column: group_ids}, schema=self.get_schema())
+        return pl.DataFrame(
+            {"spatialgroup:code": group_codes}, schema=self.get_schema()
+        )

@@ -17,6 +17,7 @@ Example:
 """
 
 import pathlib
+import re
 import warnings
 from typing import TYPE_CHECKING, Any, Literal, cast
 
@@ -203,6 +204,33 @@ def _validate_group_column(group_column: str, df_columns: list[str]) -> None:
         )
 
 
+def _sanitize_filename(name: str) -> str:
+    """
+    Sanitize string for use in filename.
+
+    Replaces problematic characters with underscores:
+    - Forward/backward slashes (/, \)
+    - Colons (:)
+    - Wildcards (*, ?)
+    - Quotes (", ')
+    - Angle brackets (<, >)
+    - Pipes (|)
+    - Multiple spaces/underscores collapsed to single underscore
+
+    Examples:
+        "Ocean/Sea/Lakes" → "Ocean_Sea_Lakes"
+        "data:2024-01-01" → "data_2024-01-01"
+        "file<test>" → "file_test_"
+    """
+    # Replace problematic characters with underscore
+    sanitized = re.sub(r'[/\\:*?"<>|\']', "_", name)
+    # Collapse multiple underscores/spaces to single underscore
+    sanitized = re.sub(r"[_\s]+", "_", sanitized)
+    # Strip leading/trailing underscores
+    sanitized = sanitized.strip("_")
+    return sanitized
+
+
 def _group_samples_by_column(
     taco: Taco, group_by: str | list[str]
 ) -> dict[str, list["Sample"]]:
@@ -213,8 +241,9 @@ def _group_samples_by_column(
     Converts integer values to strings with warning.
 
     Common use cases:
-    - "spatial_group": Geographic grouping (e.g., "g0000", "g0001")
+    - "spatialgroup:code": Geographic grouping (e.g., "sg0000", "sg0001")
     - "majortom:code": MajorTOM grid cells
+    - "geoenrich:admin_countries": Country names
     - ["region", "sensor"]: Multiple columns combined with underscore
     """
     try:
@@ -282,8 +311,11 @@ def _create_grouped_zips(
     Each group becomes a single ZIP file regardless of size.
     split_size is ignored when using group_by.
 
-    File naming: {base}_{group_key}.tacozip
-    Example: dataset_g0000.tacozip, dataset_g0001.tacozip
+    File naming: {base}_{sanitized_group_key}.tacozip
+    Example: dataset_sg0000.tacozip, dataset_Ocean_Sea_Lakes.tacozip
+
+    Group keys are sanitized to remove invalid filename characters
+    (/, \, :, *, ?, ", <>, |, ') which are replaced with underscores.
     """
     groups = _group_samples_by_column(taco, group_by)
 
@@ -303,7 +335,9 @@ def _create_grouped_zips(
 
         chunk_taco = Taco(**chunk_taco_data)
 
-        group_filename = f"{base_name}_{group_key}{extension}"
+        # Sanitize group_key for filename
+        safe_group_key = _sanitize_filename(group_key)
+        group_filename = f"{base_name}_{safe_group_key}{extension}"
         group_path = parent_dir / group_filename
 
         if group_path.exists():
@@ -313,7 +347,7 @@ def _create_grouped_zips(
             )
 
         logger.info(
-            f"Creating group {group_key}: {len(group_samples)} samples → {group_filename}"
+            f"Creating group '{group_key}': {len(group_samples)} samples → {group_filename}"
         )
 
         try:
