@@ -52,6 +52,11 @@ class SampleExtension(ABC, pydantic.BaseModel):
         pass
 
     @abstractmethod
+    def get_field_descriptions(self) -> dict[str, str]:
+        """Return field descriptions for each field."""
+        pass
+
+    @abstractmethod
     def _compute(self, sample: "Sample") -> pl.DataFrame:
         """Actual computation logic - only called when schema_only=False."""
         pass
@@ -112,6 +117,11 @@ class Sample(pydantic.BaseModel):
 
     # Private attribute to store extension schemas
     _extension_schemas: dict[str, pl.DataType] = pydantic.PrivateAttr(
+        default_factory=dict
+    )
+
+    # Private attribute to store field descriptions
+    _field_descriptions: dict[str, str] = pydantic.PrivateAttr(
         default_factory=dict
     )
 
@@ -196,6 +206,7 @@ class Sample(pydantic.BaseModel):
         # Manually initialize private attributes (model_construct doesn't do this)
         object.__setattr__(sample, "_temp_files", [temp_path])
         object.__setattr__(sample, "_extension_schemas", {})
+        object.__setattr__(sample, "_field_descriptions", {})
 
         return sample
 
@@ -341,6 +352,11 @@ class Sample(pydantic.BaseModel):
             # Capture schemas before converting to dict
             for col_name, dtype in computed_metadata.schema.items():
                 self._extension_schemas[col_name] = dtype
+
+            # Capture field descriptions if extension provides them
+            if hasattr(extension, 'get_field_descriptions'):
+                descriptions = extension.get_field_descriptions()
+                self._field_descriptions.update(descriptions)
 
             metadata_dict = computed_metadata.to_dicts()[0]
             self._add_metadata_fields(metadata_dict)

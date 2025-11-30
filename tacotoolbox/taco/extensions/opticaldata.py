@@ -1,3 +1,20 @@
+"""
+Optical data extension for remote sensing datasets.
+
+Defines spectral band characteristics for multispectral/hyperspectral imagery.
+Supports automatic band lookup for common sensors or manual band definitions.
+
+Supported sensors for auto-lookup:
+- Landsat: landsat{1-5}mss, landsat{4,5}tm, landsat7etm, landsat{8,9}oli
+- Sentinel: sentinel2msi
+- Other: eo1ali, aster, modis
+
+Dataset-level metadata:
+- optical:sensor: String (sensor identifier)
+- optical:bands: List[Struct] with spectral band definitions
+- optical:num_bands: Int32 (number of bands)
+"""
+
 import polars as pl
 import pydantic
 
@@ -118,6 +135,13 @@ class OpticalData(TacoExtension):
                 )
             ),
             "optical:num_bands": pl.Int32(),
+        }
+
+    def get_field_descriptions(self) -> dict[str, str]:
+        return {
+            "optical:sensor": "Sensor identifier (e.g., sentinel2msi, landsat8oli) for spectral characteristics",
+            "optical:bands": "List of spectral band definitions with wavelength, name, and metadata",
+            "optical:num_bands": "Total number of spectral bands in the dataset",
         }
 
     def _compute(self, taco) -> pl.DataFrame:

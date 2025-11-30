@@ -1,3 +1,19 @@
+"""
+MajorTOM spherical grid extension.
+
+Assigns samples to a hierarchical spherical grid with configurable spacing.
+Uses latitude and longitude subdivisions to create grid cells with
+approximately uniform spacing in kilometers.
+
+Grid ID format: [DIST]km_[ROWID]_[COLID]
+- Example: 0100km_0003U_0005R (100km spacing, row 3 Up, column 5 Right)
+- Row labels: NNNNUD (e.g., 0003U for 3 degrees north, 0002D for 2 south)
+- Column labels: NNNNRL (e.g., 0005R for 5 degrees east, 0004L for 4 west)
+
+Exports to DataFrame:
+- majortom:code: String (format: '0100km_0003U_0005R')
+"""
+
 import math
 from collections.abc import Iterable
 from typing import TYPE_CHECKING, cast
@@ -30,17 +46,21 @@ class MajorTOM(TortillaExtension):
     """
 
     dist_km: float = Field(
-        100, description="Target spacing (km) along meridians and parallels."
+        default=100,
+        description="Target spacing in kilometers along meridians and parallels. Grid cells have approximately this spacing.",
     )
     latitude_range: tuple[float, float] = Field(
-        (-85.0, 85.0),
-        description="Inclusive latitude limits for grid generation (deg).",
+        default=(-85.0, 85.0),
+        description="Inclusive latitude limits in degrees for grid generation (min, max). Default excludes polar regions.",
     )
     longitude_range: tuple[float, float] = Field(
-        (-180.0, 180.0),
-        description="Inclusive longitude limits used for filtering columns (deg).",
+        default=(-180.0, 180.0),
+        description="Inclusive longitude limits in degrees for filtering grid columns (min, max).",
     )
-    sep: str = Field("_", description="Separator for row/col codes")
+    sep: str = Field(
+        default="_",
+        description="Separator character for grid code components (e.g., '_' produces '0100km_0003U_0005R').",
+    )
 
     _lats: np.ndarray = PrivateAttr(default_factory=lambda: np.empty(0))
     _row_labels: np.ndarray = PrivateAttr(
@@ -324,6 +344,12 @@ class MajorTOM(TortillaExtension):
         """Return the expected schema for this extension."""
         schema: dict[str, pl.DataType] = {"majortom:code": cast(pl.DataType, pl.Utf8)}
         return schema
+
+    def get_field_descriptions(self) -> dict[str, str]:
+        """Return field descriptions for each field."""
+        return {
+            "majortom:code": "MajorTOM spherical grid cell identifier (e.g., 0100km_0003U_0005R) with ~dist_km spacing"
+        }
 
     def _compute(self, tortilla: "Tortilla") -> pl.DataFrame:  # noqa: C901
         """

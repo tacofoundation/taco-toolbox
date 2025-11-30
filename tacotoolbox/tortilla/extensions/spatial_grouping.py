@@ -1,8 +1,18 @@
 """
 Spatial grouping extension for Tortilla using Z-order curve.
 
-Groups samples by spatial locality using space-filling curve algorithm
-for compact bbox generation without external dependencies.
+Groups samples by spatial proximity using space-filling curve algorithm
+for compact bounding box generation without external dependencies.
+
+Uses Morton encoding (Z-order curve) to preserve spatial locality:
+1. Extract centroids from stac:centroid column (WKB binary)
+2. Compute Z-order code by interleaving lon/lat bits
+3. Sort samples by Z-order code
+4. Group consecutive samples into chunks of target_size
+5. Assign spatial group IDs
+
+Exports to DataFrame:
+- spatialgroup:code: String (format: 'sg0000', 'sg0001', ...)
 """
 
 import logging
@@ -87,16 +97,22 @@ class SpatialGrouping(TortillaExtension):
     """
 
     target_size: int = Field(
-        1000,
-        description="Target number of samples per spatial group",
+        default=1000,
         gt=0,
+        description="Target number of samples per spatial group. Samples are sorted by Z-order code and grouped into chunks of this size for compact spatial bounding boxes.",
     )
 
     model_config = pydantic.ConfigDict(arbitrary_types_allowed=True)
 
     def get_schema(self) -> dict[str, pl.DataType]:
         """Return the expected schema for this extension."""
-        return {"spatialgroup:code": pl.Utf8}
+        return {"spatialgroup:code": pl.String()}
+
+    def get_field_descriptions(self) -> dict[str, str]:
+        """Return field descriptions for each field."""
+        return {
+            "spatialgroup:code": "Spatial group identifier using Z-order curve for compact bounding boxes."
+        }
 
     def _compute(self, tortilla) -> pl.DataFrame:
         """
@@ -144,9 +160,7 @@ class SpatialGrouping(TortillaExtension):
                 continue
 
         if not coords:
-            raise ValueError(
-                f"No valid centroids found in column '{centroid_column}'"
-            )
+            raise ValueError(f"No valid centroids found in column '{centroid_column}'")
 
         # Compute Z-order codes
         z_orders = np.array([compute_z_order(lon, lat) for lon, lat in coords])

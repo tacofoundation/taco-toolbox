@@ -43,6 +43,28 @@ METADATA_COLUMNS_ORDER = [
 SHARED_CORE_FIELDS = {"id", "type", "path"}
 """Core Sample fields that cannot be overwritten by extensions."""
 
+# =============================================================================
+# FIELD DESCRIPTIONS (SHARED - used in field_schema generation)
+# =============================================================================
+
+CORE_FIELD_DESCRIPTIONS: dict[str, str] = {
+    "id": "Unique sample identifier within parent scope. Must be unique among siblings.",
+    "type": "Sample type discriminator (FILE or FOLDER).",
+}
+"""
+Core field descriptions for field_schema generation.
+Note: 'path' is excluded as it's removed during container materialization.
+"""
+
+INTERNAL_FIELD_DESCRIPTIONS: dict[str, str] = {
+    "internal:parent_id": "Foreign key referencing parent sample position in previous level (ZIP, FOLDER, TACOCAT).",
+    "internal:offset": "Byte offset in container file where sample data begins. Used for GDAL /vsisubfile/ paths (ZIP, TACOCAT).",
+    "internal:size": "Size in bytes of sample data. Combined with offset for /vsisubfile/ VSI path construction (ZIP, TACOCAT).",
+    "internal:gdal_vsi": "Complete GDAL Virtual File System path for direct data access (ZIP, FOLDER, TACOCAT).",
+    "internal:source_file": "Original source ZIP filename in TACOCAT consolidated datasets. Disambiguates samples from multiple sources (only TACOCAT).",
+    "internal:relative_path": "Relative path from DATA/ directory. Format: {parent_path}/{id} or {id} for level0 (ZIP, FOLDER, TACOCAT).",
+}
+"""Internal field descriptions for field_schema generation."""
 
 # =============================================================================
 # HIERARCHY LIMITS (SHARED)

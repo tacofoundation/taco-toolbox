@@ -1,8 +1,25 @@
+"""
+STAC extension for spatiotemporal raster metadata.
+
+Provides minimal SpatioTemporal Asset Catalog (STAC)-style metadata fields
+for samples with regular raster data (affine geotransform).
+
+Exports to DataFrame:
+- stac:crs: String (WKT2/EPSG/PROJ)
+- stac:tensor_shape: List[Int64]
+- stac:geotransform: List[Float64]
+- stac:time_start: Datetime[μs]
+- stac:centroid: Binary (WKB, EPSG:4326)
+- stac:time_end: Datetime[μs]
+- stac:time_middle: Datetime[μs]
+"""
+
 import datetime
 from typing import TypeAlias
 
 import polars as pl
 import pydantic
+from pydantic import Field
 from pyproj import CRS, Transformer
 from shapely.geometry import Point, Polygon
 from shapely.wkb import dumps as wkb_dumps
@@ -33,8 +50,7 @@ def raster_centroid(
     Calculate raster centroid in EPSG:4326 and return as WKB binary.
 
     If check_antimeridian=True, detects and handles antimeridian crossings
-    correctly (slower, requires 'antimeridian' package). If False (default),
-    uses fast single-point transform (works for 99% of cases).
+    correctly (slower, requires 'antimeridian' package).
     """
     # Extract geotransform parameters
     origin_x, pixel_width, _, origin_y, _, pixel_height = geotransform
@@ -50,8 +66,6 @@ def raster_centroid(
     )
 
     if not check_antimeridian:
-        # FAST PATH (default): Single transform
-        # Works correctly for 99% of rasters (those not crossing ±180° longitude)
         lon, lat = transformer.transform(centroid_x, centroid_y)
         point = Point(lon, lat)
         return wkb_dumps(point)
@@ -115,22 +129,42 @@ class STAC(SampleExtension):
 
     Notes
     -----
+
     - Timestamps stored as Parquet TIMESTAMP with microsecond precision
     - datetime.datetime inputs are automatically converted to microseconds (int64)
     - int/float inputs in seconds are converted to microseconds
-    - Enforces non-decreasing temporal interval: time_start <= time_end
     - time_middle is auto-computed when both start and end times exist
-    - Set check_antimeridian=True for Pacific/Polar rasters (requires: pip install antimeridian)
+    - Set check_antimeridian=True (requires: pip install antimeridian)
     """
 
-    crs: str
-    tensor_shape: ShapeND
-    geotransform: GeoTransform6
-    time_start: TimestampLike
-    centroid: bytes | None = None
-    time_end: TimestampLike | None = None
-    time_middle: int | None = None
-    check_antimeridian: bool = False
+    crs: str = Field(
+        description="Coordinate Reference System in WKT2, EPSG code, or PROJ string (e.g., 'EPSG:4326')."
+    )
+    tensor_shape: ShapeND = Field(
+        description="Shape of the data tensor (e.g., (bands, height, width) or (height, width))"
+    )
+    geotransform: GeoTransform6 = Field(
+        description="GDAL geotransform tuple (origin_x, pixel_width, rotation_x, origin_y, rotation_y, pixel_height)"
+    )
+    time_start: TimestampLike = Field(
+        description="Acquisition start timestamp as Datetime[μs] (microseconds since Unix epoch, timezone-naive UTC)."
+    )
+    centroid: bytes | None = Field(
+        default=None,
+        description="Raster centroid in EPSG:4326 as WKB binary (Well-Known Binary geometry format).",
+    )
+    time_end: TimestampLike | None = Field(
+        default=None,
+        description="Acquisition end timestamp as Datetime[μs] (microseconds since Unix epoch, timezone-naive UTC). Must be ≥ time_start.",
+    )
+    time_middle: int | None = Field(
+        default=None,
+        description="Middle timestamp as Datetime[μs] (microseconds since Unix epoch, timezone-naive UTC).",
+    )
+    check_antimeridian: bool = Field(
+        default=False,
+        description="Enable antimeridian (±180° longitude) crossing detection. Required for rasters spanning the dateline. Requires 'antimeridian' package.",
+    )
 
     @pydantic.model_validator(mode="after")
     def check_times(cls, values):
@@ -215,3 +249,15 @@ class STAC(SampleExtension):
             },
             schema=self.get_schema(),
         )
+
+    def get_field_descriptions(self) -> dict[str, str]:
+        """Return field descriptions for each field."""
+        return {
+            "stac:crs": "Coordinate reference system (WKT2, EPSG, or PROJ string)",
+            "stac:tensor_shape": "Raster dimensions e.g. [bands, height, width]",
+            "stac:geotransform": "GDAL affine transform [origin_x, pixel_width, rot_x, origin_y, rot_y, pixel_height]",
+            "stac:time_start": "Acquisition start timestamp (microseconds since Unix epoch, UTC)",
+            "stac:centroid": "Raster center point in EPSG:4326 (WKB binary format)",
+            "stac:time_end": "Acquisition end timestamp (microseconds since Unix epoch, UTC)",
+            "stac:time_middle": "Midpoint between start and end timestamps (microseconds since Unix epoch, UTC)",
+        }

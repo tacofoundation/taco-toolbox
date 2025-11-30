@@ -1,14 +1,36 @@
 """
-GeoEnrich extension for Tortilla.
+GeoEnrich extension for Tortilla using Earth Engine.
 
-Enriches samples with geospatial data from Earth Engine:
+Enriches samples with geospatial data from Google Earth Engine:
 - Physical: elevation, topographic complexity
 - Climate: precipitation, temperature
 - Soil: clay, sand, carbon, bulk density, pH
-- Socioeconomic: GDP, population, human modification
-- Administrative: countries, states, districts
+- Socioeconomic: GDP, population density, human modification index
+- Administrative: countries, states, districts (human-readable names)
 
-Single-file architecture with clear sections for maintainability.
+Fetches data at sample centroids using Earth Engine reducers.
+Uses spatial sorting (Morton encoding) for improved EE cache locality.
+
+Exports to Polars DataFrame:
+- geoenrich:elevation: Float32
+- geoenrich:cisi: Float32
+- geoenrich:precipitation: Float32
+- geoenrich:temperature: Float32
+- geoenrich:soil_clay: Float32
+- geoenrich:soil_sand: Float32
+- geoenrich:soil_carbon: Float32
+- geoenrich:soil_bulk_density: Float32
+- geoenrich:soil_ph: Float32
+- geoenrich:gdp: Float32
+- geoenrich:human_modification: Float32
+- geoenrich:population: Float32
+- geoenrich:admin_countries: String
+- geoenrich:admin_states: String
+- geoenrich:admin_districts: String
+
+Requirements:
+- earthengine-api: pip install earthengine-api
+- earthengine authenticate (one-time setup)
 """
 
 from collections import defaultdict
@@ -31,7 +53,7 @@ if TYPE_CHECKING:
 
 
 # ============================================================================
-# PRODUCT CONFIGURATION - Single Source of Truth
+# PRODUCT CONFIGURATION
 # ============================================================================
 #
 # To add a new product, just add ONE line here. Everything else is automatic.
@@ -387,27 +409,27 @@ class GeoEnrich(TortillaExtension):
 
     # Public configuration parameters
     variables: list[str] | None = Field(
-        None,
-        description="List of variable names to fetch. If None, fetches all available variables.",
+        default=None,
+        description="List of variable names to fetch. If None, fetches all 15 available variables. See PRODUCT_CONFIGS for complete list.",
     )
     scale_m: float = Field(
-        5120.0,
+        default=5120.0,
         ge=1.0,
-        description="Earth Engine reducer scale in meters. Smaller = higher resolution but slower.",
+        description="Earth Engine reducer spatial resolution in meters. Smaller values = higher resolution but slower queries and higher quota usage. Default 5120m (~5km).",
     )
     batch_size: int = Field(
-        250,
+        default=250,
         ge=1,
-        description="Number of points per Earth Engine reduceRegions call.",
+        description="Number of sample points per Earth Engine reduceRegions API call. Larger batches are faster but may hit EE memory limits. Default 250.",
     )
     max_concurrency: int = Field(
-        8,
+        default=8,
         ge=1,
-        description="Maximum number of concurrent Earth Engine requests.",
+        description="Maximum concurrent Earth Engine API requests via ThreadPoolExecutor. Higher values speed up processing but may hit EE rate limits. 8 is safe for most accounts.",
     )
     show_progress: bool = Field(
-        True,
-        description="Whether to display progress bar during processing.",
+        default=True,
+        description="Display tqdm progress bar during Earth Engine processing.",
     )
 
     def model_post_init(self, __context: Any) -> None:
@@ -424,6 +446,34 @@ class GeoEnrich(TortillaExtension):
         """Return the expected schema for this extension."""
         active_vars = self.variables or list(PRODUCT_SCHEMA.keys())
         return {f"geoenrich:{var}": PRODUCT_SCHEMA[var] for var in active_vars}
+
+    def get_field_descriptions(self) -> dict[str, str]:
+        """Return field descriptions for each field."""
+        all_descriptions = {
+            "geoenrich:elevation": "Mean elevation in meters (GLO-30 DEM)",
+            "geoenrich:cisi": "Mean of harmonized global critical infrastructure & index (CISI)",
+            "geoenrich:precipitation": "Mean annual precipitation in mm estimated from GPM data",
+            "geoenrich:temperature": "Mean annual temperature in °C estimated from MODIS LST data",
+            "geoenrich:soil_clay": "Clay content fraction (0-1) at surface layer, using the OpenLandMap dataset",
+            "geoenrich:soil_sand": "Sand content fraction (0-1) at surface layer, using the OpenLandMap dataset",
+            "geoenrich:soil_carbon": "Organic carbon content in g/kg at surface layer, using the OpenLandMap dataset",
+            "geoenrich:soil_bulk_density": "Bulk density in kg/m³ at surface layer, using the OpenLandMap dataset",
+            "geoenrich:soil_ph": "Soil pH (H2O) at surface layer, using the OpenLandMap dataset",
+            "geoenrich:gdp": "GDP per capita in USD (PPP 2022), Kummu et al. 2025",
+            "geoenrich:human_modification": "Human modification index v3 1990-2020, Theobald et al. 2024",
+            "geoenrich:population": "Population density from HRSL. Facebook High Resolution Settlement Layer",
+            "geoenrich:admin_countries": "Country name at centroid location",
+            "geoenrich:admin_states": "State/province name at centroid location",
+            "geoenrich:admin_districts": "District/county name at centroid location",
+        }
+
+        # Return only active variables
+        active_vars = self.variables or list(PRODUCT_SCHEMA.keys())
+        return {
+            key: all_descriptions[key]
+            for key in all_descriptions
+            if key.replace("geoenrich:", "") in active_vars
+        }
 
     def _get_active_products(self) -> list[dict]:
         """Get product configurations to process based on user selection."""

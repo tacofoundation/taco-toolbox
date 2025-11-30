@@ -1,5 +1,23 @@
+"""
+ISTAC extension for irregular spatiotemporal geometries.
+
+Provides Irregular SpatioTemporal Asset Catalog (ISTAC) metadata for
+non-regular geospatial data without affine geotransform.
+
+Use cases: satellite swaths, flight paths, vector data, irregular sensor networks.
+
+Exports to DataFrame:
+- istac:crs: String (WKT2/EPSG/PROJ)
+- istac:geometry: Binary (WKB)
+- istac:time_start: Datetime[μs]
+- istac:time_end: Datetime[μs]
+- istac:time_middle: Datetime[μs]
+- istac:centroid: Binary (WKB, EPSG:4326)
+"""
+
 import polars as pl
 import pydantic
+from pydantic import Field
 from pyproj import CRS, Transformer
 from shapely.geometry import Point
 from shapely.wkb import dumps as wkb_dumps
@@ -37,16 +55,33 @@ class ISTAC(SampleExtension):
     - For regular raster grids, use the STAC extension instead
     - WKB binary format for efficient storage and GeoParquet compatibility
     - time_middle is auto-computed when both start and end times exist
-    - Set check_antimeridian=True for Pacific/Polar data (requires: pip install antimeridian)
     """
 
-    crs: str
-    geometry: bytes
-    time_start: int
-    time_end: int | None = None
-    time_middle: int | None = None
-    centroid: bytes | None = None
-    check_antimeridian: bool = False
+    crs: str = Field(
+        description="Coordinate Reference System in WKT2, EPSG code, or PROJ string (e.g., 'EPSG:4326')."
+    )
+    geometry: bytes = Field(
+        description="Spatial footprint geometry in source CRS as WKB binary (Well-Known Binary format). Can be Point, LineString, Polygon, or MultiPolygon."
+    )
+    time_start: int = Field(
+        description="Acquisition start timestamp as Datetime[μs] (microseconds since Unix epoch, timezone-naive UTC)."
+    )
+    time_end: int | None = Field(
+        default=None,
+        description="Acquisition end timestamp as Datetime[μs] (microseconds since Unix epoch, timezone-naive UTC). Must be ≥ time_start.",
+    )
+    time_middle: int | None = Field(
+        default=None,
+        description="Middle timestamp as Datetime[μs] (microseconds since Unix epoch, timezone-naive UTC). Auto-computed as (time_start + time_end) // 2.",
+    )
+    centroid: bytes | None = Field(
+        default=None,
+        description="Geometry centroid in EPSG:4326 as WKB binary. Auto-computed from geometry if not provided.",
+    )
+    check_antimeridian: bool = Field(
+        default=False,
+        description="Enable antimeridian (±180° longitude) crossing detection. Required for geometries spanning the dateline. Requires 'antimeridian' package.",
+    )
 
     @pydantic.model_validator(mode="after")
     def check_times(self) -> "ISTAC":
@@ -91,14 +126,11 @@ class ISTAC(SampleExtension):
                     raise ImportError(
                         "check_antimeridian=True requires the 'antimeridian' package.\n"
                         "Install with: pip install antimeridian\n"
-                        "Or set check_antimeridian=False to use fast mode (works for most geometries)."
                     )
                 # Use antimeridian-aware centroid calculation
                 # Correctly handles geometries crossing ±180° longitude
                 centroid_geom = antimeridian.centroid(geom)
             else:
-                # FAST PATH (default): Standard shapely centroid
-                # Works correctly for 99% of geometries (those not crossing ±180°)
                 centroid_geom = geom.centroid
 
             # Transform to EPSG:4326 if needed
@@ -123,6 +155,17 @@ class ISTAC(SampleExtension):
             "istac:time_end": pl.Datetime(time_unit="us", time_zone=None),
             "istac:time_middle": pl.Datetime(time_unit="us", time_zone=None),
             "istac:centroid": pl.Binary(),
+        }
+
+    def get_field_descriptions(self) -> dict[str, str]:
+        """Return field descriptions for each field."""
+        return {
+            "istac:crs": "Coordinate reference system (WKT2, EPSG, or PROJ string)",
+            "istac:geometry": "Spatial footprint geometry in source CRS (WKB binary format)",
+            "istac:time_start": "Acquisition start timestamp (microseconds since Unix epoch, UTC)",
+            "istac:time_end": "Acquisition end timestamp (microseconds since Unix epoch, UTC)",
+            "istac:time_middle": "Midpoint between start and end timestamps (microseconds since Unix epoch, UTC)",
+            "istac:centroid": "Geometry center point in EPSG:4326 (WKB binary format)",
         }
 
     def _compute(self, sample) -> pl.DataFrame:

@@ -48,6 +48,11 @@ class TortillaExtension(ABC, pydantic.BaseModel):
         pass
 
     @abstractmethod
+    def get_field_descriptions(self) -> dict[str, str]:
+        """Return field descriptions for each field."""
+        pass
+
+    @abstractmethod
     def _compute(self, tortilla: "Tortilla") -> pl.DataFrame:
         """Actual computation logic - only called when schema_only=False."""
         pass
@@ -106,6 +111,9 @@ class Tortilla:
 
         self.samples = samples
 
+        # Initialize field descriptions tracker
+        self._field_descriptions: dict[str, str] = {}
+
         # Validate unique IDs at this level
         self._validate_unique_ids()
 
@@ -116,6 +124,10 @@ class Tortilla:
         metadata_dfs = []
         for sample in samples:
             metadata_dfs.append(sample.export_metadata())
+            
+            # Collect field descriptions from samples
+            if hasattr(sample, '_field_descriptions'):
+                self._field_descriptions.update(sample._field_descriptions)
 
         # Handle schema validation/alignment
         if strict_schema:
@@ -335,6 +347,11 @@ class Tortilla:
         conflicts = set(result_df.columns) & set(self._metadata_df.columns)
         if conflicts:
             raise ValueError(f"Column conflicts: {sorted(conflicts)}")
+
+        # Capture field descriptions if extension provides them
+        if hasattr(extension, 'get_field_descriptions'):
+            descriptions = extension.get_field_descriptions()
+            self._field_descriptions.update(descriptions)
 
         # Horizontal concatenation in polars using hstack
         self._metadata_df = self._metadata_df.hstack(result_df)

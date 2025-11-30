@@ -143,9 +143,30 @@ def _get_default_parquet_config() -> dict[str, Any]:
     }
 
 
+def _detect_common_directory(inputs: list[str | Path]) -> Path:
+    """
+    Detect common parent directory for all input files.
+
+    All input files must be in the same directory for auto-detection.
+    Otherwise raises TacoCatError.
+    """
+    input_paths = [Path(p).resolve() for p in inputs]
+    parent_dirs = [p.parent for p in input_paths]
+
+    first_parent = parent_dirs[0]
+
+    if not all(parent == first_parent for parent in parent_dirs):
+        raise TacoCatError(
+            "Input files are in different directories. "
+            "Please specify output directory explicitly."
+        )
+
+    return first_parent
+
+
 def create_tacocat(
     inputs: list[str | Path],
-    output: str | Path,
+    output: str | Path | None = None,
     parquet_kwargs: dict[str, Any] | None = None,
     validate_schema: bool = True,
 ) -> None:
@@ -154,6 +175,9 @@ def create_tacocat(
 
     Consolidates multiple .tacozip files into a single high-performance
     TacoCat file optimized for DuckDB queries.
+
+    If output is not specified, all input files must be in the same directory
+    and the TacoCat file will be created there.
 
     Default parquet_kwargs (optimized for DuckDB, uses PyArrow):
         compression: "zstd"
@@ -169,7 +193,10 @@ def create_tacocat(
         parquet_kwargs: Optional PyArrow Parquet writer parameters to override defaults
         validate_schema: If True, validate schemas match across datasets
     """
-    output_dir = Path(output)
+    if output is None:
+        output_dir = _detect_common_directory(inputs)
+    else:
+        output_dir = Path(output)
 
     if output_dir.exists() and output_dir.is_file():
         raise ValueError(

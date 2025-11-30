@@ -1,5 +1,21 @@
+"""
+Labels extension for classification datasets.
+
+Defines label/class schema for supervised learning tasks including
+classification, detection, and segmentation.
+
+Dataset-level metadata (not per-sample):
+- labels:classes: List[Struct] with class definitions
+  - name: String (human-readable class name)
+  - category: String (category ID, stored as string even if integer)
+  - description: String (optional class description)
+- labels:description: String (optional overall labeling scheme description)
+- labels:num_classes: Int32 (total number of classes)
+"""
+
 import polars as pl
 import pydantic
+from pydantic import Field
 
 from tacotoolbox.taco.datamodel import TacoExtension
 
@@ -7,16 +23,28 @@ from tacotoolbox.taco.datamodel import TacoExtension
 class LabelClass(pydantic.BaseModel):
     """Individual label class definition."""
 
-    name: str
-    category: str | int
-    description: str | None = None
+    name: str = Field(
+        description="Human-readable class name (e.g., 'Forest', 'Urban', 'Water'). Should be unique within the dataset."
+    )
+    category: str | int = Field(
+        description="Class identifier used in labels/masks. Can be integer (e.g., 0, 1, 2) or string code (e.g., 'FOR', 'URB')."
+    )
+    description: str | None = Field(
+        default=None,
+        description="Detailed description of class definition, edge cases, or labeling criteria (optional).",
+    )
 
 
 class Labels(TacoExtension):
     """Label definitions for classification datasets."""
 
-    label_classes: list[LabelClass]
-    label_description: str | None = None
+    label_classes: list[LabelClass] = Field(
+        description="Complete list of class definitions."
+    )
+    label_description: str | None = Field(
+        default=None,
+        description="Overall description of labeling scheme, methodology, or data source (optional).",
+    )
 
     def get_schema(self) -> dict[str, pl.DataType]:
         return {
@@ -31,6 +59,13 @@ class Labels(TacoExtension):
             ),
             "labels:description": pl.Utf8(),
             "labels:num_classes": pl.Int32(),
+        }
+
+    def get_field_descriptions(self) -> dict[str, str]:
+        return {
+            "labels:classes": "List of class definitions with name, category ID, and optional description",
+            "labels:description": "Overall description of labeling scheme, methodology, or data source",
+            "labels:num_classes": "Total number of classes in the dataset",
         }
 
     def _compute(self, taco) -> pl.DataFrame:

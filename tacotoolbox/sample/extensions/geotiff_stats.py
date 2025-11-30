@@ -1,3 +1,14 @@
+"""
+GeoTIFF statistics extension using GDAL.
+
+Extracts per-band statistics from GeoTIFF files with automatic scaling support.
+
+Exports to DataFrame:
+- geotiff:stats: List[List[Float32]]
+  - Categorical: [prob_class0, prob_class1, ...] per band
+  - Continuous: [min, max, mean, std, valid%, p25, p50, p75, p95] per band
+"""
+
 import functools
 import pathlib
 from typing import TYPE_CHECKING, Any, cast
@@ -5,6 +16,7 @@ from typing import TYPE_CHECKING, Any, cast
 import numpy as np
 import polars as pl
 import pydantic
+from pydantic import Field
 
 from tacotoolbox.sample.datamodel import SampleExtension
 
@@ -59,8 +71,14 @@ class GeotiffStats(SampleExtension):
     - Continuous: calculates percentiles from histogram (configurable buckets)
     """
 
-    categorical: bool = False
-    class_values: list[int] | None = None
+    categorical: bool = Field(
+        default=False,
+        description="Statistical mode as bool. If True, compute class probabilities (requires class_values). If False, compute continuous statistics [min, max, mean, std, valid%, percentiles].",
+    )
+    class_values: list[int] | None = Field(
+        default=None,
+        description="List of integer class values for categorical mode (e.g., [0, 1, 2] for 3-class classification). Required when categorical=True. Output probabilities will match this order.",
+    )
 
     _percentiles: list[int] = pydantic.PrivateAttr(default=[25, 50, 75, 95])
     _histogram_buckets: int = pydantic.PrivateAttr(default=100)
@@ -68,6 +86,12 @@ class GeotiffStats(SampleExtension):
     def get_schema(self) -> dict[str, pl.DataType]:
         """Return the expected schema for this extension."""
         return {"geotiff:stats": pl.List(pl.List(pl.Float32))}
+
+    def get_field_descriptions(self) -> dict[str, str]:
+        """Return field descriptions for each field."""
+        return {
+            "geotiff:stats": "Per-band statistics (List[List[Float32]]): categorical mode returns class probabilities, continuous mode returns [min, max, mean, std, valid%, p25, p50, p75, p95]"
+        }
 
     @requires_gdal
     def _compute(self, sample: "Sample") -> pl.DataFrame:

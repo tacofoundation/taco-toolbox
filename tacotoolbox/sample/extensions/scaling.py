@@ -1,12 +1,26 @@
+"""
+Scaling extension.
+
+Defines scaling transformations for packing/unpacking data.
+
+Transformation: unpacked = packed * scale_factor + scale_offset
+
+Exports to DataFrame:
+- scaling:scale_factor: Float32 or List[Float32]
+- scaling:scale_offset: Float32 or List[Float32]
+- scaling:padding: List[Int32]
+"""
+
 import polars as pl
 import pydantic
+from pydantic import Field
 
 from tacotoolbox.sample.datamodel import SampleExtension
 
 
 class Scaling(SampleExtension):
     """
-    Data scaling and padding metadata for compression and precision control.
+    Data scaling and padding metadata for precision control.
 
     Defines transformations for scaling/unscaling data following CF conventions.
     All fields are optional - None indicates no transformation applied.
@@ -18,12 +32,20 @@ class Scaling(SampleExtension):
     - When None, no transformation is applied
     - scale_factor and scale_offset must match unpacked data type
     - Padding format: [top, right, bottom, left]
-    - Follows CF (Climate and Forecast) metadata conventions
     """
 
-    scale_factor: float | list[float] | None = None
-    scale_offset: float | list[float] | None = None
-    padding: list[int] | None = None
+    scale_factor: float | list[float] | None = Field(
+        default=None,
+        description="Multiplicative scaling factor as Float32 or List[Float32]. Cannot be zero.",
+    )
+    scale_offset: float | list[float] | None = Field(
+        default=None,
+        description="Additive scaling offset as Float32 or List[Float32].",
+    )
+    padding: list[int] | None = Field(
+        default=None,
+        description="Spatial padding as List[Int32] with 4 elements: [top, right, bottom, left] in pixels.",
+    )
 
     @pydantic.field_validator("scale_factor")
     @classmethod
@@ -74,6 +96,14 @@ class Scaling(SampleExtension):
         schema["scaling:padding"] = pl.List(pl.Int32())
 
         return schema
+
+    def get_field_descriptions(self) -> dict[str, str]:
+        """Return field descriptions for each field."""
+        return {
+            "scaling:scale_factor": "Multiplicative scaling factor for unpacking data (Float32 or List[Float32])",
+            "scaling:scale_offset": "Additive offset for unpacking data (Float32 or List[Float32])",
+            "scaling:padding": "Spatial padding [top, right, bottom, left] in pixels (List[Int32])",
+        }
 
     def _compute(self, sample) -> pl.DataFrame:
         """Actual computation logic - only called when schema_only=False."""

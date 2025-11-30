@@ -56,6 +56,11 @@ class TacoExtension(ABC, pydantic.BaseModel):
         pass
 
     @abstractmethod
+    def get_field_descriptions(self) -> dict[str, str]:
+        """Return field descriptions for each field."""
+        pass
+
+    @abstractmethod
     def _compute(self, taco: "Taco") -> pl.DataFrame:
         """Compute extension metadata, return single-row DataFrame."""
         pass
@@ -123,6 +128,14 @@ class Contact(TacoExtension):
             "organization": pl.Utf8(),
             "email": pl.Utf8(),
             "role": pl.Utf8(),
+        }
+
+    def get_field_descriptions(self) -> dict[str, str]:
+        return {
+            "name": "Contributor name",
+            "organization": "Contributor organization or institution",
+            "email": "Contact email address",
+            "role": "Contributor role (e.g., principal-investigator, data-curator, maintainer)",
         }
 
     def _compute(self, taco: "Taco") -> pl.DataFrame:
@@ -201,6 +214,12 @@ class Extent(TacoExtension):
 
     def get_schema(self) -> dict[str, pl.DataType]:
         return {"spatial": pl.List(pl.Float64()), "temporal": pl.List(pl.Utf8())}
+
+    def get_field_descriptions(self) -> dict[str, str]:
+        return {
+            "spatial": "Spatial bounding box [min_lon, min_lat, max_lon, max_lat] in WGS84 decimal degrees",
+            "temporal": "Temporal interval [start_datetime, end_datetime] in ISO 8601 format",
+        }
 
     def _compute(self, taco: "Taco") -> pl.DataFrame:
         return pl.DataFrame([self.model_dump()])

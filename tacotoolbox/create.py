@@ -205,7 +205,7 @@ def _validate_group_column(group_column: str, df_columns: list[str]) -> None:
 
 
 def _sanitize_filename(name: str) -> str:
-    """
+    r"""
     Sanitize string for use in filename.
 
     Replaces problematic characters with underscores:
@@ -305,7 +305,7 @@ def _create_grouped_zips(
     temp_dir: pathlib.Path | None,
     **kwargs: Any,
 ) -> list[pathlib.Path]:
-    """
+    r"""
     Create one ZIP file per group.
 
     Each group becomes a single ZIP file regardless of size.

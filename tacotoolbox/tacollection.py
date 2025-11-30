@@ -35,7 +35,7 @@ class SchemaValidationError(CollectionError):
 
 def create_tacollection(
     inputs: list[str | Path],
-    output: str | Path,
+    output: str | Path | None = None,
     validate_schema: bool = True,
 ) -> None:
     """
@@ -43,6 +43,9 @@ def create_tacollection(
 
     Always generates a file named TACOLLECTION.json in the output directory.
     This is a standard naming convention for global TACO collections.
+
+    If output is not specified, all input files must be in the same directory
+    and TACOLLECTION.json will be created there.
 
     Validates that all datasets have:
     - Identical taco:pit_schema structure (types)
@@ -55,10 +58,9 @@ def create_tacollection(
     if not inputs:
         raise CollectionError("No datasets provided")
 
-    if len(inputs) < 2:
-        raise CollectionError(
-            f"Need at least 2 datasets to create collection, got {len(inputs)}"
-        )
+    # Auto-detect output directory if not specified
+    if output is None:
+        output = _detect_common_directory(inputs)
 
     # Validate output directory
     output = Path(output)
@@ -116,6 +118,29 @@ def create_tacollection(
     # Write to file
     with open(output_path, "w") as f:
         json.dump(global_collection, f, indent=4)
+
+
+def _detect_common_directory(inputs: list[str | Path]) -> Path:
+    """
+    Detect common parent directory for all input files.
+
+    All input files must be in the same directory for auto-detection.
+    Otherwise raises CollectionError.
+    """
+    # Convert all inputs to Path and get their parent directories
+    input_paths = [Path(p).resolve() for p in inputs]
+    parent_dirs = [p.parent for p in input_paths]
+
+    # Check if all parents are the same
+    first_parent = parent_dirs[0]
+
+    if not all(parent == first_parent for parent in parent_dirs):
+        raise CollectionError(
+            "Input files are in different directories. "
+            "Please specify output directory explicitly."
+        )
+
+    return first_parent
 
 
 def _read_collections(tacozips: list[str | Path]) -> list[dict[str, Any]]:

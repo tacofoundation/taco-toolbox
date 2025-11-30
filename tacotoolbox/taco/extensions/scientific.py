@@ -1,17 +1,44 @@
+"""
+Publications extension for Taco datasets.
+
+Documents academic publications, technical reports, or preprints
+associated with the dataset.
+
+Dataset-level metadata:
+- publications:list: List[Struct] with fields:
+  - doi: String (Digital Object Identifier)
+  - citation: String (formatted citation)
+  - summary: String (optional description)
+"""
+
 import polars as pl
 import pydantic
+from pydantic import Field
 
 from tacotoolbox.taco.datamodel import TacoExtension
 
 
 class Publication(pydantic.BaseModel):
-    doi: str
-    citation: str
-    summary: str | None = None
+    """Single publication reference."""
+
+    doi: str = Field(
+        description="Digital Object Identifier (e.g., '10.1038/s41586-021-03819-2'). Should be resolvable via https://doi.org/"
+    )
+    citation: str = Field(
+        description="Formatted citation string (e.g., 'Smith et al. (2023). Dataset Name. Nature 123:456-789'). Use consistent citation style across publications."
+    )
+    summary: str | None = Field(
+        default=None,
+        description="Brief description of publication relevance to dataset (optional). E.g., 'Introduces methodology' or 'Validation study'.",
+    )
 
 
 class Publications(TacoExtension):
-    publications: list[Publication]
+    """List of publications associated with dataset."""
+
+    publications: list[Publication] = Field(
+        description="List of academic publications, technical reports, or preprints describing or using the dataset. Include dataset paper, methodology papers, and significant derivative works."
+    )
 
     def get_schema(self) -> dict[str, pl.DataType]:
         return {
@@ -24,6 +51,11 @@ class Publications(TacoExtension):
                     ]
                 )
             )
+        }
+
+    def get_field_descriptions(self) -> dict[str, str]:
+        return {
+            "publications:list": "List of academic publications with DOI, citation, and optional summary describing dataset methodology or applications"
         }
 
     def _compute(self, taco) -> pl.DataFrame:
