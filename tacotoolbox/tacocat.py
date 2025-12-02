@@ -193,10 +193,8 @@ def create_tacocat(
         parquet_kwargs: Optional PyArrow Parquet writer parameters to override defaults
         validate_schema: If True, validate schemas match across datasets
     """
-    if output is None:
-        output_dir = _detect_common_directory(inputs)
-    else:
-        output_dir = Path(output)
+    # Determine output directory
+    output_dir = _detect_common_directory(inputs) if output is None else Path(output)
 
     if output_dir.exists() and output_dir.is_file():
         raise ValueError(

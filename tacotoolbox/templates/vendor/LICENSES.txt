@@ -1,0 +1,17 @@
+THIRD-PARTY LICENSES
+====================
+
+D3.js v7.8.5
+Copyright 2010-2021 Mike Bostock
+BSD 3-Clause License
+https://github.com/d3/d3/blob/main/LICENSE
+
+Leaflet v1.9.4
+Copyright (c) 2010-2023, Volodymyr Agafonkin
+BSD 2-Clause License  
+https://github.com/Leaflet/Leaflet/blob/main/LICENSE
+
+Highlight.js v11.11.1
+Copyright (c) 2006, Ivan Sagalaev
+BSD 3-Clause License
+https://github.com/highlightjs/highlight.js/blob/main/LICENSE

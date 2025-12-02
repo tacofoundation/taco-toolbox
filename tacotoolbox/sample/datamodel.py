@@ -121,9 +121,7 @@ class Sample(pydantic.BaseModel):
     )
 
     # Private attribute to store field descriptions
-    _field_descriptions: dict[str, str] = pydantic.PrivateAttr(
-        default_factory=dict
-    )
+    _field_descriptions: dict[str, str] = pydantic.PrivateAttr(default_factory=dict)
 
     model_config = pydantic.ConfigDict(
         arbitrary_types_allowed=True,  # Support Tortilla dataclass
@@ -354,7 +352,7 @@ class Sample(pydantic.BaseModel):
                 self._extension_schemas[col_name] = dtype
 
             # Capture field descriptions if extension provides them
-            if hasattr(extension, 'get_field_descriptions'):
+            if hasattr(extension, "get_field_descriptions"):
                 descriptions = extension.get_field_descriptions()
                 self._field_descriptions.update(descriptions)
 

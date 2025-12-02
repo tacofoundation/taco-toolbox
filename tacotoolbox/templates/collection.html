@@ -1,0 +1,371 @@
+{% set pit_schema = collection.get("taco:pit_schema", collection.get("pit_schema", {})) %}
+{% set field_schema = collection.get("taco:field_schema", collection.get("field_schema", {})) %}
+{% set sources = collection.get("taco:sources", {}) %}
+{% set extent = collection.get("extent", {}) %}
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ collection.get("title", collection.get("id", "TACO Dataset")) }}</title>
+    
+    {% if inline_deps %}
+    <!-- Vendor CSS (inline for offline usage) -->
+    <style>{{ vendor.leaflet_css|safe }}</style>
+    <style>{{ vendor.highlight_css|safe }}</style>
+    {% else %}
+    <!-- Vendor CSS (CDN) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" 
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/atom-one-dark.min.css">
+    {% endif %}
+    
+    <!-- TACO custom styles -->
+    <style>{{ css|safe }}</style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            {% if catalogue_url %}
+            <a href="{{ catalogue_url }}" class="back-to-catalogue">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M19 12H5M12 19l-7-7 7-7"/>
+                </svg>
+                Back to Catalogue
+            </a>
+            {% endif %}
+            <div class="header-badge">TACO DATASET DOCUMENTATION</div>
+            <h1 class="title">{{ collection.get("title", collection.get("id", "Untitled Dataset")) }}</h1>
+            <div class="meta-row">
+                <span class="badge badge-version">v{{ collection.get("dataset_version", "1.0.0") }}</span>
+                <span class="badge badge-id">{{ collection.get("id", "unknown") }}</span>
+                {% if collection.get("licenses") %}<span class="badge badge-license">{{ collection.get("licenses", [])|join(", ") }}</span>{% endif %}
+            </div>
+        </header>
+
+        <!-- Navigation -->
+        <nav class="nav">
+            <a href="#description" class="nav-link">Description</a>
+            <a href="#overview" class="nav-link">Overview</a>
+            {% if pit_schema %}<a href="#structure" class="nav-link">Structure</a>{% endif %}
+            {% if field_schema %}<a href="#fields" class="nav-link">Fields</a>{% endif %}
+            <a href="#usage" class="nav-link">Usage</a>
+            {% if collection.get("providers") or collection.get("curators") %}<a href="#providers" class="nav-link">Providers</a>{% endif %}
+            <a href="#citations" class="nav-link">Citations</a>
+        </nav>
+
+        <!-- Description -->
+        <section id="description" class="section">
+            <h2>Description</h2>
+            <div class="description-content">{{ description_html|safe }}</div>
+        </section>
+
+        <!-- Overview -->
+        <section id="overview" class="section">
+            <h2>Dataset Overview</h2>
+            
+            {% if sources %}
+            <div class="overview-summary">
+                <span class="overview-stat"><strong>{{ sources["count"] }}</strong> partitions</span>
+                {% if extent.get("temporal") %}
+                <span class="overview-stat"><strong>{{ extent["temporal"][0][:4] }} - {{ extent["temporal"][1][:4] }}</strong> temporal coverage</span>
+                {% endif %}
+            </div>
+            
+            <div class="overview-map-container">
+                <h3>Spatial Coverage</h3>
+                <p class="map-hint">Click on any region to view partition details</p>
+                <div id="dataset-map" class="dataset-map"></div>
+            </div>
+            {% endif %}
+
+            {% if collection.get("keywords") %}
+            <h3 style="margin-top: 40px;">Keywords</h3>
+            <div class="keywords">
+            {% for keyword in collection["keywords"] %}
+                <span class="keyword-tag">{{ keyword }}</span>
+            {% endfor %}
+            </div>
+            {% endif %}
+
+            {% if collection.get("tasks") %}
+            <h3>ML Tasks</h3>
+            <div class="tasks">
+            {% for task in collection["tasks"] %}
+                <span class="task-tag">{{ task }}</span>
+            {% endfor %}
+            </div>
+            {% endif %}
+        </section>
+
+        <!-- Structure -->
+        {% if pit_schema %}
+        <section id="structure" class="section">
+            <h2>TACO Structure (Position-Invariant Tree)</h2>
+            <p class="section-description">
+                Hierarchical structure showing representative samples across levels.
+                The "..." notation indicates additional samples following the same pattern.
+                All samples at the same level share identical structure (PIT constraint).
+            </p>
+
+            <h3>Hierarchy Details</h3>
+            <table class="hierarchy-table">
+                <thead>
+                    <tr>
+                        <th>Level</th>
+                        <th>Types</th>
+                        <th>Total Samples</th>
+                        <th>Sample IDs (preview)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% set root = pit_schema.get("root", {}) %}
+                    <tr>
+                        <td><strong>Level 0</strong></td>
+                        <td><code>All {{ root.get("type", "UNKNOWN") }}</code></td>
+                        <td>{{ "{:,}".format(root.get("n", 0)) }}</td>
+                        <td>Root level samples</td>
+                    </tr>
+                    {% if pit_schema.get("hierarchy") %}
+                    {% for level, patterns in pit_schema["hierarchy"].items()|sort %}
+                    {% for pattern in patterns %}
+                    <tr>
+                        <td><strong>Level {{ level }}</strong></td>
+                        <td><code>{% if pattern.get("type", [])|length == 1 %}All {{ pattern["type"][0] }}{% else %}{{ pattern.get("type", [])|join(" + ") }}{% endif %}</code></td>
+                        <td>{{ "{:,}".format(pattern.get("n", 0)) }}</td>
+                        <td><code>{{ pattern.get("id", [])[:3]|join(", ") }}{% if pattern.get("id", [])|length > 3 %}...{% endif %}</code></td>
+                    </tr>
+                    {% endfor %}
+                    {% endfor %}
+                    {% endif %}
+                </tbody>
+            </table>
+
+            <div id="pit-graph-container">
+                <div id="pit-graph"></div>
+            </div>
+        </section>
+        {% endif %}
+
+        <!-- Fields -->
+        {% if field_schema %}
+        <section id="fields" class="section">
+            <h2>Metadata Fields by Level</h2>
+            <p class="section-description">
+                These fields are available for querying with SQL when using TacoReader.
+            </p>
+            
+            {% for level, fields in field_schema.items()|sort %}
+            <div class="field-level">
+                <div class="field-level-header">{{ level.upper() }} ({{ fields|length }} fields)</div>
+                <table class="field-table">
+                    <thead>
+                        <tr>
+                            <th>Field Name</th>
+                            <th>Type</th>
+                            <th>Description</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for field in fields %}
+                        <tr>
+                            <td class="field-name">{{ field[0] }}</td>
+                            <td class="field-type">{{ field[1] }}</td>
+                            <td class="field-description">{% if field|length > 2 and field[2] %}{{ field[2] }}{% else %}<em>No description</em>{% endif %}</td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endfor %}
+        </section>
+        {% endif %}
+
+        <!-- Usage -->
+        <section id="usage" class="section">
+            <h2>Loading the Dataset</h2>
+
+            <!-- Language Tabs -->
+            <div class="code-tabs">
+                <button class="code-tab active" data-lang="python">Python</button>
+                <button class="code-tab" data-lang="r">R</button>
+                <button class="code-tab" data-lang="julia">Julia</button>
+            </div>
+            
+            <!-- Python Code -->
+            <div class="code-block" data-lang="python">
+                <pre><code class="language-python"># pip install tacotoolbox
+import tacoreader
+
+# Load dataset
+ds = tacoreader.load("{{ collection.get('id', 'dataset') }}.tacozip")
+
+# Basic info
+print(f"ID: {ds.id}")
+print(f"Version: {ds.version}")
+print(f"Samples: {len(ds.data)}")</code></pre>
+            </div>
+            
+            <!-- R Code -->
+            <div class="code-block" data-lang="r" style="display: none;">
+                <pre><code class="language-r"># Coming soon: R support is planned but not yet available
+# install.packages("tacoreader")
+library(tacoreader)
+
+# Load dataset
+ds <- load_taco("{{ collection.get('id', 'dataset') }}.tacozip")
+
+# Basic info
+cat(sprintf("ID: %s\n", ds$id))
+cat(sprintf("Version: %s\n", ds$version))
+cat(sprintf("Samples: %d\n", nrow(ds$data)))</code></pre>
+            </div>
+            
+            <!-- Julia Code -->
+            <div class="code-block" data-lang="julia" style="display: none;">
+                <pre><code class="language-julia"># Coming soon: Julia support is planned but not yet available
+# using Pkg; Pkg.add("TacoReader")
+using TacoReader
+
+# Load dataset
+ds = load_taco("{{ collection.get('id', 'dataset') }}.tacozip")
+
+# Basic info
+println("ID: ", ds.id)
+println("Version: ", ds.version)
+println("Samples: ", size(ds.data, 1))</code></pre>
+            </div>
+        </section>
+
+        <!-- Providers -->
+        {% if collection.get("providers") or collection.get("curators") %}
+        <section id="providers" class="section">
+            <h2>Providers & Curators</h2>
+            
+            {% if collection.get("providers") %}
+            <h3>Data Providers</h3>
+            {% for provider in collection["providers"] %}
+            <div class="provider-card">
+                <div class="provider-name">{{ provider.get("name", "Unknown") }}</div>
+                {% if provider.get("roles") %}
+                <div class="provider-roles">
+                    {% for role in provider["roles"] %}
+                    <span class="role-badge">{{ role }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+            {% endif %}
+
+            {% if collection.get("curators") %}
+            <h3>Dataset Curators</h3>
+            {% for curator in collection["curators"] %}
+            <div class="curator-card">
+                <div class="curator-name">{{ curator.get("name", "Unknown") }}</div>
+                {% if curator.get("roles") %}
+                <div class="curator-roles">
+                    {% for role in curator["roles"] %}
+                    <span class="role-badge">{{ role }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% if curator.get("organization") %}<div class="curator-org">{{ curator["organization"] }}</div>{% endif %}
+                {% if curator.get("email") %}<div class="curator-email">{{ curator["email"] }}</div>{% endif %}
+            </div>
+            {% endfor %}
+            {% endif %}
+        </section>
+        {% endif %}
+
+        <!-- Citations -->
+        <section id="citations" class="section">
+            <h2>Publications & Citations</h2>
+            
+            <div class="citation-box">
+                <h3>How to Cite This Dataset</h3>
+                <p>If you use this dataset in your research, please cite:</p>
+                {% if collection.get("publications:list") %}
+                {% for pub in collection["publications:list"] %}
+                <div class="publication-item">
+                    {% if pub.get("doi") %}<div class="publication-doi"><a href="https://doi.org/{{ pub['doi'] }}" target="_blank">{{ pub['doi'] }}</a></div>{% endif %}
+                    {% if pub.get("citation") %}<div class="publication-citation">{{ pub['citation'] }}</div>{% endif %}
+                </div>
+                {% endfor %}
+                {% else %}
+                <p>No publications specified</p>
+                {% endif %}
+            </div>
+
+            <h3>BibTeX</h3>
+            <pre><code>@dataset{ {{- collection.get("id", "dataset") -}} {{ collection.get("dataset_version", "2024").split(".")[0] }},
+  title = { {{- collection.get("title", collection.get("id", "Dataset")) -}} },
+  author = { 
+    {%- if collection.get("curators") -%}
+      {{ collection["curators"]|map(attribute='name')|join(' and ') }}
+    {%- else -%}
+      Unknown
+    {%- endif -%}
+  },
+  year = { 
+    {%- if extent.get("temporal") -%}
+      {{ extent["temporal"][0][:4] }}
+    {%- else -%}
+      2024
+    {%- endif -%}
+  },
+  version = { {{- collection.get("dataset_version", "1.0.0") -}} },
+  publisher = { 
+    {%- if collection.get("curators") and collection["curators"][0].get("organization") -%}
+      {{ collection["curators"][0]["organization"] }}
+    {%- else -%}
+      Unknown
+    {%- endif -%}
+  }
+}</code></pre>
+        </section>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>Generated with <a href="https://github.com/tacotoolbox/tacotoolbox" target="_blank">TacoToolbox</a></p>
+            <p>TACO Specification v2.6 | License: {{ collection.get("licenses", ["Unknown"])|join(", ") }}</p>
+            {% if inline_deps %}
+            <p style="font-size: 0.85em; color: #999;">Offline-ready: All libraries embedded</p>
+            {% else %}
+            <p style="font-size: 0.85em; color: #999;">CDN mode: Requires internet connection</p>
+            {% endif %}
+        </footer>
+    </div>
+
+    <!-- Data for visualizations -->
+    <script>const pitSchemaData = {{ pit_schema_json|safe }};</script>
+    <script>const datasetExtents = {{ extents_json|safe }};</script>
+    <script>const downloadBaseUrl = {{ ('"%s"' % download_base_url)|safe if download_base_url else 'null' }};</script>
+
+    {% if inline_deps %}
+    <!-- Vendor libraries (inline for offline usage) -->
+    <script>{{ vendor.leaflet_js|safe }}</script>
+    <script>{{ vendor.d3|safe }}</script>
+    <script>{{ vendor.highlight|safe }}</script>
+    <script>{{ vendor.highlight_python|safe }}</script>
+    <script>{{ vendor.highlight_r|safe }}</script>
+    <script>{{ vendor.highlight_julia|safe }}</script>
+    {% else %}
+    <!-- Vendor libraries (CDN) -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" 
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/languages/python.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/languages/r.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/languages/julia.min.js"></script>
+    {% endif %}
+    
+    <!-- TACO custom scripts (always inline) -->
+    <script>{{ js_pit|safe }}</script>
+    <script>{{ js_ui|safe }}</script>
+    {% if js_map %}<script>{{ js_map|safe }}</script>{% endif %}
+</body>
+</html>

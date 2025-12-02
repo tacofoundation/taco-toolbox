@@ -239,6 +239,28 @@ Maps storage protocols to their standard URL scheme and GDAL VSI prefix.
 """
 
 # =============================================================================
+# DOCUMENTATION TEMPLATES & ASSETS
+# =============================================================================
+
+DOCS_TEMPLATE_HTML = "collection.html"
+"""Jinja2 template for interactive HTML documentation."""
+
+DOCS_TEMPLATE_MD = "collection.md"
+"""Jinja2 template for Markdown documentation."""
+
+DOCS_CSS_FILE = "styles.css"
+"""CSS stylesheet for HTML documentation."""
+
+DOCS_JS_PIT = "pit_graph.js"
+"""JavaScript for PIT graph visualization (D3.js)."""
+
+DOCS_JS_MAP = "map.js"
+"""JavaScript for spatial coverage map (Leaflet)."""
+
+DOCS_JS_UI = "ui-interactions.js"
+"""JavaScript for UI interactions (tabs, copy buttons, syntax highlighting)."""
+
+# =============================================================================
 # VERSION INFO
 # =============================================================================
 

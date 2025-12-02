@@ -124,9 +124,9 @@ class Tortilla:
         metadata_dfs = []
         for sample in samples:
             metadata_dfs.append(sample.export_metadata())
-            
+
             # Collect field descriptions from samples
-            if hasattr(sample, '_field_descriptions'):
+            if hasattr(sample, "_field_descriptions"):
                 self._field_descriptions.update(sample._field_descriptions)
 
         # Handle schema validation/alignment
@@ -349,7 +349,7 @@ class Tortilla:
             raise ValueError(f"Column conflicts: {sorted(conflicts)}")
 
         # Capture field descriptions if extension provides them
-        if hasattr(extension, 'get_field_descriptions'):
+        if hasattr(extension, "get_field_descriptions"):
             descriptions = extension.get_field_descriptions()
             self._field_descriptions.update(descriptions)
 

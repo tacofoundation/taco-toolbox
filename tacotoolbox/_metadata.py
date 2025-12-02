@@ -265,38 +265,41 @@ class MetadataGenerator:
 def generate_field_schema(levels: list[pl.DataFrame], taco: "Taco") -> dict[str, Any]:
     """
     Generate field schema with descriptions from extensions.
-    
+
     Collects field descriptions from all Sample and Tortilla extensions,
     then generates arrays of [name, type, description] for each field.
     If no description exists for a field, uses empty string.
     """
-    from tacotoolbox._constants import CORE_FIELD_DESCRIPTIONS, INTERNAL_FIELD_DESCRIPTIONS
-    
+    from tacotoolbox._constants import (
+        CORE_FIELD_DESCRIPTIONS,
+        INTERNAL_FIELD_DESCRIPTIONS,
+    )
+
     # Collect all field descriptions
     all_descriptions: dict[str, str] = {}
-    
+
     # 1. Add core and internal field descriptions first
     all_descriptions.update(CORE_FIELD_DESCRIPTIONS)
     all_descriptions.update(INTERNAL_FIELD_DESCRIPTIONS)
-    
+
     # 2. From tortilla (overrides core/internal if redefined)
-    if hasattr(taco.tortilla, '_field_descriptions'):
+    if hasattr(taco.tortilla, "_field_descriptions"):
         all_descriptions.update(taco.tortilla._field_descriptions)
-    
+
     # 3. From samples recursively (overrides previous)
     def collect_from_samples(samples: list["Sample"]) -> None:
         for sample in samples:
-            if hasattr(sample, '_field_descriptions'):
+            if hasattr(sample, "_field_descriptions"):
                 all_descriptions.update(sample._field_descriptions)
-            
+
             # Recurse into FOLDER samples
             if sample.type == "FOLDER":
                 tortilla_path = cast(Tortilla, sample.path)
-                if hasattr(tortilla_path, 'samples'):
+                if hasattr(tortilla_path, "samples"):
                     collect_from_samples(tortilla_path.samples)
-    
+
     collect_from_samples(taco.tortilla.samples)
-    
+
     # Generate field schema with descriptions
     field_schema = {}
 
