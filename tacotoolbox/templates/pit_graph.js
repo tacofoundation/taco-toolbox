@@ -70,42 +70,86 @@ function renderPITGraph(pitSchema) {
     };
     nodes.push(root);
     
-    // Create level 0 (show first, ellipsis, last)
+    // Create level 0 - handle different sample counts
     const level0Y = config.startY + config.levelHeight;
     const rootType = pitSchema.root.type;
     const nSamples = pitSchema.root.n;
+    let sampleLeft;
     
-    const sampleLeft = {
-        id: 'sample_0',
-        type: rootType,
-        level: 0,
-        x: config.startX - config.nodeSpacingH,
-        y: level0Y,
-        label: 'Sample 0',
-        color: colorMap[rootType]
-    };
-    nodes.push(sampleLeft);
-    edges.push({ fromX: root.x, fromY: root.y, toX: sampleLeft.x, toY: sampleLeft.y });
-    
-    texts.push({
-        x: config.startX,
-        y: level0Y + 5,
-        text: '...',
-        size: config.fontSize.annotation,
-        weight: 'bold'
-    });
-    
-    const sampleRight = {
-        id: `sample_${nSamples - 1}`,
-        type: rootType,
-        level: 0,
-        x: config.startX + config.nodeSpacingH,
-        y: level0Y,
-        label: `Sample ${nSamples - 1}`,
-        color: colorMap[rootType]
-    };
-    nodes.push(sampleRight);
-    edges.push({ fromX: root.x, fromY: root.y, toX: sampleRight.x, toY: sampleRight.y });
+    if (nSamples === 1) {
+        // Single sample: centered, no ellipsis
+        sampleLeft = {
+            id: 'sample_0',
+            type: rootType,
+            level: 0,
+            x: config.startX,
+            y: level0Y,
+            label: 'Sample 0',
+            color: colorMap[rootType]
+        };
+        nodes.push(sampleLeft);
+        edges.push({ fromX: root.x, fromY: root.y, toX: sampleLeft.x, toY: sampleLeft.y });
+        
+    } else if (nSamples === 2) {
+        // Two samples: both visible, no ellipsis
+        sampleLeft = {
+            id: 'sample_0',
+            type: rootType,
+            level: 0,
+            x: config.startX - config.nodeSpacingH,
+            y: level0Y,
+            label: 'Sample 0',
+            color: colorMap[rootType]
+        };
+        nodes.push(sampleLeft);
+        edges.push({ fromX: root.x, fromY: root.y, toX: sampleLeft.x, toY: sampleLeft.y });
+        
+        const sampleRight = {
+            id: 'sample_1',
+            type: rootType,
+            level: 0,
+            x: config.startX + config.nodeSpacingH,
+            y: level0Y,
+            label: 'Sample 1',
+            color: colorMap[rootType]
+        };
+        nodes.push(sampleRight);
+        edges.push({ fromX: root.x, fromY: root.y, toX: sampleRight.x, toY: sampleRight.y });
+        
+    } else {
+        // Three or more samples: first, ellipsis, last
+        sampleLeft = {
+            id: 'sample_0',
+            type: rootType,
+            level: 0,
+            x: config.startX - config.nodeSpacingH,
+            y: level0Y,
+            label: 'Sample 0',
+            color: colorMap[rootType]
+        };
+        nodes.push(sampleLeft);
+        edges.push({ fromX: root.x, fromY: root.y, toX: sampleLeft.x, toY: sampleLeft.y });
+        
+        texts.push({
+            x: config.startX,
+            y: level0Y + 5,
+            text: '...',
+            size: config.fontSize.annotation,
+            weight: 'bold'
+        });
+        
+        const sampleRight = {
+            id: `sample_${nSamples - 1}`,
+            type: rootType,
+            level: 0,
+            x: config.startX + config.nodeSpacingH,
+            y: level0Y,
+            label: `Sample ${nSamples - 1}`,
+            color: colorMap[rootType]
+        };
+        nodes.push(sampleRight);
+        edges.push({ fromX: root.x, fromY: root.y, toX: sampleRight.x, toY: sampleRight.y });
+    }
     
     // Expand hierarchy recursively
     if (pitSchema.hierarchy) {
