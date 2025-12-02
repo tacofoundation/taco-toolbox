@@ -3,6 +3,7 @@ import logging
 from tacotoolbox import datamodel, validator
 from tacotoolbox._logging import disable_logging, setup_basic_logging
 from tacotoolbox.create import create
+from tacotoolbox.docs import generate_html, generate_markdown
 from tacotoolbox.export import export
 from tacotoolbox.tacocat import create_tacocat
 from tacotoolbox.tacollection import create_tacollection
@@ -63,6 +64,8 @@ __all__ = [
     "datamodel",
     "export",
     "folder2zip",
+    "generate_html",
+    "generate_markdown",
     "validator",
     "verbose",
     "zip2folder",
