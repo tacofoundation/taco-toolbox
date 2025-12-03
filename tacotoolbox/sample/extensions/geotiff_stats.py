@@ -11,6 +11,7 @@ Exports to DataFrame:
 
 import functools
 import pathlib
+import warnings
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
@@ -69,6 +70,7 @@ class GeotiffStats(SampleExtension):
     - Automatically applies scaling:factor and scaling:offset if present
     - Categorical: handles uniform bands (all same value) correctly
     - Continuous: calculates percentiles from histogram (configurable buckets)
+    - Returns None with warning if all pixels are NoData
     """
 
     categorical: bool = Field(
@@ -98,6 +100,10 @@ class GeotiffStats(SampleExtension):
         """Extract statistics and apply scaling if present."""
         stats = self._extract_stats(sample.path)
 
+        # If stats is None (no valid pixels), return None
+        if stats is None:
+            return pl.DataFrame({"geotiff:stats": [None]}, schema=self.get_schema())
+
         # Apply scaling transformation for continuous stats if scaling metadata exists
         scaling_factor = getattr(sample, "scaling:scale_factor", None)
         scaling_offset = getattr(sample, "scaling:scale_offset", None)
@@ -119,7 +125,7 @@ class GeotiffStats(SampleExtension):
         return pl.DataFrame({"geotiff:stats": [stats]}, schema=self.get_schema())
 
     @requires_gdal
-    def _extract_stats(self, filepath: pathlib.Path) -> list:
+    def _extract_stats(self, filepath: pathlib.Path) -> list | None:
         """Extract statistics using GDAL stats and histograms."""
         from osgeo import gdal
 
@@ -136,6 +142,15 @@ class GeotiffStats(SampleExtension):
                 return self._categorical_stats(ds)
             else:
                 return self._continuous_stats(ds)
+        except RuntimeError as e:
+            if "no valid pixels" in str(e).lower():
+                warnings.warn(
+                    f"No valid pixels found in {filepath.name}. "
+                    f"All pixels are NoData. Returning None for stats.",
+                    stacklevel=2
+                )
+                return None
+            raise
         finally:
             ds = None
 
@@ -275,7 +290,7 @@ class GeotiffStats(SampleExtension):
                 band_stats[4],  # valid_pct (unchanged)
             ]
 
-            # Apply scaling to percentiles
+            # Apply percentiles scaling
             for p in band_stats[5:]:
                 scaled.append(p * scaling_factor + scaling_offset)
 
