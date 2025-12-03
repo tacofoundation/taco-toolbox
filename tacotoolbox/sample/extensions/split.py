@@ -10,7 +10,7 @@ Exports to DataFrame:
 
 from typing import Literal
 
-import polars as pl
+import pyarrow as pa
 from pydantic import Field
 
 from tacotoolbox.sample.datamodel import SampleExtension
@@ -30,14 +30,19 @@ class Split(SampleExtension):
         description="Dataset partition: 'train' for training, 'test' for evaluation, 'validation' for validation"
     )
 
-    def get_schema(self) -> dict[str, pl.DataType]:
-        """Return the expected schema for this extension."""
-        return {"split": pl.Utf8()}
+    def get_schema(self) -> pa.Schema:
+        """Return the expected Arrow schema for this extension."""
+        return pa.schema(
+            [
+                pa.field("split", pa.string()),
+            ]
+        )
 
     def get_field_descriptions(self) -> dict[str, str]:
         """Return field descriptions for each field."""
         return {"split": "Dataset partition identifier (train, test, or validation)"}
 
-    def _compute(self, sample) -> pl.DataFrame:
-        """Actual computation logic - only called when schema_only=False."""
-        return pl.DataFrame({"split": [self.split]}, schema=self.get_schema())
+    def _compute(self, sample) -> pa.Table:
+        """Actual computation logic - returns PyArrow Table."""
+        data = {"split": [self.split]}
+        return pa.Table.from_pydict(data, schema=self.get_schema())

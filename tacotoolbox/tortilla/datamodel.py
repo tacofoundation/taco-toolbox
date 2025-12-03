@@ -7,8 +7,9 @@ Supports nested sample structures with position tracking.
 Key features:
 - Hierarchical metadata export (up to SHARED_MAX_DEPTH levels)
 - Auto-padding for homogeneous structures
-- Efficient DataFrame construction with schema validation
+- Arrow Table construction with schema validation
 - Configurable schema strictness (strict_schema parameter)
+- Private _total_size attribute (sum of all sample sizes)
 
 Best Practice: When mixing FOLDERs and FILEs in the same Tortilla,
 place all FOLDERs before FILEs for better organization and readability.
@@ -19,14 +20,11 @@ from abc import ABC, abstractmethod
 from collections import Counter
 from typing import TYPE_CHECKING, cast
 
-import polars as pl
+import pyarrow as pa
 import pydantic
 
-from tacotoolbox._column_utils import align_dataframe_schemas
-from tacotoolbox._constants import (
-    METADATA_PARENT_ID,
-    PADDING_PREFIX,
-)
+from tacotoolbox._column_utils import align_arrow_schemas
+from tacotoolbox._constants import METADATA_PARENT_ID
 from tacotoolbox._utils import validate_depth
 
 if TYPE_CHECKING:
@@ -39,12 +37,12 @@ class TortillaExtension(ABC, pydantic.BaseModel):
     schema_only: bool = pydantic.Field(
         False,
         description="If True, return None values while preserving schema",
-        validation_alias="return_none",  # Backward compatibility
+        validation_alias="return_none",
     )
 
     @abstractmethod
-    def get_schema(self) -> dict[str, pl.DataType]:
-        """Return the expected schema for this extension."""
+    def get_schema(self) -> pa.Schema:
+        """Return the expected Arrow schema for this extension."""
         pass
 
     @abstractmethod
@@ -53,19 +51,17 @@ class TortillaExtension(ABC, pydantic.BaseModel):
         pass
 
     @abstractmethod
-    def _compute(self, tortilla: "Tortilla") -> pl.DataFrame:
+    def _compute(self, tortilla: "Tortilla") -> pa.Table:
         """Actual computation logic - only called when schema_only=False."""
         pass
 
-    def __call__(self, tortilla: "Tortilla") -> pl.DataFrame:
-        """Process Tortilla and return computed metadata."""
-        # Check schema_only FIRST for performance
+    def __call__(self, tortilla: "Tortilla") -> pa.Table:
+        """Process Tortilla and return computed metadata as Arrow Table."""
         if self.schema_only:
-            schema = self.get_schema()
-            none_data = {col_name: [None] for col_name in schema}
-            return pl.DataFrame(none_data, schema=schema)
+            arrow_schema = self.get_schema()
+            none_data = {field.name: [None] for field in arrow_schema}
+            return pa.Table.from_pydict(none_data, schema=arrow_schema)
 
-        # Only do actual computation if needed
         return self._compute(tortilla)
 
 
@@ -74,7 +70,6 @@ class Tortilla:
     Container for Sample collections with hierarchical metadata export.
 
     Supports nested sample structures with position tracking (max depth from constants).
-    Uses eager DataFrame construction with schema validation for performance.
 
     Best Practice: When mixing FOLDERs and FILEs in the same Tortilla,
     place all FOLDERs before FILEs for better organization and readability.
@@ -87,6 +82,11 @@ class Tortilla:
     Schema Validation: By default (strict_schema=True), all samples must have
     identical metadata schemas. Set strict_schema=False to allow heterogeneous
     schemas with automatic None-filling for missing columns.
+
+    Private Attributes:
+    - _current_depth: Maximum depth of nested structure
+    - _size_bytes: Sum of all sample sizes in bytes (same name as Sample)
+    - _field_descriptions: Field descriptions from extensions
     """
 
     def __init__(
@@ -96,7 +96,7 @@ class Tortilla:
         strict_schema: bool = True,
     ) -> None:
         """
-        Create Tortilla with eager DataFrame construction and schema validation.
+        Create Tortilla with Arrow Table construction and schema validation.
 
         Raises:
             ValueError: If samples have inconsistent metadata schemas (strict_schema=True)
@@ -121,9 +121,9 @@ class Tortilla:
         self._check_sample_ordering()
 
         # Extract metadata from all samples
-        metadata_dfs = []
+        metadata_tables = []
         for sample in samples:
-            metadata_dfs.append(sample.export_metadata())
+            metadata_tables.append(sample.export_metadata())
 
             # Collect field descriptions from samples
             if hasattr(sample, "_field_descriptions"):
@@ -131,37 +131,39 @@ class Tortilla:
 
         # Handle schema validation/alignment
         if strict_schema:
-            # STRICT MODE: All schemas must match exactly
-            reference_columns = set(metadata_dfs[0].columns)
-            for i, df in enumerate(metadata_dfs[1:], start=1):
-                current_columns = set(df.columns)
-                if current_columns != reference_columns:
+            reference_schema = metadata_tables[0].schema
+            for i, table in enumerate(metadata_tables[1:], start=1):
+                if not table.schema.equals(reference_schema):
                     self._raise_schema_mismatch_error(
-                        i, samples[i], reference_columns, current_columns
+                        i, samples[i], reference_schema, table.schema
                     )
         else:
-            # FLEXIBLE MODE: Use helper function to align schemas
-            metadata_dfs = align_dataframe_schemas(
-                metadata_dfs, core_fields=["id", "type", "path"]
+            metadata_tables = align_arrow_schemas(
+                metadata_tables, core_fields=["id", "type", "path"]
             )
 
-        # Concatenate DataFrames - all schemas are guaranteed consistent
-        self._metadata_df = pl.concat(metadata_dfs, how="vertical")
+        # Concatenate Arrow Tables
+        self._metadata_table = pa.concat_tables(metadata_tables)
+
+        # Calculate depth and size
         self._current_depth = self._calculate_current_depth()
+        self._size_bytes = sum(s._size_bytes for s in self.samples)
 
     def _raise_schema_mismatch_error(
         self,
         sample_index: int,
         sample: "Sample",
-        reference_columns: set[str],
-        current_columns: set[str],
+        reference_schema: pa.Schema,
+        current_schema: pa.Schema,
     ) -> None:
         """Raise helpful error when schema mismatch detected in strict mode."""
+        reference_columns = set(reference_schema.names)
+        current_columns = set(current_schema.names)
+
         missing_columns = reference_columns - current_columns
         extra_columns = current_columns - reference_columns
 
         error_msg = f"Schema inconsistency detected at sample {sample_index} (id: '{sample.id}'):\n\n"
-
         error_msg += (
             f"  Reference sample columns: {sorted(reference_columns)}\n"
             f"  Current sample columns: {sorted(current_columns)}\n\n"
@@ -179,27 +181,11 @@ class Tortilla:
             "      Tortilla(samples=[...], strict_schema=False)\n\n"
             "  This will auto-fill missing columns with None values.\n\n"
             "  To inspect sample schemas before creating Tortilla:\n"
-            "      df = sample.export_metadata()\n"
-            "      print(df.columns)  # See what columns exist\n"
+            "      table = sample.export_metadata()\n"
+            "      print(table.schema)  # See schema structure\n"
         )
 
         raise ValueError(error_msg)
-
-    def _align_schema(self, df: pl.DataFrame, target_columns: set[str]) -> pl.DataFrame:
-        """
-        Align DataFrame schema to match target columns by adding missing columns with None.
-        """
-        current_columns = set(df.columns)
-        missing_columns = target_columns - current_columns
-
-        if not missing_columns:
-            return df
-
-        # Add missing columns with None values
-        for col_name in missing_columns:
-            df = df.with_columns(pl.lit(None).alias(col_name))
-
-        return df
 
     def _validate_unique_ids(self) -> None:
         """
@@ -216,7 +202,6 @@ class Tortilla:
         }
 
         if duplicates:
-            # Show first 10 duplicates for debugging
             dup_list = ", ".join(
                 f"'{sample_id}' ({count}x)"
                 for sample_id, count in list(duplicates.items())[:10]
@@ -249,11 +234,8 @@ class Tortilla:
 
         # Calculate number of padding samples needed
         num_padding = pad_to - (len(samples) % pad_to)
+        ref_table = samples[0].export_metadata()
 
-        # Get reference schema from first sample
-        ref_df = samples[0].export_metadata()
-
-        # Create padding samples
         padded_samples = samples.copy()
 
         for i in range(num_padding):
@@ -263,17 +245,21 @@ class Tortilla:
 
             # Get extension columns (excluding core fields)
             extension_cols = [
-                col for col in ref_df.columns if col not in ["id", "type", "path"]
+                field.name
+                for field in ref_table.schema
+                if field.name not in ["id", "type", "path"]
             ]
 
             if extension_cols:
-                # Create DataFrame with None values using reference schema
-                schema = {col: ref_df.schema[col] for col in extension_cols}
+                # Create Arrow Table with None values using reference schema
+                extension_schema = pa.schema(
+                    [ref_table.schema.field(col) for col in extension_cols]
+                )
                 none_data = {col: [None] for col in extension_cols}
-                padding_df = pl.DataFrame(none_data, schema=schema)
+                padding_table = pa.Table.from_pydict(none_data, schema=extension_schema)
 
-                # Extend dummy with padding DataFrame
-                dummy.extend_with(padding_df)
+                # Extend dummy with padding table
+                dummy.extend_with(padding_table)
 
             padded_samples.append(dummy)
 
@@ -329,7 +315,7 @@ class Tortilla:
 
     def extend_with(self, extension: TortillaExtension) -> "Tortilla":
         """
-        Add extension data via DataFrame processing.
+        Add extension data via Arrow Table processing.
 
         Returns:
             Self for method chaining
@@ -337,14 +323,17 @@ class Tortilla:
         Raises:
             ValueError: If row count mismatch or column conflicts
         """
-        result_df = extension(self)
+        result_table = extension(self)
 
-        if len(result_df) != len(self._metadata_df):
+        if result_table.num_rows != self._metadata_table.num_rows:
             raise ValueError(
-                f"Extension returned {len(result_df)} rows, expected {len(self._metadata_df)} (one per sample)."
+                f"Extension returned {result_table.num_rows} rows, "
+                f"expected {self._metadata_table.num_rows} (one per sample)."
             )
 
-        conflicts = set(result_df.columns) & set(self._metadata_df.columns)
+        conflicts = set(result_table.schema.names) & set(
+            self._metadata_table.schema.names
+        )
         if conflicts:
             raise ValueError(f"Column conflicts: {sorted(conflicts)}")
 
@@ -353,33 +342,51 @@ class Tortilla:
             descriptions = extension.get_field_descriptions()
             self._field_descriptions.update(descriptions)
 
-        # Horizontal concatenation in polars using hstack
-        self._metadata_df = self._metadata_df.hstack(result_df)
+        combined_schema = pa.schema(
+            list(self._metadata_table.schema) + list(result_table.schema)
+        )
+
+        combined_arrays = [
+            self._metadata_table.column(i)
+            for i in range(self._metadata_table.num_columns)
+        ]
+        combined_arrays.extend(
+            [result_table.column(i) for i in range(result_table.num_columns)]
+        )
+
+        self._metadata_table = pa.Table.from_arrays(
+            combined_arrays, schema=combined_schema
+        )
         return self
 
-    def export_metadata(self, deep: int = 0) -> pl.DataFrame:
+    def export_metadata(self, deep: int = 0) -> pa.Table:
         """
         Export metadata with optional hierarchical expansion.
 
         Args:
-            deep: Expansion level (0-{SHARED_MAX_DEPTH} max)
+            deep: Expansion level (0-max depth)
                 - 0: Current level only (with extensions)
                 - >0: Expand N levels deep (base metadata only, adds internal:parent_id)
 
         Raises:
             ValueError: If deep is negative or exceeds maximum depth
         """
-        # Use centralized validation from _constants.py
         validate_depth(deep, context="export_metadata")
 
         if deep == 0:
-            return self._metadata_df.clone()
+            return pa.Table.from_arrays(
+                [
+                    self._metadata_table.column(i)
+                    for i in range(self._metadata_table.num_columns)
+                ],
+                schema=self._metadata_table.schema,
+            )
 
         return self._expand_hierarchical(deep)
 
-    def _expand_hierarchical(self, target_deep: int) -> pl.DataFrame:
+    def _expand_hierarchical(self, target_deep: int) -> pa.Table:
         """
-        Build expanded DataFrame for hierarchical samples.
+        Build expanded Arrow Table for hierarchical samples.
 
         Adds internal:parent_id column to link children to their parent's GLOBAL index.
         This column is permanent and enables relational queries.
@@ -394,13 +401,12 @@ class Tortilla:
             )
 
         current_samples = self.samples
-        current_dfs = []
+        current_tables = []
 
         for _level in range(1, target_deep + 1):
-            next_dfs = []
+            next_tables = []
             next_samples = []
 
-            # Use enumerate instead of manual counter
             for global_parent_idx, sample in enumerate(current_samples):
                 if sample.type == "FOLDER":
                     # Cast to Tortilla to ensure mypy knows it has .samples
@@ -409,26 +415,27 @@ class Tortilla:
                     if tortilla_path.samples:
                         # Sample has children - process them
                         for child_sample in tortilla_path.samples:
-                            child_metadata_df = child_sample.export_metadata()
+                            child_metadata_table = child_sample.export_metadata()
 
-                            # Use Int64 for parent_id consistency across ALL levels
-                            # This ensures level0 (Int64) and level1+ (Int64) match for JOINs
-                            child_metadata_df = child_metadata_df.with_columns(
-                                pl.lit(global_parent_idx, dtype=pl.Int64).alias(
-                                    METADATA_PARENT_ID
-                                )
+                            parent_id_array = pa.array(
+                                [global_parent_idx], type=pa.int64()
+                            )
+                            parent_id_field = pa.field(METADATA_PARENT_ID, pa.int64())
+
+                            child_metadata_table = child_metadata_table.append_column(
+                                parent_id_field, parent_id_array
                             )
 
-                            next_dfs.append(child_metadata_df)
+                            next_tables.append(child_metadata_table)
                             next_samples.append(child_sample)
 
-            current_dfs = next_dfs
+            current_tables = next_tables
             current_samples = next_samples
 
-        # Align schemas before concatenating using DRY helper function
-        if len(current_dfs) > 1:
-            current_dfs = align_dataframe_schemas(
-                current_dfs, core_fields=["id", "type", "path", METADATA_PARENT_ID]
+        # Align schemas before concatenating
+        if len(current_tables) > 1:
+            current_tables = align_arrow_schemas(
+                current_tables, core_fields=["id", "type", "path", METADATA_PARENT_ID]
             )
 
-        return pl.concat(current_dfs, how="vertical")
+        return pa.concat_tables(current_tables)

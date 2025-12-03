@@ -11,7 +11,7 @@ Exports to DataFrame:
 - scaling:padding: List[Int32]
 """
 
-import polars as pl
+import pyarrow as pa
 import pydantic
 from pydantic import Field
 
@@ -77,25 +77,29 @@ class Scaling(SampleExtension):
             )
         return [int(x) for x in v]
 
-    def get_schema(self) -> dict[str, pl.DataType]:
-        """Return the expected schema for this extension."""
-        schema: dict[str, pl.DataType] = {}
-
+    def get_schema(self) -> pa.Schema:
+        """Return the expected Arrow schema for this extension."""
         # Determine if factor/offset are lists or scalars
         has_list = isinstance(self.scale_factor, list) or isinstance(
             self.scale_offset, list
         )
 
         if has_list:
-            schema["scaling:scale_factor"] = pl.List(pl.Float32())
-            schema["scaling:scale_offset"] = pl.List(pl.Float32())
+            return pa.schema(
+                [
+                    pa.field("scaling:scale_factor", pa.list_(pa.float32())),
+                    pa.field("scaling:scale_offset", pa.list_(pa.float32())),
+                    pa.field("scaling:padding", pa.list_(pa.int32())),
+                ]
+            )
         else:
-            schema["scaling:scale_factor"] = pl.Float32()
-            schema["scaling:scale_offset"] = pl.Float32()
-
-        schema["scaling:padding"] = pl.List(pl.Int32())
-
-        return schema
+            return pa.schema(
+                [
+                    pa.field("scaling:scale_factor", pa.float32()),
+                    pa.field("scaling:scale_offset", pa.float32()),
+                    pa.field("scaling:padding", pa.list_(pa.int32())),
+                ]
+            )
 
     def get_field_descriptions(self) -> dict[str, str]:
         """Return field descriptions for each field."""
@@ -105,8 +109,8 @@ class Scaling(SampleExtension):
             "scaling:padding": "Spatial padding [top, right, bottom, left] in pixels (List[Int32])",
         }
 
-    def _compute(self, sample) -> pl.DataFrame:
-        """Actual computation logic - only called when schema_only=False."""
+    def _compute(self, sample) -> pa.Table:
+        """Actual computation logic - returns PyArrow Table."""
         # Determine output format based on inputs
         has_list = isinstance(self.scale_factor, list) or isinstance(
             self.scale_offset, list
@@ -125,21 +129,17 @@ class Scaling(SampleExtension):
                 else ([self.scale_offset] if self.scale_offset is not None else None)
             )
 
-            return pl.DataFrame(
-                {
-                    "scaling:scale_factor": [factor],
-                    "scaling:scale_offset": [offset],
-                    "scaling:padding": [self.padding],
-                },
-                schema=self.get_schema(),
-            )
+            data = {
+                "scaling:scale_factor": [factor],
+                "scaling:scale_offset": [offset],
+                "scaling:padding": [self.padding],
+            }
         else:
             # Scalar values
-            return pl.DataFrame(
-                {
-                    "scaling:scale_factor": [self.scale_factor],
-                    "scaling:scale_offset": [self.scale_offset],
-                    "scaling:padding": [self.padding],
-                },
-                schema=self.get_schema(),
-            )
+            data = {
+                "scaling:scale_factor": [self.scale_factor],
+                "scaling:scale_offset": [self.scale_offset],
+                "scaling:padding": [self.padding],
+            }
+
+        return pa.Table.from_pydict(data, schema=self.get_schema())

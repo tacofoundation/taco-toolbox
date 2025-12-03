@@ -194,10 +194,10 @@ def _validate_all_inputs(
     logger.debug("All inputs validated successfully")
 
 
-def _validate_group_column(group_column: str, df_columns: list[str]) -> None:
+def _validate_group_column(group_column: str, table_columns: list[str]) -> None:
     """Validate that group column exists in metadata."""
-    if group_column not in df_columns:
-        available = sorted(df_columns)
+    if group_column not in table_columns:
+        available = sorted(table_columns)
         raise TacoCreationError(
             f"Group column '{group_column}' not found in metadata.\n"
             f"Available columns: {available}"
@@ -247,18 +247,19 @@ def _group_samples_by_column(
     - ["region", "sensor"]: Multiple columns combined with underscore
     """
     try:
-        df = taco.tortilla.export_metadata(deep=0)
+        table = taco.tortilla.export_metadata(deep=0)
 
         # Handle single column or list of columns
         group_columns = [group_by] if isinstance(group_by, str) else group_by
 
         # Validate all columns exist
+        table_column_names = table.schema.names
         for col in group_columns:
-            _validate_group_column(col, df.columns)
+            _validate_group_column(col, table_column_names)
 
         # Check if any column contains integers
         for col in group_columns:
-            sample_value = df[col][0]
+            sample_value = table.column(col).to_pylist()[0]
             if isinstance(sample_value, int):
                 warnings.warn(
                     f"Group column '{col}' contains integer values. "
@@ -269,7 +270,7 @@ def _group_samples_by_column(
 
         # Create group keys by combining column values
         group_keys = []
-        for row in df.iter_rows(named=True):
+        for row in table.to_pylist():
             values = [str(row[col]) for col in group_columns]
             group_key = "_".join(values)
             group_keys.append(group_key)
@@ -278,7 +279,7 @@ def _group_samples_by_column(
         groups: dict[str, list[Sample]] = {}
         sample_map = {s.id: s for s in taco.tortilla.samples}
 
-        for group_key, row in zip(group_keys, df.iter_rows(named=True), strict=True):
+        for group_key, row in zip(group_keys, table.to_pylist(), strict=True):
             sample_id = row["id"]
             sample = sample_map[sample_id]
 
@@ -393,23 +394,11 @@ def _extract_files_with_ids(samples: list, path_prefix: str = "") -> dict[str, A
 
 def _estimate_sample_size(sample: "Sample") -> int:
     """
-    Estimate total size of sample including nested samples.
+    Get sample size in bytes.
 
-    For FILE: returns actual file size from filesystem.
-    For FOLDER: recursively sums all nested file sizes.
-    Used by _group_samples_by_size() for chunk calculation.
+    Simply returns sample._size_bytes (already calculated at construction).
     """
-    if sample.type == "FILE":
-        if isinstance(sample.path, pathlib.Path) and sample.path.exists():
-            return sample.path.stat().st_size
-        return 0
-
-    elif sample.type == "FOLDER":
-        # Cast to Tortilla to access .samples
-        tortilla = cast(Tortilla, sample.path)
-        return sum(_estimate_sample_size(child) for child in tortilla.samples)
-
-    return 0
+    return sample._size_bytes
 
 
 def _group_samples_by_size(samples: list["Sample"], max_size: int) -> list[list]:
@@ -424,7 +413,7 @@ def _group_samples_by_size(samples: list["Sample"], max_size: int) -> list[list]
     current_size = 0
 
     for sample in samples:
-        sample_size = _estimate_sample_size(sample)
+        sample_size = sample._size_bytes
 
         if current_size + sample_size > max_size and current_chunk:
             chunks.append(current_chunk)

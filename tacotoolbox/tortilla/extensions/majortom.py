@@ -10,15 +10,15 @@ Grid ID format: [DIST]km_[ROWID]_[COLID]
 - Row labels: NNNNUD (e.g., 0003U for 3 degrees north, 0002D for 2 south)
 - Column labels: NNNNRL (e.g., 0005R for 5 degrees east, 0004L for 4 west)
 
-Exports to DataFrame:
+Exports to Arrow Table:
 - majortom:code: String (format: '0100km_0003U_0005R')
 """
 
 import math
 from collections.abc import Iterable
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
-import polars as pl
+import pyarrow as pa
 import pydantic
 from pydantic import Field, PrivateAttr
 from shapely.wkb import loads as wkb_loads
@@ -340,10 +340,9 @@ class MajorTOM(TortillaExtension):
             return float(lats.item()), float(lons.item())
         return lats.astype(float), lons.astype(float)
 
-    def get_schema(self) -> dict[str, pl.DataType]:
+    def get_schema(self) -> pa.Schema:
         """Return the expected schema for this extension."""
-        schema: dict[str, pl.DataType] = {"majortom:code": cast(pl.DataType, pl.Utf8)}
-        return schema
+        return pa.schema([pa.field("majortom:code", pa.string())])
 
     def get_field_descriptions(self) -> dict[str, str]:
         """Return field descriptions for each field."""
@@ -351,9 +350,9 @@ class MajorTOM(TortillaExtension):
             "majortom:code": "MajorTOM spherical grid cell identifier (e.g., 0100km_0003U_0005R) with ~dist_km spacing"
         }
 
-    def _compute(self, tortilla: "Tortilla") -> pl.DataFrame:  # noqa: C901
+    def _compute(self, tortilla: "Tortilla") -> pa.Table:
         """
-        Process Tortilla and return DataFrame with MajorTOM codes.
+        Process Tortilla and return Arrow Table with MajorTOM codes.
 
         New format: [DIST]km_[ROWID]_[COLID]
         Example: 0100km_0003U_0005R
@@ -364,13 +363,23 @@ class MajorTOM(TortillaExtension):
                 "MajorTOM extension requires numpy.\n" "Install with: pip install numpy"
             )
 
-        df = tortilla._metadata_df
+        table = tortilla._metadata_table
 
         lats, lons = [], []
         valid_indices = []
 
-        for i, row in enumerate(df.iter_rows(named=True)):
-            centroid_wkb = row.get("stac:centroid", None)
+        # Check if centroid column exists
+        if "stac:centroid" not in table.schema.names:
+            raise ValueError(
+                "Column 'stac:centroid' not found in tortilla metadata.\n"
+                f"Available columns: {table.schema.names}\n"
+                "Ensure samples have STAC extension applied."
+            )
+
+        centroid_column = table.column("stac:centroid")
+
+        for i in range(table.num_rows):
+            centroid_wkb = centroid_column[i].as_py()
             if centroid_wkb is not None:
                 try:
                     geom = wkb_loads(centroid_wkb)
@@ -381,7 +390,7 @@ class MajorTOM(TortillaExtension):
                 except (ValueError, TypeError, AttributeError):
                     continue
 
-        codes: list[str | None] = [None] * len(df)
+        codes: list[str | None] = [None] * table.num_rows
 
         if lats:
             rows, cols = self.latlon2rowcol(lats, lons, integer=False)
@@ -399,7 +408,7 @@ class MajorTOM(TortillaExtension):
                     # New format: [DIST]km_[ROWID]_[COLID]
                     codes[valid_idx] = f"{dist_km_formatted}{self.sep}{r}{self.sep}{c}"
 
-        result_schema: dict[str, pl.DataType] = {
-            "majortom:code": cast(pl.DataType, pl.Utf8)
-        }
-        return pl.DataFrame({"majortom:code": codes}, schema=result_schema)
+        return pa.Table.from_pydict(
+            {"majortom:code": codes},
+            schema=pa.schema([pa.field("majortom:code", pa.string())]),
+        )

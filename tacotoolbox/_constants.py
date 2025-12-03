@@ -19,10 +19,10 @@ METADATA_PARENT_ID = "internal:parent_id"
 """Parent sample index in previous level DataFrame (enables relational queries)."""
 
 METADATA_OFFSET = "internal:offset"
-"""Byte offset in container file where data starts. Only for zip containers."""
+"""Byte offset in container file where data starts. Only for ZIP/TACOCAT containers."""
 
 METADATA_SIZE = "internal:size"
-"""Size in bytes of the data. Only for zip containers."""
+"""Size in bytes of the sample data. Derived from sample._size_bytes at construction."""
 
 METADATA_RELATIVE_PATH = "internal:relative_path"
 """Relative path from DATA/ directory (for consolidated metadata only)."""
@@ -59,7 +59,7 @@ Note: 'path' is excluded as it's removed during container materialization.
 INTERNAL_FIELD_DESCRIPTIONS: dict[str, str] = {
     "internal:parent_id": "Foreign key referencing parent sample position in previous level (ZIP, FOLDER, TACOCAT).",
     "internal:offset": "Byte offset in container file where sample data begins. Used for GDAL /vsisubfile/ paths (ZIP, TACOCAT).",
-    "internal:size": "Size in bytes of sample data. Combined with offset for /vsisubfile/ VSI path construction (ZIP, TACOCAT).",
+    "internal:size": "Size in bytes of sample data. Derived from sample._size_bytes. Combined with offset for /vsisubfile/ in ZIP/TACOCAT (ZIP, FOLDER, TACOCAT).",
     "internal:gdal_vsi": "Complete GDAL Virtual File System path for direct data access (ZIP, FOLDER, TACOCAT).",
     "internal:source_file": "Original source ZIP filename in TACOCAT consolidated datasets. Disambiguates samples from multiple sources (only TACOCAT).",
     "internal:relative_path": "Relative path from DATA/ directory. Format: {parent_path}/{id} or {id} for level0 (ZIP, FOLDER, TACOCAT).",

@@ -13,7 +13,7 @@ Dataset-level metadata (not per-sample):
 - labels:num_classes: Int32 (total number of classes)
 """
 
-import polars as pl
+import pyarrow as pa
 import pydantic
 from pydantic import Field
 
@@ -46,20 +46,25 @@ class Labels(TacoExtension):
         description="Overall description of labeling scheme, methodology, or data source (optional).",
     )
 
-    def get_schema(self) -> dict[str, pl.DataType]:
-        return {
-            "labels:classes": pl.List(
-                pl.Struct(
-                    [
-                        pl.Field("name", pl.Utf8()),
-                        pl.Field("category", pl.Utf8()),
-                        pl.Field("description", pl.Utf8()),
-                    ]
-                )
-            ),
-            "labels:description": pl.Utf8(),
-            "labels:num_classes": pl.Int32(),
-        }
+    def get_schema(self) -> pa.Schema:
+        return pa.schema(
+            [
+                pa.field(
+                    "labels:classes",
+                    pa.list_(
+                        pa.struct(
+                            [
+                                pa.field("name", pa.string()),
+                                pa.field("category", pa.string()),
+                                pa.field("description", pa.string()),
+                            ]
+                        )
+                    ),
+                ),
+                pa.field("labels:description", pa.string()),
+                pa.field("labels:num_classes", pa.int32()),
+            ]
+        )
 
     def get_field_descriptions(self) -> dict[str, str]:
         return {
@@ -68,8 +73,8 @@ class Labels(TacoExtension):
             "labels:num_classes": "Total number of classes in the dataset",
         }
 
-    def _compute(self, taco) -> pl.DataFrame:
-        """Convert label classes to DataFrame format."""
+    def _compute(self, taco) -> pa.Table:
+        """Convert label classes to Table format."""
         classes_data = []
         for label_class in self.label_classes:
             classes_data.append(
@@ -80,7 +85,7 @@ class Labels(TacoExtension):
                 }
             )
 
-        return pl.DataFrame(
+        return pa.Table.from_pylist(
             [
                 {
                     "labels:classes": classes_data,

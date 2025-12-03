@@ -17,7 +17,7 @@ Dataset-level metadata:
 
 from typing import Literal
 
-import polars as pl
+import pyarrow as pa
 from pydantic import Field
 
 from tacotoolbox.taco.datamodel import TacoExtension
@@ -34,13 +34,13 @@ class SplitStrategy(TacoExtension):
         description="Method used to partition dataset into train/test/validation splits."
     )
 
-    def get_schema(self) -> dict[str, pl.DataType]:
-        return {"split:strategy": pl.Utf8()}
+    def get_schema(self) -> pa.Schema:
+        return pa.schema([pa.field("split:strategy", pa.string())])
 
     def get_field_descriptions(self) -> dict[str, str]:
         return {
             "split:strategy": "Dataset partitioning method (random, stratified, manual, other, none, or unknown)"
         }
 
-    def _compute(self, taco) -> pl.DataFrame:
-        return pl.DataFrame([{"split:strategy": self.strategy}])
+    def _compute(self, taco) -> pa.Table:
+        return pa.Table.from_pylist([{"split:strategy": self.strategy}])

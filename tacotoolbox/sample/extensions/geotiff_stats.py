@@ -9,13 +9,12 @@ Exports to DataFrame:
   - Continuous: [min, max, mean, std, valid%, p25, p50, p75, p95] per band
 """
 
-import functools
 import pathlib
 import warnings
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
-import polars as pl
+import pyarrow as pa
 import pydantic
 from pydantic import Field
 
@@ -23,28 +22,15 @@ from tacotoolbox.sample.datamodel import SampleExtension
 
 if TYPE_CHECKING:
     from osgeo import gdal  # type: ignore[import-untyped]
-
     from tacotoolbox.sample.datamodel import Sample
 
+# Soft dependency - only imported when GDAL operations are used
+try:
+    from osgeo import gdal  # type: ignore[import-untyped]
 
-def requires_gdal(func):
-    """Decorator to ensure GDAL is available."""
-    _gdal_checked = False
-
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        nonlocal _gdal_checked
-        if not _gdal_checked:
-            try:
-                from osgeo import gdal  # type: ignore[import-untyped]
-            except ImportError as err:
-                raise ImportError(
-                    "GDAL is required for GeoTIFF operations. Install: conda install gdal"
-                ) from err
-            _gdal_checked = True
-        return func(*args, **kwargs)
-
-    return wrapper
+    HAS_GDAL = True
+except ImportError:
+    HAS_GDAL = False
 
 
 class GeotiffStats(SampleExtension):
@@ -85,9 +71,13 @@ class GeotiffStats(SampleExtension):
     _percentiles: list[int] = pydantic.PrivateAttr(default=[25, 50, 75, 95])
     _histogram_buckets: int = pydantic.PrivateAttr(default=100)
 
-    def get_schema(self) -> dict[str, pl.DataType]:
-        """Return the expected schema for this extension."""
-        return {"geotiff:stats": pl.List(pl.List(pl.Float32))}
+    def get_schema(self) -> pa.Schema:
+        """Return the expected Arrow schema for this extension."""
+        return pa.schema(
+            [
+                pa.field("geotiff:stats", pa.list_(pa.list_(pa.float32()))),
+            ]
+        )
 
     def get_field_descriptions(self) -> dict[str, str]:
         """Return field descriptions for each field."""
@@ -95,14 +85,19 @@ class GeotiffStats(SampleExtension):
             "geotiff:stats": "Per-band statistics (List[List[Float32]]): categorical mode returns class probabilities, continuous mode returns [min, max, mean, std, valid%, p25, p50, p75, p95]"
         }
 
-    @requires_gdal
-    def _compute(self, sample: "Sample") -> pl.DataFrame:
+    def _compute(self, sample: "Sample") -> pa.Table:
         """Extract statistics and apply scaling if present."""
+        if not HAS_GDAL:
+            raise ImportError(
+                "GDAL is required for GeoTIFF operations. Install: conda install gdal"
+            )
+
         stats = self._extract_stats(sample.path)
 
         # If stats is None (no valid pixels), return None
         if stats is None:
-            return pl.DataFrame({"geotiff:stats": [None]}, schema=self.get_schema())
+            data = {"geotiff:stats": [None]}
+            return pa.Table.from_pydict(data, schema=self.get_schema())
 
         # Apply scaling transformation for continuous stats if scaling metadata exists
         scaling_factor = getattr(sample, "scaling:scale_factor", None)
@@ -122,12 +117,15 @@ class GeotiffStats(SampleExtension):
                 float(cast(Any, scaling_offset)),
             )
 
-        return pl.DataFrame({"geotiff:stats": [stats]}, schema=self.get_schema())
+        data = {"geotiff:stats": [stats]}
+        return pa.Table.from_pydict(data, schema=self.get_schema())
 
-    @requires_gdal
     def _extract_stats(self, filepath: pathlib.Path) -> list | None:
         """Extract statistics using GDAL stats and histograms."""
-        from osgeo import gdal
+        if not HAS_GDAL:
+            raise ImportError(
+                "GDAL is required for GeoTIFF operations. Install: conda install gdal"
+            )
 
         ds = gdal.Open(str(filepath))
         if ds is None:
@@ -147,7 +145,7 @@ class GeotiffStats(SampleExtension):
                 warnings.warn(
                     f"No valid pixels found in {filepath.name}. "
                     f"All pixels are NoData. Returning None for stats.",
-                    stacklevel=2
+                    stacklevel=2,
                 )
                 return None
             raise

@@ -10,7 +10,8 @@ Key features:
 - Dynamic extension system for adding metadata
 - Format validation via validators (TacotiffValidator, etc.)
 - Automatic cleanup of temporary files from bytes
-- Pop metadata fields as DataFrames for reuse
+- Pop metadata fields as Arrow Tables for reuse
+- Private _size_bytes attribute auto-calculated at construction
 """
 
 import contextlib
@@ -18,11 +19,10 @@ import pathlib
 import re
 import tempfile
 import uuid
-import warnings
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Literal
 
-import polars as pl
+import pyarrow as pa
 import pydantic
 
 from tacotoolbox._constants import SHARED_CORE_FIELDS
@@ -48,8 +48,8 @@ class SampleExtension(ABC, pydantic.BaseModel):
     )
 
     @abstractmethod
-    def get_schema(self) -> dict[str, pl.DataType]:
-        """Return the expected schema for this extension."""
+    def get_schema(self) -> pa.Schema:
+        """Return the expected Arrow schema for this extension."""
         pass
 
     @abstractmethod
@@ -58,19 +58,22 @@ class SampleExtension(ABC, pydantic.BaseModel):
         pass
 
     @abstractmethod
-    def _compute(self, sample: "Sample") -> pl.DataFrame:
-        """Actual computation logic - only called when schema_only=False."""
+    def _compute(self, sample: "Sample") -> pa.Table:
+        """
+        Actual computation logic.
+
+        Returns:
+            PyArrow Table with single row containing computed metadata.
+        """
         pass
 
-    def __call__(self, sample: "Sample") -> pl.DataFrame:
-        """Process Sample and return computed metadata as single-row DataFrame."""
-        # Check schema_only FIRST for performance
+    def __call__(self, sample: "Sample") -> pa.Table:
+        """Process Sample and return computed metadata as single-row Arrow Table."""
         if self.schema_only:
-            schema = self.get_schema()
-            none_data = {col_name: [None] for col_name in schema}
-            return pl.DataFrame(none_data, schema=schema)
+            pa_schema = self.get_schema()
+            none_data = {col_name: [None] for col_name in pa_schema.names}
+            return pa.Table.from_pydict(none_data, schema=pa_schema)
 
-        # Only do actual computation if needed
         return self._compute(sample)
 
 
@@ -102,6 +105,12 @@ class Sample(pydantic.BaseModel):
 
     Temporary files are automatically cleaned up when the Sample is
     garbage collected or when cleanup() is called explicitly.
+
+    Private Attributes:
+    - _size_bytes: Total size in bytes (file size or folder sum), auto-calculated
+    - _temp_files: List of temp file paths for cleanup
+    - _extension_schemas: Arrow schemas for extensions
+    - _field_descriptions: Field descriptions for documentation
     """
 
     # Core attributes
@@ -113,15 +122,12 @@ class Sample(pydantic.BaseModel):
         "auto"  # Type of geospatial data asset (auto-inferred by default)
     )
 
-    # Private attribute to store temp files for cleanup
+    # Private attributes
+    _size_bytes: int = pydantic.PrivateAttr(default=0)
     _temp_files: list[pathlib.Path] = pydantic.PrivateAttr(default_factory=list)
-
-    # Private attribute to store extension schemas
-    _extension_schemas: dict[str, pl.DataType] = pydantic.PrivateAttr(
+    _extension_schemas: dict[str, pa.DataType] = pydantic.PrivateAttr(
         default_factory=dict
     )
-
-    # Private attribute to store field descriptions
     _field_descriptions: dict[str, str] = pydantic.PrivateAttr(default_factory=dict)
 
     model_config = pydantic.ConfigDict(
@@ -166,6 +172,9 @@ class Sample(pydantic.BaseModel):
         # Initialize with all fields (Pydantic accepts them due to extra="allow")
         super().__init__(**data)
 
+        # Calculate size AFTER validation (when type is FILE/FOLDER, not "auto")
+        object.__setattr__(self, "_size_bytes", self._calculate_size())
+
         # Auto-extend with extension fields to track their schemas
         if extension_fields:
             self.extend_with(extension_fields)
@@ -206,8 +215,30 @@ class Sample(pydantic.BaseModel):
         object.__setattr__(sample, "_temp_files", [temp_path])
         object.__setattr__(sample, "_extension_schemas", {})
         object.__setattr__(sample, "_field_descriptions", {})
+        object.__setattr__(sample, "_size_bytes", 0)  # 0-byte file
 
         return sample
+
+    def _calculate_size(self) -> int:
+        """
+        Calculate total size in bytes.
+
+        For FILE: returns file size from filesystem or bytes length
+        For FOLDER: reads _size_bytes from Tortilla (already calculated)
+        """
+        if self.type == "FILE":
+            if isinstance(self.path, pathlib.Path) and self.path.exists():
+                return self.path.stat().st_size
+            elif isinstance(self.path, bytes):
+                return len(self.path)
+            return 0
+        elif self.type == "FOLDER":
+            # Read from Tortilla (already calculated)
+            from typing import cast
+
+            tortilla = cast(Tortilla, self.path)
+            return tortilla._size_bytes
+        return 0
 
     def cleanup(self) -> None:
         """
@@ -325,14 +356,13 @@ class Sample(pydantic.BaseModel):
         validator.validate(self)
 
     def extend_with(
-        self, extension: Any | dict[str, Any], name: str | None = None
+        self, extension: pa.Table | dict[str, Any] | Any, name: str | None = None
     ) -> None:
         """Add extension to sample by adding fields directly to the model."""
-        # Check if this is a computational SampleExtension
-        if callable(extension) and hasattr(extension, "model_dump"):
+        if isinstance(extension, pa.Table):
+            self._handle_arrow_table_extension(extension)
+        elif callable(extension) and hasattr(extension, "model_dump"):
             self._handle_sample_extension(extension)
-        elif isinstance(extension, pl.DataFrame):
-            self._handle_dataframe_extension(extension)
         elif isinstance(extension, dict):
             self._handle_dict_extension(extension)
         else:
@@ -340,18 +370,19 @@ class Sample(pydantic.BaseModel):
 
         return None
 
-    def pop(self, field: str) -> pl.DataFrame:
+    def pop(self, field: str) -> pa.Table:
         """
-        Remove and return a metadata field as a single-row DataFrame.
+        Remove and return a metadata field as a single-row Arrow Table.
 
         Args:
-            field: Name of the extension field to pop (e.g., "stat:mean")
+            field: Name of the extension field to pop (e.g., "split", "stac:crs")
 
         Returns:
-            Single-row DataFrame with the field value and proper schema
+            Single-row Arrow Table with the field value and proper schema
 
         Raises:
-            ValueError: If field is a core field or doesn't exist
+            ValueError: If field is a core field
+            KeyError: If field doesn't exist
         """
         # Validate field is not core
         if field in SHARED_CORE_FIELDS:
@@ -362,7 +393,7 @@ class Sample(pydantic.BaseModel):
 
         # Check field exists
         if not hasattr(self, field):
-            raise ValueError(
+            raise KeyError(
                 f"Field '{field}' does not exist in sample. "
                 f"Available extension fields: {list(self._extension_schemas.keys())}"
             )
@@ -370,15 +401,14 @@ class Sample(pydantic.BaseModel):
         # Get value
         value = getattr(self, field)
 
-        # Get schema (or infer if missing)
-        dtype = (
-            self._extension_schemas[field]
-            if field in self._extension_schemas
-            else self._infer_polars_dtype(value)
-        )
-
-        # Create single-row DataFrame with proper schema
-        df = pl.DataFrame({field: [value]}, schema={field: dtype})
+        # Create Arrow Table with proper schema
+        if field in self._extension_schemas:
+            # Use tracked schema
+            arrow_schema = pa.schema([pa.field(field, self._extension_schemas[field])])
+            arrow_table = pa.Table.from_pydict({field: [value]}, schema=arrow_schema)
+        else:
+            # Let PyArrow infer type
+            arrow_table = pa.Table.from_pydict({field: [value]})
 
         # Remove from sample
         delattr(self, field)
@@ -391,46 +421,60 @@ class Sample(pydantic.BaseModel):
         if field in self._field_descriptions:
             del self._field_descriptions[field]
 
-        return df
+        return arrow_table
+
+    def _handle_arrow_table_extension(self, arrow_table: pa.Table) -> None:
+        """Handle direct Arrow Table extension."""
+        if arrow_table.num_rows != 1:
+            raise ValueError("Arrow Table extension must have exactly one row")
+
+        # Capture Arrow schemas directly
+        for field in arrow_table.schema:
+            self._extension_schemas[field.name] = field.type
+
+        # Convert to dict and add fields
+        metadata_dict = arrow_table.to_pydict()
+        metadata_dict = {k: v[0] for k, v in metadata_dict.items()}
+
+        self._add_metadata_fields(metadata_dict)
 
     def _handle_sample_extension(self, extension: Any) -> None:
-        """Handle SampleExtension (callable with model_dump)."""
+        """Handle SampleExtension."""
         computed_metadata = extension(self)
-        if isinstance(computed_metadata, pl.DataFrame):
-            # Convert single-row DataFrame to dict
-            if len(computed_metadata) != 1:
-                raise ValueError("SampleExtension must return single-row DataFrame")
 
-            # Capture schemas before converting to dict
-            for col_name, dtype in computed_metadata.schema.items():
-                self._extension_schemas[col_name] = dtype
+        if not isinstance(computed_metadata, pa.Table):
+            raise TypeError(
+                f"SampleExtension must return pa.Table, got {type(computed_metadata)}"
+            )
 
-            # Capture field descriptions if extension provides them
-            if hasattr(extension, "get_field_descriptions"):
-                descriptions = extension.get_field_descriptions()
-                self._field_descriptions.update(descriptions)
+        # Convert single-row Table to dict
+        if computed_metadata.num_rows != 1:
+            raise ValueError("SampleExtension must return single-row Table")
 
-            metadata_dict = computed_metadata.to_dicts()[0]
-            self._add_metadata_fields(metadata_dict)
+        # Capture Arrow schemas directly
+        for field in computed_metadata.schema:
+            self._extension_schemas[field.name] = field.type
 
-    def _handle_dataframe_extension(self, extension: pl.DataFrame) -> None:
-        """Handle direct DataFrame extension."""
-        if len(extension) != 1:
-            raise ValueError("DataFrame extension must have exactly one row")
+        # Capture field descriptions if extension provides them
+        if hasattr(extension, "get_field_descriptions"):
+            descriptions = extension.get_field_descriptions()
+            self._field_descriptions.update(descriptions)
 
-        # Capture schemas before converting to dict
-        for col_name, dtype in extension.schema.items():
-            self._extension_schemas[col_name] = dtype
+        # Convert to dict
+        metadata_dict = computed_metadata.to_pydict()
+        # Extract values (each column is list of 1 element)
+        metadata_dict = {k: v[0] for k, v in metadata_dict.items()}
 
-        metadata_dict = extension.to_dicts()[0]
         self._add_metadata_fields(metadata_dict)
 
     def _handle_dict_extension(self, extension: dict[str, Any]) -> None:
         """Handle dictionary extension."""
-        # First, infer schemas from dict values and update _extension_schemas
-        for key, value in extension.items():
-            # Infer Polars dtype from Python value
-            self._extension_schemas[key] = self._infer_polars_dtype(value)
+        # Create Arrow Table and let PyArrow infer types automatically
+        arrow_table = pa.Table.from_pydict({k: [v] for k, v in extension.items()})
+
+        # Capture Arrow schemas directly from inferred table
+        for field in arrow_table.schema:
+            self._extension_schemas[field.name] = field.type
 
         # Then add the fields
         self._add_metadata_fields(extension)
@@ -446,9 +490,7 @@ class Sample(pydantic.BaseModel):
                 namespaced_data[namespaced_key] = value
             self._add_metadata_fields(namespaced_data)
         else:
-            raise ValueError(
-                f"Extension must be pydantic model or dict, got: {type(extension)}"
-            )
+            raise ValueError(f"Invalid extension type: {type(extension)}")
 
     def _add_metadata_fields(self, metadata_dict: dict[str, Any]) -> None:
         """Add metadata fields to the sample with validation."""
@@ -466,38 +508,9 @@ class Sample(pydantic.BaseModel):
                 f"optionally with colon (e.g., 'key', 'my_key', 'stac:title')"
             )
 
-    def _infer_polars_dtype(self, value: Any) -> pl.DataType:
-        """Infer Polars DataType from Python value."""
-        if value is None:
-            return pl.Utf8()  # Default to String for None
-        elif isinstance(value, str):
-            return pl.Utf8()
-        elif isinstance(value, bool):
-            return pl.Boolean()
-        elif isinstance(value, int):
-            return pl.Int64()
-        elif isinstance(value, float):
-            return pl.Float64()
-        elif isinstance(value, list):
-            if not value:
-                return pl.List(pl.Utf8())  # Default list type
-            # Infer from first element
-            inner_type = self._infer_polars_dtype(value[0])
-            return pl.List(inner_type)
-        elif isinstance(value, dict):
-            return pl.Struct(
-                [pl.Field(k, self._infer_polars_dtype(v)) for k, v in value.items()]
-            )
-        else:
-            warnings.warn(
-                f"Could not infer Polars dtype for value: {value}. Defaulting to String.",
-                stacklevel=2,
-            )
-            return pl.Utf8()  # Fallback to string
-
-    def export_metadata(self) -> pl.DataFrame:
+    def export_metadata(self) -> pa.Table:
         """
-        Export complete Sample metadata as single-row DataFrame with proper schemas.
+        Export complete Sample metadata as single-row Arrow Table.
 
         Core fields (id, type, path) always use String type for schema consistency,
         even when path is None (FOLDER samples). This ensures all samples have
@@ -512,20 +525,22 @@ class Sample(pydantic.BaseModel):
         if isinstance(self.path, pathlib.Path):
             data["path"] = self.path.as_posix()
         elif isinstance(self.path, Tortilla):
-            data["path"] = None  # None value is OK, but type will be String
+            data["path"] = None
 
-        # Define core schema - ensures schema consistency across all samples
-        # path is String even for FOLDERs (value=None, but type=String)
-        core_schema: dict[str, pl.DataType] = {
-            "id": pl.String(),
-            "type": pl.String(),
-            "path": pl.String(),
-        }
+        # Build Arrow schema (core + extensions)
+        arrow_fields = [
+            pa.field("id", pa.string()),
+            pa.field("type", pa.string()),
+            pa.field("path", pa.string()),
+        ]
 
-        # Build complete schema: core + extensions
-        complete_schema = {**core_schema, **self._extension_schemas}
+        # Add extension fields (already Arrow types)
+        for field_name, arrow_dtype in self._extension_schemas.items():
+            arrow_fields.append(pa.field(field_name, arrow_dtype))
 
-        # Create DataFrame with explicit schema
-        df = pl.DataFrame([data], schema=complete_schema)
+        arrow_schema = pa.schema(arrow_fields)
 
-        return df
+        # Create Arrow Table
+        return pa.Table.from_pydict(
+            {k: [v] for k, v in data.items()}, schema=arrow_schema
+        )

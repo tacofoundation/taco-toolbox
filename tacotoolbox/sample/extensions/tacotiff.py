@@ -10,7 +10,7 @@ Exports to DataFrame:
 - taco:header: Binary (TacoHeader format, 35 bytes + tile counts array)
 """
 
-import polars as pl
+import pyarrow as pa
 
 from tacotoolbox.sample.datamodel import SampleExtension
 
@@ -23,18 +23,26 @@ class Header(SampleExtension):
     This header contains all metadata needed for ultra-fast TACOTIFF reading.
     """
 
-    def get_schema(self) -> dict[str, pl.DataType]:
-        return {"taco:header": pl.Binary()}
+    def get_schema(self) -> pa.Schema:
+        """Return the expected Arrow schema for this extension."""
+        return pa.schema(
+            [
+                pa.field("taco:header", pa.binary()),
+            ]
+        )
 
     def get_field_descriptions(self) -> dict[str, str]:
+        """Return field descriptions for each field."""
         return {
             "taco:header": "Binary TACOTIFF header (35 bytes + tile counts) for fast reading without IFD parsing"
         }
 
-    def _compute(self, sample) -> pl.DataFrame:
+    def _compute(self, sample) -> pa.Table:
+        """Actual computation logic - returns PyArrow Table."""
         import tacotiff
 
         # Extract binary header using tacotiff package
         header_bytes = tacotiff.metadata_from_tiff(str(sample.path))
 
-        return pl.DataFrame({"taco:header": [header_bytes]}, schema=self.get_schema())
+        data = {"taco:header": [header_bytes]}
+        return pa.Table.from_pydict(data, schema=self.get_schema())

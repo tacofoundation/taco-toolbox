@@ -187,13 +187,13 @@ class FolderWriter:
             logger.debug(f"{num_folders} folders (no progress bar)")
             items = metadata_package.local_metadata.items()
 
-        for folder_path, local_df in items:
+        for folder_path, local_table in items:
             meta_path = self.output_dir / f"{folder_path}{FOLDER_META_FILENAME}"
 
             meta_path.parent.mkdir(parents=True, exist_ok=True)
 
             # Write as Parquet with user-provided kwargs
-            write_parquet_file(local_df, meta_path, **kwargs)
+            write_parquet_file(local_table, meta_path, **kwargs)
 
             logger.debug(f"Created {folder_path}{FOLDER_META_FILENAME}")
 
@@ -212,16 +212,16 @@ class FolderWriter:
             f"Writing {len(metadata_package.levels)} consolidated metadata files"
         )
 
-        for i, level_df in enumerate(metadata_package.levels):
+        for i, level_table in enumerate(metadata_package.levels):
             output_path = self.metadata_dir / f"level{i}.parquet"
 
             # Write consolidated as Parquet with CDC and user-provided kwargs
-            write_parquet_file_with_cdc(level_df, output_path, **kwargs)
+            write_parquet_file_with_cdc(level_table, output_path, **kwargs)
 
-            has_parent_id = METADATA_PARENT_ID in level_df.columns
+            has_parent_id = METADATA_PARENT_ID in level_table.schema.names
             logger.debug(
                 f"Created {FOLDER_METADATA_DIR}/level{i}.parquet "
-                f"({len(level_df)} rows, parent_id={has_parent_id})"
+                f"({level_table.num_rows} rows, parent_id={has_parent_id})"
             )
 
     def _write_collection_json(self, metadata_package: MetadataPackage) -> None:

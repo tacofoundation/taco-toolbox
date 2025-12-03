@@ -28,10 +28,11 @@ CRITICAL DESIGN PRINCIPLES:
 
 from typing import TYPE_CHECKING, Any, cast
 
-import polars as pl
+import pyarrow as pa
+import pyarrow.compute as pc
 
 from tacotoolbox._column_utils import (
-    align_dataframe_schemas,
+    align_arrow_schemas,
     remove_empty_columns,
     reorder_internal_columns,
 )
@@ -75,8 +76,8 @@ class MetadataPackage:
 
     def __init__(
         self,
-        levels: list[pl.DataFrame],
-        local_metadata: dict[str, pl.DataFrame],
+        levels: list[pa.Table],
+        local_metadata: dict[str, pa.Table],
         collection: dict[str, Any],
         pit_schema: dict[str, Any],
         field_schema: dict[str, Any],
@@ -102,30 +103,30 @@ class MetadataGenerator:
     def generate_all_levels(self) -> MetadataPackage:
         """Generate complete metadata package for both ZIP and FOLDER containers."""
         levels = []
-        dataframes = []
+        tables = []
 
         # Generate consolidated metadata for each level
         for depth in range(self.max_depth + 1):
-            df = self.taco.tortilla.export_metadata(deep=depth)
-            df = self._clean_dataframe(df)
+            table = self.taco.tortilla.export_metadata(deep=depth)
+            table = self._clean_table(table)
 
             # Add internal:parent_id for level 0 as row index
             if depth == 0:
-                df = df.with_columns(
-                    pl.arange(0, len(df)).cast(pl.Int64).alias(METADATA_PARENT_ID)
-                )
-                df = reorder_internal_columns(df)
+                parent_id_array = pa.array(range(table.num_rows), type=pa.int64())
+                parent_id_field = pa.field(METADATA_PARENT_ID, pa.int64())
+                table = table.append_column(parent_id_field, parent_id_array)
+                table = reorder_internal_columns(table)
 
-            dataframes.append(df)
+            tables.append(table)
 
         # Add internal:relative_path for fast SQL queries
-        dataframes = self._add_relative_paths(dataframes)
+        tables = self._add_relative_paths(tables)
 
         # Generate schemas
-        pit_schema = generate_pit_schema(dataframes, debug=self.debug)
-        field_schema = generate_field_schema(dataframes, self.taco)
+        pit_schema = generate_pit_schema(tables, debug=self.debug)
+        field_schema = generate_field_schema(tables, self.taco)
 
-        levels = dataframes
+        levels = tables
 
         # Generate local metadata for folders (level 1+ only)
         local_metadata = {}
@@ -133,8 +134,8 @@ class MetadataGenerator:
         for sample in self.taco.tortilla.samples:
             if sample.type == "FOLDER":
                 folder_path = f"DATA/{sample.id}/"
-                folder_df = self._generate_folder_metadata(sample)
-                local_metadata[folder_path] = folder_df
+                folder_table = self._generate_folder_metadata(sample)
+                local_metadata[folder_path] = folder_table
 
                 # Recursively process nested folders
                 nested = self._generate_nested_folders(sample, f"DATA/{sample.id}/")
@@ -152,91 +153,101 @@ class MetadataGenerator:
             max_depth=self.max_depth,
         )
 
-    def _add_relative_paths(self, levels: list[pl.DataFrame]) -> list[pl.DataFrame]:
+    def _add_relative_paths(self, levels: list[pa.Table]) -> list[pa.Table]:
         """Add internal:relative_path to level 1+ (consolidated metadata only)."""
         result_levels = []
 
-        for depth, df in enumerate(levels):
+        for depth, table in enumerate(levels):
             if depth == 0:
                 # Level 0: NO relative_path - just use id directly
-                result_levels.append(df)
+                result_levels.append(table)
                 continue
 
-            if len(df) == 0:
-                # Empty DataFrame - just add empty column
-                df = df.with_columns(
-                    pl.lit(None, dtype=pl.Utf8).alias(METADATA_RELATIVE_PATH)
-                )
-                result_levels.append(reorder_internal_columns(df))
+            if table.num_rows == 0:
+                # Empty Table - just add empty column
+                null_array = pa.nulls(table.num_rows, type=pa.string())
+                relative_path_field = pa.field(METADATA_RELATIVE_PATH, pa.string())
+                table = table.append_column(relative_path_field, null_array)
+                result_levels.append(reorder_internal_columns(table))
                 continue
 
             # Level 1+: Build relative path from parent's id (level 0) or relative_path (level 1+)
-            parent_df = result_levels[depth - 1]
+            parent_table = result_levels[depth - 1]
 
             # For level 1, parent is level 0, use 'id'
             # For level 2+, parent has relative_path, use that
             if depth == 1:
                 # Parent is level 0 - use 'id' + '/' for FOLDERs
-                parent_ids = parent_df["id"].to_list()
-                parent_types = parent_df["type"].to_list()
+                parent_ids = parent_table.column("id").to_pylist()
+                parent_types = parent_table.column("type").to_pylist()
                 parent_paths = [
                     f"{pid}/" if ptype == "FOLDER" else pid
                     for pid, ptype in zip(parent_ids, parent_types, strict=False)
                 ]
             else:
                 # Parent is level 1+ - already has relative_path
-                parent_paths = parent_df[METADATA_RELATIVE_PATH].to_list()
+                parent_paths = parent_table.column(METADATA_RELATIVE_PATH).to_pylist()
 
             # Build paths for current level
             relative_paths = []
-            for row in df.iter_rows(named=True):
-                parent_id = row[METADATA_PARENT_ID]
+            parent_id_column = table.column(METADATA_PARENT_ID)
+            id_column = table.column("id")
+            type_column = table.column("type")
+
+            for i in range(table.num_rows):
+                parent_id = parent_id_column[i].as_py()
+                sample_id = id_column[i].as_py()
+                sample_type = type_column[i].as_py()
+
                 parent_path = parent_paths[parent_id]
 
-                if row["type"] == "FOLDER":
-                    relative_paths.append(f"{parent_path}{row['id']}/")
+                if sample_type == "FOLDER":
+                    relative_paths.append(f"{parent_path}{sample_id}/")
                 else:
-                    relative_paths.append(f"{parent_path}{row['id']}")
+                    relative_paths.append(f"{parent_path}{sample_id}")
 
             # Add column and reorder
-            df = df.with_columns(pl.Series(METADATA_RELATIVE_PATH, relative_paths))
-            df = reorder_internal_columns(df)
-            result_levels.append(df)
+            relative_path_array = pa.array(relative_paths, type=pa.string())
+            relative_path_field = pa.field(METADATA_RELATIVE_PATH, pa.string())
+            table = table.append_column(relative_path_field, relative_path_array)
+            table = reorder_internal_columns(table)
+            result_levels.append(table)
 
         return result_levels
 
-    def _generate_folder_metadata(self, folder_sample: "Sample") -> pl.DataFrame:
+    def _generate_folder_metadata(self, folder_sample: "Sample") -> pa.Table:
         """
         Generate local metadata for a single folder.
 
         Critical: Children may have different extensions (e.g., cloudmask vs s2data vs thumbnail),
         resulting in different schema widths. Must align schemas before concatenation.
         """
-        # Cast path to Tortilla to access .samples
         tortilla = cast(Tortilla, folder_sample.path)
         samples = tortilla.samples
-        metadata_dfs = [s.export_metadata() for s in samples]
+        metadata_tables = []
 
-        # Align schemas before concatenating (samples may have different extensions)
-        # Without this, pl.concat fails with: ShapeError: unable to append DataFrame of width X with width Y
-        aligned_dfs = align_dataframe_schemas(metadata_dfs)
-        df = pl.concat(aligned_dfs, how="vertical")
+        for sample in samples:
+            metadata_table = sample.export_metadata()
+            metadata_tables.append(metadata_table)
 
-        return self._clean_dataframe(df)
+        # Align schemas before concatenating
+        aligned_tables = align_arrow_schemas(metadata_tables)
+        table = pa.concat_tables(aligned_tables)
+
+        return self._clean_table(table)
 
     def _generate_nested_folders(
         self, parent_sample: "Sample", parent_path: str
-    ) -> dict[str, pl.DataFrame]:
+    ) -> dict[str, pa.Table]:
         """Recursively generate local metadata for nested folders."""
         result = {}
 
-        # Cast path to Tortilla to access .samples
         tortilla = cast(Tortilla, parent_sample.path)
         for child in tortilla.samples:
             if child.type == "FOLDER":
                 folder_path = f"{parent_path}{child.id}/"
-                folder_df = self._generate_folder_metadata(child)
-                result[folder_path] = folder_df
+                folder_table = self._generate_folder_metadata(child)
+                result[folder_path] = folder_table
 
                 # Recurse into nested folders
                 nested = self._generate_nested_folders(child, folder_path)
@@ -244,25 +255,30 @@ class MetadataGenerator:
 
         return result
 
-    def _clean_dataframe(self, df: pl.DataFrame) -> pl.DataFrame:
-        """Clean DataFrame by removing unnecessary columns."""
+    def _clean_table(self, table: pa.Table) -> pa.Table:
+        """Clean Table by removing unnecessary columns."""
         # Remove path column (filesystem-specific, not container-relevant)
         container_irrelevant_cols = ["path"]
-        df = df.drop([col for col in container_irrelevant_cols if col in df.columns])
+        cols_to_drop = [
+            col for col in container_irrelevant_cols if col in table.schema.names
+        ]
+
+        if cols_to_drop:
+            table = table.drop(cols_to_drop)
 
         # Remove empty columns (preserves core + internal automatically)
-        df = remove_empty_columns(df, preserve_core=True, preserve_internal=True)
+        table = remove_empty_columns(table, preserve_core=True, preserve_internal=True)
 
-        if len(df.columns) == 0:
+        if table.num_columns == 0:
             raise ValueError(
-                "DataFrame cleaning resulted in no columns. "
+                "Table cleaning resulted in no columns. "
                 "This should never happen as core fields are preserved."
             )
 
-        return df
+        return table
 
 
-def generate_field_schema(levels: list[pl.DataFrame], taco: "Taco") -> dict[str, Any]:
+def generate_field_schema(levels: list[pa.Table], taco: "Taco") -> dict[str, Any]:
     """
     Generate field schema with descriptions from extensions.
 
@@ -303,10 +319,11 @@ def generate_field_schema(levels: list[pl.DataFrame], taco: "Taco") -> dict[str,
     # Generate field schema with descriptions
     field_schema = {}
 
-    for i, level_df in enumerate(levels):
+    for i, level_table in enumerate(levels):
         fields = []
-        for col_name, col_type in level_df.schema.items():
-            type_name = str(col_type).lower()
+        for field in level_table.schema:
+            col_name = field.name
+            type_name = str(field.type).lower()
             description = all_descriptions.get(col_name, "")
             fields.append([col_name, type_name, description])
 
@@ -316,7 +333,7 @@ def generate_field_schema(levels: list[pl.DataFrame], taco: "Taco") -> dict[str,
 
 
 def generate_pit_schema(  # noqa: C901
-    dataframes: list[pl.DataFrame], debug: bool = False
+    tables: list[pa.Table], debug: bool = False
 ) -> dict[str, Any]:
     """
     Generate PIT schema.
@@ -325,46 +342,46 @@ def generate_pit_schema(  # noqa: C901
     kept as a single function for algorithmic clarity. The PIT schema generation
     is inherently complex and splitting it would reduce readability.
     """
-    if not dataframes:
-        raise ValueError("Need at least one DataFrame to generate schema")
+    if not tables:
+        raise ValueError("Need at least one Table to generate schema")
 
-    df0 = dataframes[0]
-    if "type" not in df0.columns:
+    table0 = tables[0]
+    if "type" not in table0.schema.names:
         raise ValueError("Level 0 missing 'type' column")
 
     # Root level
-    root_type = df0["type"][0]
-    root = {"n": len(df0), "type": root_type}
+    root_type = table0.column("type")[0].as_py()
+    root = {"n": table0.num_rows, "type": root_type}
 
     hierarchy: dict[str, list[dict]] = {}
 
     # Process each hierarchical level
-    for depth in range(1, len(dataframes)):
-        df = dataframes[depth]
-        parent_df = dataframes[depth - 1]
+    for depth in range(1, len(tables)):
+        table = tables[depth]
+        parent_table = tables[depth - 1]
 
-        if len(df) == 0:
+        if table.num_rows == 0:
             continue
 
-        if METADATA_PARENT_ID not in df.columns:
+        if METADATA_PARENT_ID not in table.schema.names:
             raise ValueError(f"Depth {depth} missing '{METADATA_PARENT_ID}' column")
 
         if depth == 1:
             # LEVEL 1: Find folder with MOST real (non-padding) samples
-            children_per_parent = len(df) // len(parent_df)
+            children_per_parent = table.num_rows // parent_table.num_rows
             target_real_count = children_per_parent
 
             max_real_count = 0
             best_group_ids = []
             best_group_types = []
 
-            for parent_idx in range(len(parent_df)):
+            for parent_idx in range(parent_table.num_rows):
                 start_idx = parent_idx * children_per_parent
                 end_idx = start_idx + children_per_parent
-                group = df[start_idx:end_idx]
+                group = table.slice(start_idx, children_per_parent)
 
-                ids = group["id"].to_list()
-                types = group["type"].to_list()
+                ids = group.column("id").to_pylist()
+                types = group.column("type").to_pylist()
 
                 real_count = sum(1 for id_val in ids if not is_padding_id(id_val))
 
@@ -375,14 +392,18 @@ def generate_pit_schema(  # noqa: C901
 
                 if real_count == target_real_count:
                     if debug:
-                        parent_id = parent_df["id"][parent_idx]
+                        parent_id = parent_table.column("id")[parent_idx].as_py()
                         print(
                             f"Found canonical folder '{parent_id}' at depth {depth} "
                             f"with {real_count}/{children_per_parent} real samples"
                         )
                     break
 
-            pattern = {"n": len(df), "type": best_group_types, "id": best_group_ids}
+            pattern = {
+                "n": table.num_rows,
+                "type": best_group_types,
+                "id": best_group_ids,
+            }
             hierarchy[str(depth)] = [pattern]
 
         else:
@@ -390,7 +411,7 @@ def generate_pit_schema(  # noqa: C901
             parent_schema = hierarchy[str(depth - 1)]
             parent_pattern = parent_schema[0]["type"]
             pattern_size = len(parent_pattern)
-            num_groups = len(parent_df) // pattern_size
+            num_groups = parent_table.num_rows // pattern_size
 
             folder_positions = [
                 i for i, t in enumerate(parent_pattern) if t == "FOLDER"
@@ -407,14 +428,15 @@ def generate_pit_schema(  # noqa: C901
                     for group_idx in range(num_groups)
                 ]
 
-                position_children = df.filter(
-                    pl.col(METADATA_PARENT_ID).is_in(parent_ids_for_position)
-                )
+                # Filter table for matching parent_ids
+                parent_id_column = table.column(METADATA_PARENT_ID)
+                mask = pc.is_in(parent_id_column, pa.array(parent_ids_for_position))
+                position_children = table.filter(mask)
 
-                if len(position_children) == 0:
+                if position_children.num_rows == 0:
                     continue
 
-                samples_per_group = len(position_children) // num_groups
+                samples_per_group = position_children.num_rows // num_groups
 
                 if samples_per_group == 0:
                     continue
@@ -426,11 +448,10 @@ def generate_pit_schema(  # noqa: C901
 
                 for group_idx in range(num_groups):
                     start_idx = group_idx * samples_per_group
-                    end_idx = start_idx + samples_per_group
-                    group = position_children[start_idx:end_idx]
+                    group = position_children.slice(start_idx, samples_per_group)
 
-                    ids = group["id"].to_list()
-                    types = group["type"].to_list()
+                    ids = group.column("id").to_pylist()
+                    types = group.column("type").to_pylist()
 
                     real_count = sum(1 for id_val in ids if not is_padding_id(id_val))
 
@@ -442,7 +463,9 @@ def generate_pit_schema(  # noqa: C901
                     if real_count == target_real_count:
                         if debug:
                             parent_row_idx = parent_ids_for_position[group_idx]
-                            parent_id = parent_df["id"][parent_row_idx]
+                            parent_id = parent_table.column("id")[
+                                parent_row_idx
+                            ].as_py()
                             print(
                                 f"Found canonical folder '{parent_id}' at depth {depth} "
                                 f"position {position_idx} with {real_count}/{samples_per_group} real samples"

@@ -2,18 +2,20 @@
 Column manipulation utilities for tacotoolbox.
 
 Key functions:
-- align_dataframe_schemas: Align schemas before vertical concatenation
+- align_arrow_schemas: Align schemas before vertical concatenation
 - reorder_internal_columns: Place internal:* columns at end
 - remove_empty_columns: Remove all-null columns
 - validate_schema_consistency: Check schema compatibility
 - write_parquet_file_with_cdc: Write Parquet with Content-Defined Chunking
-- cast_dataframe_to_schema: Cast columns to match schema spec
+- cast_table_to_schema: Cast columns to match schema spec
 """
 
 from pathlib import Path
 from typing import Any
 
-import polars as pl
+import pyarrow as pa
+import pyarrow.compute as pc
+import pyarrow.parquet as pq
 
 from tacotoolbox._constants import (
     METADATA_COLUMNS_ORDER,
@@ -23,134 +25,179 @@ from tacotoolbox._constants import (
 from tacotoolbox._utils import is_internal_column
 
 
-def align_dataframe_schemas(
-    dfs: list[pl.DataFrame], core_fields: list[str] | None = None
-) -> list[pl.DataFrame]:
+def align_arrow_schemas(
+    tables: list[pa.Table],
+    core_fields: list[str] | None = None,
+) -> list[pa.Table]:
     """
     Align schemas before vertical concatenation.
 
-    CRITICAL for concatenating DataFrames from samples with different extensions.
-    Without alignment, pl.concat(dfs, how="vertical") fails with ShapeError.
+    CRITICAL for concatenating Tables from samples with different extensions.
+    Without alignment, pa.concat_tables(tables) fails with schema mismatch.
 
     Algorithm:
-    1. Collect all unique columns from all DataFrames with their types
+    1. Collect all unique columns from all Tables with their types
     2. Order columns: core fields first, then extension fields alphabetically
-    3. Add missing columns to each DataFrame with None values (proper type)
-    4. Reorder all DataFrames to identical column order
+    3. Add missing columns to each Table with None values (proper type)
+    4. Reorder all Tables to identical column order
 
     Default core_fields: ["id", "type", "path"]
     """
-    if len(dfs) <= 1:
-        return dfs
+    if not tables:
+        return tables
+
+    if len(tables) == 1:
+        return tables
 
     if core_fields is None:
         core_fields = ["id", "type", "path"]
 
-    # Collect complete schema with types from all DataFrames
-    complete_schema: dict[str, pl.DataType] = {}
-    for df in dfs:
-        for col_name, dtype in df.schema.items():
-            if col_name not in complete_schema:
-                complete_schema[col_name] = dtype
+    # Collect all unique field names and types across all tables
+    # Use dict to preserve order and track types
+    all_fields: dict[str, pa.DataType] = {}
+
+    for table in tables:
+        for field in table.schema:
+            if field.name not in all_fields:
+                all_fields[field.name] = field.type
+            # If same column appears with different types, keep first occurrence
+            # This ensures consistent schema when tables have conflicting types
 
     # Define column ordering: core first, then extensions alphabetically
-    extension_fields = sorted(
-        [col for col in complete_schema if col not in core_fields]
-    )
-
+    extension_fields = sorted([col for col in all_fields if col not in core_fields])
     ordered_columns = [
-        col for col in core_fields if col in complete_schema
+        col for col in core_fields if col in all_fields
     ] + extension_fields
 
-    # Align all DataFrames
-    aligned_dfs = []
-    for df in dfs:
-        # Add missing columns with proper types
-        for col_name, dtype in complete_schema.items():
-            if col_name not in df.columns:
-                df = df.with_columns(pl.lit(None, dtype=dtype).alias(col_name))
+    # Build target schema with ordered columns
+    target_schema = pa.schema(
+        [pa.field(name, all_fields[name]) for name in ordered_columns]
+    )
 
-        df = df.select(ordered_columns)
-        aligned_dfs.append(df)
+    # Align each table to target schema
+    aligned_tables = []
 
-    return aligned_dfs
+    for table in tables:
+        current_columns = set(table.schema.names)
+        missing_columns = set(target_schema.names) - current_columns
+
+        if not missing_columns:
+            # Reorder columns to match target
+            reordered_arrays = [table.column(name) for name in target_schema.names]
+            aligned_table = pa.Table.from_arrays(reordered_arrays, schema=target_schema)
+            aligned_tables.append(aligned_table)
+            continue
+
+        # Add missing columns with None values
+        arrays = [table.column(name) for name in table.schema.names]
+        schema_fields = list(table.schema)
+
+        for col_name in missing_columns:
+            field_idx = target_schema.get_field_index(col_name)
+            field = target_schema.field(field_idx)
+
+            null_array = pa.nulls(table.num_rows, type=field.type)
+
+            arrays.append(null_array)
+            schema_fields.append(field)
+
+        # Reorder columns to match target schema order
+        new_schema = pa.schema(schema_fields)
+        temp_table = pa.Table.from_arrays(arrays, schema=new_schema)
+
+        reordered_arrays = [temp_table.column(name) for name in target_schema.names]
+        aligned_table = pa.Table.from_arrays(reordered_arrays, schema=target_schema)
+
+        aligned_tables.append(aligned_table)
+
+    return aligned_tables
 
 
-def reorder_internal_columns(df: pl.DataFrame) -> pl.DataFrame:
+def reorder_internal_columns(table: pa.Table) -> pa.Table:
     """
     Place internal:* columns at end.
 
     Order: regular columns → internal:parent_id → internal:offset →
            internal:size → other internal:* columns
     """
-    regular_cols = [col for col in df.columns if not is_internal_column(col)]
-    ordered_internal = [col for col in METADATA_COLUMNS_ORDER if col in df.columns]
+    regular_cols = [col for col in table.schema.names if not is_internal_column(col)]
+    ordered_internal = [
+        col for col in METADATA_COLUMNS_ORDER if col in table.schema.names
+    ]
     other_internal = [
         col
-        for col in df.columns
+        for col in table.schema.names
         if is_internal_column(col) and col not in METADATA_COLUMNS_ORDER
     ]
 
     new_order = regular_cols + ordered_internal + other_internal
-    return df.select(new_order)
+    return table.select(new_order)
 
 
 def remove_empty_columns(
-    df: pl.DataFrame, preserve_core: bool = True, preserve_internal: bool = True
-) -> pl.DataFrame:
+    table: pa.Table,
+    preserve_core: bool = True,
+    preserve_internal: bool = True,
+) -> pa.Table:
     """Remove columns that are all null or empty strings."""
     cols_to_keep = []
 
-    for col in df.columns:
-        if preserve_core and col in SHARED_CORE_FIELDS:
-            cols_to_keep.append(col)
+    for col_name in table.schema.names:
+        # Preserve core fields if requested
+        if preserve_core and col_name in SHARED_CORE_FIELDS:
+            cols_to_keep.append(col_name)
             continue
 
-        if preserve_internal and is_internal_column(col):
-            cols_to_keep.append(col)
+        # Preserve internal columns if requested
+        if preserve_internal and is_internal_column(col_name):
+            cols_to_keep.append(col_name)
             continue
 
-        if df[col].is_null().all():
+        column = table.column(col_name)
+
+        # Check if all null
+        if pc.all(pc.is_null(column)).as_py():
             continue
 
-        if df[col].dtype == pl.Utf8:
-            non_empty = df.filter(
-                (pl.col(col).is_not_null())
-                & (pl.col(col) != "")
-                & (pl.col(col) != "None")
-            ).height
-
-            if non_empty > 0:
-                cols_to_keep.append(col)
+        # For string columns, check for empty/None strings
+        if pa.types.is_string(column.type) or pa.types.is_large_string(column.type):
+            # Check if any non-null, non-empty values exist
+            is_valid = pc.and_(
+                pc.is_valid(column),
+                pc.and_(pc.not_equal(column, ""), pc.not_equal(column, "None")),
+            )
+            if pc.any(is_valid).as_py():
+                cols_to_keep.append(col_name)
         else:
-            cols_to_keep.append(col)
+            cols_to_keep.append(col_name)
 
+    # Keep at least one column
     if not cols_to_keep:
-        cols_to_keep = [df.columns[0]]
+        cols_to_keep = [table.schema.names[0]]
 
-    return df.select(cols_to_keep)
+    return table.select(cols_to_keep)
 
 
 def validate_schema_consistency(
-    dataframes: list[pl.DataFrame], context: str = "DataFrame list"
+    tables: list[pa.Table], context: str = "Table list"
 ) -> None:
     """
-    Validate all DataFrames have consistent schemas for safe vertical concatenation.
+    Validate all Tables have consistent schemas for safe vertical concatenation.
 
     Checks same columns with same types.
     """
-    if not dataframes:
-        raise ValueError(f"{context}: Cannot validate empty DataFrame list")
+    if not tables:
+        raise ValueError(f"{context}: Cannot validate empty Table list")
 
-    if len(dataframes) == 1:
+    if len(tables) == 1:
         return
 
-    reference_schema = dict(dataframes[0].schema)
-    reference_columns = set(reference_schema.keys())
+    reference_schema = tables[0].schema
+    reference_columns = set(reference_schema.names)
 
-    for i, df in enumerate(dataframes[1:], start=1):
-        current_schema = dict(df.schema)
-        current_columns = set(current_schema.keys())
+    for i, table in enumerate(tables[1:], start=1):
+        current_schema = table.schema
+        current_columns = set(current_schema.names)
 
         missing_columns = reference_columns - current_columns
         extra_columns = current_columns - reference_columns
@@ -169,10 +216,11 @@ def validate_schema_consistency(
 
             raise ValueError(error_msg)
 
+        # Check type consistency
         type_mismatches = []
         for col in reference_columns:
-            ref_type = reference_schema[col]
-            curr_type = current_schema[col]
+            ref_type = reference_schema.field(col).type
+            curr_type = current_schema.field(col).type
 
             if ref_type != curr_type:
                 type_mismatches.append(
@@ -186,24 +234,24 @@ def validate_schema_consistency(
 
 
 def ensure_columns_exist(
-    df: pl.DataFrame, required_columns: list[str], context: str = "DataFrame"
+    table: pa.Table, required_columns: list[str], context: str = "Table"
 ) -> None:
-    """Validate DataFrame contains all required columns."""
-    missing = [col for col in required_columns if col not in df.columns]
+    """Validate Table contains all required columns."""
+    missing = [col for col in required_columns if col not in table.schema.names]
 
     if missing:
         raise ValueError(
             f"{context}: Missing required columns: {missing}\n"
-            f"Available columns: {df.columns}"
+            f"Available columns: {table.schema.names}"
         )
 
 
-def read_metadata_file(file_path: Path | str) -> pl.DataFrame:
+def read_metadata_file(file_path: Path | str) -> pa.Table:
     """Read metadata file in Parquet format."""
     file_path = Path(file_path)
 
     if file_path.suffix == ".parquet":
-        return pl.read_parquet(file_path)
+        return pq.read_table(file_path)
     else:
         raise ValueError(
             f"Unsupported metadata format: {file_path.suffix}\n"
@@ -211,84 +259,95 @@ def read_metadata_file(file_path: Path | str) -> pl.DataFrame:
         )
 
 
-def write_parquet_file(
-    df: pl.DataFrame, output_path: Path | str, **kwargs: Any
-) -> None:
+def write_parquet_file(table: pa.Table, output_path: Path | str, **kwargs: Any) -> None:
     """
-    Write DataFrame to Parquet (for local __meta__ files).
+    Write Table to Parquet (for local __meta__ files).
 
     Used for local metadata in FOLDER containers.
     Parquet natively supports colons in column names.
     """
     default_config = {"compression": "zstd"}
     parquet_config = {**default_config, **kwargs}
-    df.write_parquet(output_path, **parquet_config)
+    pq.write_table(table, output_path, **parquet_config)
 
 
 def write_parquet_file_with_cdc(
-    df: pl.DataFrame, output_path: Path | str, **kwargs: Any
+    table: pa.Table, output_path: Path | str, **kwargs: Any
 ) -> None:
     """
     Write Parquet with Content-Defined Chunking (for consolidated metadata).
 
     CDC ensures consistent data page boundaries for efficient deduplication
     on content-addressable storage systems.
-
-    CRITICAL: Uses PyArrow's pq.write_table() because CDC is only available
-    in PyArrow, not in Polars write_parquet().
     """
-    import pyarrow.parquet as pq
-
     parquet_config = {**PARQUET_CDC_DEFAULT_CONFIG, **kwargs}
-    arrow_table = df.to_arrow()
-    pq.write_table(arrow_table, output_path, **parquet_config)
+    pq.write_table(table, output_path, **parquet_config)
 
 
-def cast_dataframe_to_schema(
-    df: pl.DataFrame, schema_spec: list[list[str]]
-) -> pl.DataFrame:
+def cast_table_to_schema(table: pa.Table, schema_spec: list[list[str]]) -> pa.Table:
     """
-    Cast DataFrame columns to match schema spec from taco:field_schema.
+    Cast Table columns to match schema spec from taco:field_schema.
 
-    Handles Null columns gracefully by adding missing columns and
-    coercing type mismatches.
+    Handles missing columns by adding them with null values and
+    coerces type mismatches using Arrow cast operations.
 
     schema_spec: List of [column_name, type_string] from taco:field_schema
     """
-    # Note: Instantiating types (e.g., pl.Utf8()) creates pl.DataType instances,
-    # ensuring the dictionary values are homogeneous for type checking.
-    type_mapping: dict[str, pl.DataType] = {
-        "string": pl.Utf8(),
-        "int64": pl.Int64(),
-        "int32": pl.Int32(),
-        "float64": pl.Float64(),
-        "float32": pl.Float32(),
-        "binary": pl.Binary(),
-        "bool": pl.Boolean(),
-        "list(int64)": pl.List(pl.Int64),
-        "list(float32)": pl.List(pl.Float32),
-        "list(float64)": pl.List(pl.Float64),
+    type_mapping: dict[str, pa.DataType] = {
+        "string": pa.string(),
+        "int64": pa.int64(),
+        "int32": pa.int32(),
+        "float64": pa.float64(),
+        "float32": pa.float32(),
+        "binary": pa.binary(),
+        "bool": pa.bool_(),
+        "list(int64)": pa.list_(pa.int64()),
+        "list(float32)": pa.list_(pa.float32()),
+        "list(float64)": pa.list_(pa.float64()),
     }
+
+    arrays = []
+    schema_fields = []
 
     for col_name, type_str in schema_spec:
         target_type = type_mapping.get(type_str)
         if target_type is None:
             continue
 
-        if col_name not in df.columns:
-            df = df.with_columns(pl.lit(None, dtype=target_type).alias(col_name))
+        # Column doesn't exist - add null column
+        if col_name not in table.schema.names:
+            null_array = pa.nulls(table.num_rows, type=target_type)
+            arrays.append(null_array)
+            schema_fields.append(pa.field(col_name, target_type))
             continue
 
-        current_type = df[col_name].dtype
+        # Column exists - check if cast needed
+        column = table.column(col_name)
+        current_type = column.type
 
         if current_type == target_type:
+            arrays.append(column)
+            schema_fields.append(pa.field(col_name, target_type))
             continue
 
+        # Cast to target type
         try:
-            df = df.with_columns(pl.col(col_name).cast(target_type))
+            casted_column = pc.cast(column, target_type)
+            arrays.append(casted_column)
+            schema_fields.append(pa.field(col_name, target_type))
         except Exception:
-            df = df.with_columns(
-                pl.col(col_name).fill_null(pl.lit(None)).cast(target_type)
-            )
+            # If cast fails, fill nulls first then retry
+            filled_column = pc.fill_null(column, None)
+            casted_column = pc.cast(filled_column, target_type)
+            arrays.append(casted_column)
+            schema_fields.append(pa.field(col_name, target_type))
 
-    return df
+    # Combine with existing columns not in schema_spec
+    schema_spec_cols = {col_name for col_name, _ in schema_spec}
+    for field in table.schema:
+        if field.name not in schema_spec_cols:
+            arrays.append(table.column(field.name))
+            schema_fields.append(field)
+
+    new_schema = pa.schema(schema_fields)
+    return pa.Table.from_arrays(arrays, schema=new_schema)

@@ -15,7 +15,7 @@ Exports to DataFrame:
 - istac:centroid: Binary (WKB, EPSG:4326)
 """
 
-import polars as pl
+import pyarrow as pa
 import pydantic
 from pydantic import Field
 from pyproj import CRS, Transformer
@@ -146,16 +146,18 @@ class ISTAC(SampleExtension):
 
         return self
 
-    def get_schema(self) -> dict[str, pl.DataType]:
-        """Return the expected Polars schema for this extension."""
-        return {
-            "istac:crs": pl.Utf8(),
-            "istac:geometry": pl.Binary(),
-            "istac:time_start": pl.Datetime(time_unit="us", time_zone=None),
-            "istac:time_end": pl.Datetime(time_unit="us", time_zone=None),
-            "istac:time_middle": pl.Datetime(time_unit="us", time_zone=None),
-            "istac:centroid": pl.Binary(),
-        }
+    def get_schema(self) -> pa.Schema:
+        """Return the expected Arrow schema for this extension."""
+        return pa.schema(
+            [
+                pa.field("istac:crs", pa.string()),
+                pa.field("istac:geometry", pa.binary()),
+                pa.field("istac:time_start", pa.timestamp("us", tz=None)),
+                pa.field("istac:time_end", pa.timestamp("us", tz=None)),
+                pa.field("istac:time_middle", pa.timestamp("us", tz=None)),
+                pa.field("istac:centroid", pa.binary()),
+            ]
+        )
 
     def get_field_descriptions(self) -> dict[str, str]:
         """Return field descriptions for each field."""
@@ -168,16 +170,15 @@ class ISTAC(SampleExtension):
             "istac:centroid": "Geometry center point in EPSG:4326 (WKB binary format)",
         }
 
-    def _compute(self, sample) -> pl.DataFrame:
-        """Actual computation logic - only called when schema_only=False."""
-        return pl.DataFrame(
-            {
-                "istac:crs": [self.crs],
-                "istac:geometry": [self.geometry],
-                "istac:time_start": [self.time_start],
-                "istac:time_end": [self.time_end],
-                "istac:time_middle": [self.time_middle],
-                "istac:centroid": [self.centroid],
-            },
-            schema=self.get_schema(),
-        )
+    def _compute(self, sample) -> pa.Table:
+        """Actual computation logic - returns PyArrow Table."""
+        data = {
+            "istac:crs": [self.crs],
+            "istac:geometry": [self.geometry],
+            "istac:time_start": [self.time_start],
+            "istac:time_end": [self.time_end],
+            "istac:time_middle": [self.time_middle],
+            "istac:centroid": [self.centroid],
+        }
+
+        return pa.Table.from_pydict(data, schema=self.get_schema())

@@ -14,7 +14,9 @@ Key features:
 import json
 from pathlib import Path
 
-import polars as pl
+import pyarrow as pa
+import pyarrow.compute as pc
+import pyarrow.parquet as pq
 from tacoreader import TacoDataset
 
 from tacotoolbox._logging import get_logger
@@ -195,7 +197,7 @@ def _read_collection(folder_path: Path) -> dict:
     return collection
 
 
-def _read_consolidated_metadata(folder_path: Path) -> list[pl.DataFrame]:
+def _read_consolidated_metadata(folder_path: Path) -> list[pa.Table]:
     """Read consolidated metadata from METADATA/levelX.parquet files."""
     metadata_dir = folder_path / "METADATA"
 
@@ -213,9 +215,9 @@ def _read_consolidated_metadata(folder_path: Path) -> list[pl.DataFrame]:
     levels = []
     for level_file in level_files:
         try:
-            df = pl.read_parquet(level_file)
-            levels.append(df)
-            logger.debug(f"Read {level_file.name}: {len(df)} rows")
+            table = pq.read_table(level_file)
+            levels.append(table)
+            logger.debug(f"Read {level_file.name}: {table.num_rows} rows")
         except Exception as e:
             raise TranslateError(f"Failed to read {level_file}: {e}") from e
 
@@ -223,8 +225,8 @@ def _read_consolidated_metadata(folder_path: Path) -> list[pl.DataFrame]:
 
 
 def _reconstruct_local_metadata_from_levels(
-    levels: list[pl.DataFrame],
-) -> dict[str, pl.DataFrame]:
+    levels: list[pa.Table],
+) -> dict[str, pa.Table]:
     """
     Reconstruct local_metadata from consolidated levels.
 
@@ -246,10 +248,15 @@ def _reconstruct_local_metadata_from_levels(
         current_level = levels[level_idx]
         next_level = levels[level_idx + 1]
 
-        # Find all FOLDERs at this level
-        folders = current_level.filter(pl.col("type") == "FOLDER")
+        # Find all FOLDERs at this level using PyArrow compute
+        type_column = current_level.column("type")
+        folders_mask = pc.equal(type_column, pa.scalar("FOLDER"))
+        folders = current_level.filter(folders_mask)
 
-        for folder_row in folders.iter_rows(named=True):
+        # Convert to list of dicts for iteration
+        folders_list = folders.to_pylist()
+
+        for folder_row in folders_list:
             parent_id = folder_row["internal:parent_id"]
 
             # Construct folder_path based on level
@@ -261,11 +268,13 @@ def _reconstruct_local_metadata_from_levels(
                 folder_path = f"DATA/{folder_row['internal:relative_path']}/"
 
             # Get children from next level that belong to this folder
-            children = next_level.filter(pl.col("internal:parent_id") == parent_id)
+            parent_id_column = next_level.column("internal:parent_id")
+            children_mask = pc.equal(parent_id_column, pa.scalar(parent_id))
+            children = next_level.filter(children_mask)
 
             # Remove columns that don't belong in __meta__ local files
             cols_to_drop = []
-            if "internal:relative_path" in children.columns:
+            if "internal:relative_path" in children.schema.names:
                 cols_to_drop.append("internal:relative_path")
 
             if cols_to_drop:

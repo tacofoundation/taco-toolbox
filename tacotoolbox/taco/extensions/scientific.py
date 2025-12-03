@@ -11,7 +11,7 @@ Dataset-level metadata:
   - summary: String (optional description)
 """
 
-import polars as pl
+import pyarrow as pa
 import pydantic
 from pydantic import Field
 
@@ -40,29 +40,34 @@ class Publications(TacoExtension):
         description="List of academic publications, technical reports, or preprints describing or using the dataset. Include dataset paper, methodology papers, and significant derivative works."
     )
 
-    def get_schema(self) -> dict[str, pl.DataType]:
-        return {
-            "publications:list": pl.List(
-                pl.Struct(
-                    [
-                        pl.Field("doi", pl.Utf8()),
-                        pl.Field("citation", pl.Utf8()),
-                        pl.Field("summary", pl.Utf8()),
-                    ]
+    def get_schema(self) -> pa.Schema:
+        return pa.schema(
+            [
+                pa.field(
+                    "publications:list",
+                    pa.list_(
+                        pa.struct(
+                            [
+                                pa.field("doi", pa.string()),
+                                pa.field("citation", pa.string()),
+                                pa.field("summary", pa.string()),
+                            ]
+                        )
+                    ),
                 )
-            )
-        }
+            ]
+        )
 
     def get_field_descriptions(self) -> dict[str, str]:
         return {
             "publications:list": "List of academic publications with DOI, citation, and optional summary describing dataset methodology or applications"
         }
 
-    def _compute(self, taco) -> pl.DataFrame:
+    def _compute(self, taco) -> pa.Table:
         pubs_data = []
         for pub in self.publications:
             pubs_data.append(
                 {"doi": pub.doi, "citation": pub.citation, "summary": pub.summary}
             )
 
-        return pl.DataFrame([{"publications:list": pubs_data}])
+        return pa.Table.from_pylist([{"publications:list": pubs_data}])

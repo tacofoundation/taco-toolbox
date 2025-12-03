@@ -8,16 +8,16 @@ Uses Morton encoding (Z-order curve) to preserve spatial locality:
 1. Extract centroids from stac:centroid column (WKB binary)
 2. Compute Z-order code by interleaving lon/lat bits
 3. Sort samples by Z-order code
-4. Group consecutive samples into chunks of target_size
+4. Group consecutive samples into chunks by target_count OR target_size
 5. Assign spatial group IDs
 
-Exports to DataFrame:
+Exports to Arrow Table:
 - spatialgroup:code: String (format: 'sg0000', 'sg0001', ...)
 """
 
 import logging
 
-import polars as pl
+import pyarrow as pa
 import pydantic
 from pydantic import Field
 from shapely.geometry import Point
@@ -30,6 +30,7 @@ try:
 except ImportError:
     HAS_NUMPY = False
 
+from tacotoolbox._validation import parse_size
 from tacotoolbox.tortilla.datamodel import TortillaExtension
 
 logger = logging.getLogger(__name__)
@@ -89,24 +90,66 @@ class SpatialGrouping(TortillaExtension):
     1. Extract centroids from stac:centroid column (WKB binary)
     2. Compute Z-order code for each sample (interleaved lon/lat bits)
     3. Sort samples by Z-order code
-    4. Group consecutive samples into chunks of target_size
+    4. Group consecutive samples into chunks by target_count OR target_size
     5. Assign spatial_group ID to each sample
 
     Each spatial group will have samples that are spatially close,
     resulting in compact bounding boxes when computing extents.
+
+    Grouping modes:
+    - target_count only: Group by number of samples (default: 1000)
+    - target_size only: Group by cumulative size ("1GB", "512MB", etc.)
+    - Both: Cut group when EITHER limit is reached (whichever comes first)
+
+    Examples:
+        # Group by sample count (default)
+        spatial = SpatialGrouping(target_count=1000)
+
+        # Group by size
+        spatial = SpatialGrouping(target_count=None, target_size="1GB")
+
+        # Hybrid: whichever limit is hit first
+        spatial = SpatialGrouping(target_count=1000, target_size="512MB")
     """
 
-    target_size: int = Field(
+    target_count: int | None = Field(
         default=1000,
         gt=0,
-        description="Target number of samples per spatial group. Samples are sorted by Z-order code and grouped into chunks of this size for compact spatial bounding boxes.",
+        description="Maximum samples per spatial group (None = no limit)",
     )
+
+    target_size: str | None = Field(
+        default=None,
+        description="Maximum bytes per spatial group (e.g., '1GB', '512MB', None = no limit)",
+    )
+
+    # Private attribute for parsed bytes
+    _target_size_bytes: int | None = pydantic.PrivateAttr(default=None)
 
     model_config = pydantic.ConfigDict(arbitrary_types_allowed=True)
 
-    def get_schema(self) -> dict[str, pl.DataType]:
+    @pydantic.model_validator(mode="after")
+    def parse_target_size(self) -> "SpatialGrouping":
+        """Parse target_size string to bytes using parse_size()."""
+        if self.target_size is not None:
+            try:
+                self._target_size_bytes = parse_size(self.target_size)
+            except ValueError as e:
+                raise ValueError(
+                    f"Invalid target_size format: {e}\n"
+                    f"Use format like '1GB', '512MB', '1024KB'"
+                ) from e
+
+            if self._target_size_bytes <= 0:
+                raise ValueError(
+                    f"target_size must be positive. Got: {self.target_size}"
+                )
+
+        return self
+
+    def get_schema(self) -> pa.Schema:
         """Return the expected schema for this extension."""
-        return {"spatialgroup:code": pl.String()}
+        return pa.schema([pa.field("spatialgroup:code", pa.string())])
 
     def get_field_descriptions(self) -> dict[str, str]:
         """Return field descriptions for each field."""
@@ -114,39 +157,37 @@ class SpatialGrouping(TortillaExtension):
             "spatialgroup:code": "Spatial group identifier using Z-order curve for compact bounding boxes."
         }
 
-    def _compute(self, tortilla) -> pl.DataFrame:
-        """
-        Process Tortilla and return DataFrame with spatial group codes.
-
-        """
+    def _compute(self, tortilla) -> pa.Table:
+        """Process Tortilla and return Arrow Table with spatial group codes."""
         if not HAS_NUMPY:
             raise ImportError(
                 "SpatialGrouping requires numpy.\n" "Install with: pip install numpy"
             )
 
-        df = tortilla._metadata_df
+        table = tortilla._metadata_table
 
         # Check for centroid column
         centroid_column = "stac:centroid"
 
-        if centroid_column not in df.columns:
+        if centroid_column not in table.schema.names:
             raise ValueError(
                 f"Column '{centroid_column}' not found in tortilla metadata.\n"
-                f"Available columns: {df.columns}\n"
+                f"Available columns: {table.schema.names}\n"
                 f"Ensure samples have STAC extension applied."
             )
 
-        centroids_binary = df[centroid_column].to_list()
+        centroid_array = table.column(centroid_column)
 
         coords = []
         valid_indices = []
 
-        for i, centroid_wkb in enumerate(centroids_binary):
+        for i in range(table.num_rows):
+            centroid_wkb = centroid_array[i].as_py()
             if centroid_wkb is None:
                 continue
 
             try:
-                geom = wkb_loads(bytes(centroid_wkb))
+                geom = wkb_loads(centroid_wkb)
                 if isinstance(geom, Point):
                     lon, lat = geom.x, geom.y
                     coords.append((lon, lat))
@@ -169,19 +210,44 @@ class SpatialGrouping(TortillaExtension):
         sorted_indices = np.argsort(z_orders)
 
         # Initialize all as None
-        group_codes: list[str | None] = [None] * len(df)
+        group_codes: list[str | None] = [None] * table.num_rows
 
-        # Assign group codes to sorted chunks
-        for group_id, chunk_start in enumerate(
-            range(0, len(sorted_indices), self.target_size)
-        ):
-            chunk_indices = sorted_indices[chunk_start : chunk_start + self.target_size]
+        # Group samples by Z-order with size/count limits
+        current_group_id = 0
+        current_group_count = 0
+        current_group_size = 0
 
-            for local_idx in chunk_indices:
-                original_idx = valid_indices[local_idx]
-                # Format: sg0000, sg0001, ... (sg = spatial group)
-                group_codes[original_idx] = f"sg{group_id:04d}"
+        for local_idx in sorted_indices:
+            original_idx = valid_indices[local_idx]
+            sample = tortilla.samples[original_idx]
+            sample_size = sample._size_bytes
 
-        return pl.DataFrame(
+            # Check if we need to start a new group
+            start_new_group = False
+
+            if current_group_count > 0:  # Not the first sample
+                # Check target_count limit
+                if self.target_count and current_group_count >= self.target_count:
+                    start_new_group = True
+
+                # Check target_size limit (using parsed bytes)
+                if (
+                    self._target_size_bytes
+                    and (current_group_size + sample_size) > self._target_size_bytes
+                ):
+                    start_new_group = True
+
+            if start_new_group:
+                # Start new group
+                current_group_id += 1
+                current_group_count = 0
+                current_group_size = 0
+
+            # Assign to current group
+            group_codes[original_idx] = f"sg{current_group_id:04d}"
+            current_group_count += 1
+            current_group_size += sample_size
+
+        return pa.Table.from_pydict(
             {"spatialgroup:code": group_codes}, schema=self.get_schema()
         )

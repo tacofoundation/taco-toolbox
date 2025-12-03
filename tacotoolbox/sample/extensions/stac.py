@@ -17,7 +17,7 @@ Exports to DataFrame:
 import datetime
 from typing import TypeAlias
 
-import polars as pl
+import pyarrow as pa
 import pydantic
 from pydantic import Field
 from pyproj import CRS, Transformer
@@ -223,32 +223,33 @@ class STAC(SampleExtension):
             )
         return values
 
-    def get_schema(self) -> dict[str, pl.DataType]:
-        """Return the expected schema for this extension."""
-        return {
-            "stac:crs": pl.Utf8(),
-            "stac:tensor_shape": pl.List(pl.Int64()),
-            "stac:geotransform": pl.List(pl.Float64()),
-            "stac:time_start": pl.Datetime(time_unit="us", time_zone=None),
-            "stac:centroid": pl.Binary(),
-            "stac:time_end": pl.Datetime(time_unit="us", time_zone=None),
-            "stac:time_middle": pl.Datetime(time_unit="us", time_zone=None),
+    def get_schema(self) -> pa.Schema:
+        """Return the expected Arrow schema for this extension."""
+        return pa.schema(
+            [
+                pa.field("stac:crs", pa.string()),
+                pa.field("stac:tensor_shape", pa.list_(pa.int64())),
+                pa.field("stac:geotransform", pa.list_(pa.float64())),
+                pa.field("stac:time_start", pa.timestamp("us", tz=None)),
+                pa.field("stac:centroid", pa.binary()),
+                pa.field("stac:time_end", pa.timestamp("us", tz=None)),
+                pa.field("stac:time_middle", pa.timestamp("us", tz=None)),
+            ]
+        )
+
+    def _compute(self, sample) -> pa.Table:
+        """Actual computation logic - returns PyArrow Table."""
+        data = {
+            "stac:crs": [self.crs],
+            "stac:tensor_shape": [list(self.tensor_shape)],
+            "stac:geotransform": [list(self.geotransform)],
+            "stac:time_start": [self.time_start],
+            "stac:centroid": [self.centroid],
+            "stac:time_end": [self.time_end],
+            "stac:time_middle": [self.time_middle],
         }
 
-    def _compute(self, sample) -> pl.DataFrame:
-        """Actual computation logic - only called when schema_only=False."""
-        return pl.DataFrame(
-            {
-                "stac:crs": [self.crs],
-                "stac:tensor_shape": [list(self.tensor_shape)],
-                "stac:geotransform": [list(self.geotransform)],
-                "stac:time_start": [self.time_start],
-                "stac:centroid": [self.centroid],
-                "stac:time_end": [self.time_end],
-                "stac:time_middle": [self.time_middle],
-            },
-            schema=self.get_schema(),
-        )
+        return pa.Table.from_pydict(data, schema=self.get_schema())
 
     def get_field_descriptions(self) -> dict[str, str]:
         """Return field descriptions for each field."""

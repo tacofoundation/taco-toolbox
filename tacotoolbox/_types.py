@@ -13,7 +13,7 @@ These types improve code clarity and enable better static type checking.
 
 from typing import TypeAlias
 
-import polars as pl
+import pyarrow as pa
 
 # ============================================================================
 # CORE OFFSET TYPES
@@ -73,8 +73,8 @@ class MetadataPackage:
     Enables relational queries in DuckDB via JOINs.
     """
 
-    levels: list[pl.DataFrame]
-    local_metadata: dict[str, pl.DataFrame]
+    levels: list[pa.Table]
+    local_metadata: dict[str, pa.Table]
     collection: dict[str, object]
     pit_schema: PITSchema
     max_depth: int

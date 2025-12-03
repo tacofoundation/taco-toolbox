@@ -8,14 +8,15 @@ This module handles the creation of .tacozip files with optimized structure:
 - Consolidated METADATA/levelX.parquet: Full level metadata
 - COLLECTION.json: Dataset metadata
 
-This is ZIP-SPECIFIC. Offset/size columns only apply here.
+This is ZIP-SPECIFIC. internal:offset and internal:size are added here.
+Both values come from VirtualZIP, not from sample._size_bytes.
 
 The writer uses a bottom-up approach:
 1. Add all data files to VirtualZIP
 2. Calculate initial offsets
 3. Generate __meta__ files bottom-up (deepest first)
 4. Recalculate offsets after each level
-5. Rebuild consolidated metadata with offset/size columns
+5. Rebuild consolidated metadata with offset and size columns
 6. Write final ZIP with correct offsets in TACO_HEADER
 """
 
@@ -27,13 +28,13 @@ import zipfile
 from contextlib import ExitStack
 from typing import Any
 
-import polars as pl
+import pyarrow as pa
 import pyarrow.parquet as pq
 import tacozip
 
 from tacotoolbox._column_utils import (
-    align_dataframe_schemas,
-    cast_dataframe_to_schema,
+    align_arrow_schemas,
+    cast_table_to_schema,
     reorder_internal_columns,
 )
 from tacotoolbox._constants import (
@@ -110,26 +111,12 @@ class ZipWriter:
             arc_files: Archive paths in ZIP (e.g., "DATA/sample.tif")
             metadata_package: Complete metadata from MetadataGenerator
             **parquet_kwargs: Additional Parquet writer parameters
-                            - For local __meta__: simple compression params
-                            - For consolidated metadata: merged with PARQUET_CDC_DEFAULT_CONFIG
-                            Example: compression_level=22
 
         Returns:
             pathlib.Path: Path to created .tacozip file
 
         Raises:
             ZipWriterError: If ZIP creation fails
-
-        Example:
-            >>> writer.create_complete_zip(
-            ...     src_files, arc_files, metadata_package,
-            ...     compression_level=22  # Override default compression
-            ... )
-
-        Note:
-            This function has high cyclomatic complexity (C901) but is intentionally
-            kept as a single orchestrator function. The bottom-up ZIP creation
-            algorithm is inherently complex and splitting it would reduce clarity.
         """
         try:
             logger.info("Starting bottom-up __meta__ generation")
@@ -158,8 +145,7 @@ class ZipWriter:
 
             # Step 4: Generate __meta__ files (bottom-up)
             temp_meta_files = {}
-            # Annotated to fix mypy error
-            enriched_metadata_by_depth: dict[int, list[pl.DataFrame]] = {}
+            enriched_metadata_by_depth: dict[int, list[pa.Table]] = {}
             max_depth = max(folders_by_depth.keys()) if folders_by_depth else 0
 
             # Bottom-up: Start from deepest folders
@@ -174,16 +160,18 @@ class ZipWriter:
                         logger.warning(f"{folder_path} not in local_metadata")
                         continue
 
-                    local_df = metadata_package.local_metadata[folder_path]
+                    local_table = metadata_package.local_metadata[folder_path]
 
-                    # Add ZIP-specific offset/size columns
-                    enriched_df = _add_zip_offsets(local_df, offsets_map, folder_path)
-                    enriched_metadata_by_depth[depth].append(enriched_df)
+                    # Add ZIP-specific offset and size columns from VirtualZIP
+                    enriched_table = _add_zip_offsets(
+                        local_table, offsets_map, folder_path
+                    )
+                    enriched_metadata_by_depth[depth].append(enriched_table)
 
                     # Write __meta__ as Parquet
                     meta_arc_path = f"{folder_path}__meta__"
                     temp_parquet = self._write_single_parquet(
-                        enriched_df, folder_path, **parquet_kwargs
+                        enriched_table, folder_path, **parquet_kwargs
                     )
                     temp_meta_files[meta_arc_path] = temp_parquet
 
@@ -201,32 +189,15 @@ class ZipWriter:
 
             # Step 5: Rebuild consolidated metadata (METADATA/levelX.parquet)
 
-            # Level 0: Add offset/size columns
+            # Level 0: Add offset and size from VirtualZIP
             original_level0 = metadata_package.levels[0]
-            level0_with_offsets = _add_zip_offsets(
+            metadata_package.levels[0] = _add_zip_offsets(
                 original_level0, offsets_map, folder_path=""
             )
 
-            # Combine: keep all original columns + add offset/size
-            offset_size_cols = [METADATA_OFFSET, METADATA_SIZE]
-            columns_to_add = [
-                col for col in offset_size_cols if col in level0_with_offsets.columns
-            ]
+            logger.debug(f"Level 0: {metadata_package.levels[0].num_rows} samples")
 
-            if columns_to_add:
-                offset_size_df = level0_with_offsets.select(columns_to_add)
-                metadata_package.levels[0] = pl.concat(
-                    [original_level0, offset_size_df], how="horizontal"
-                )
-                metadata_package.levels[0] = reorder_internal_columns(
-                    metadata_package.levels[0]
-                )
-            else:
-                metadata_package.levels[0] = original_level0
-
-            logger.debug(f"Level 0: {len(metadata_package.levels[0])} samples")
-
-            # Level 1+: Preserve parent_id from original, add offsets from concatenated
+            # Level 1+: Preserve parent_id from original, add offset and size from concatenated
             for depth in range(1, len(metadata_package.levels)):
                 if enriched_metadata_by_depth.get(depth):
                     original_level = metadata_package.levels[depth]
@@ -237,56 +208,70 @@ class ZipWriter:
                     )
                     level_schema = field_schema.get(f"level{depth}", [])
 
-                    # Cast all DataFrames to match schema before concatenating
-                    enriched_dfs = enriched_metadata_by_depth[depth]
+                    # Cast all Tables to match schema before concatenating
+                    enriched_tables = enriched_metadata_by_depth[depth]
                     if level_schema:
-                        enriched_dfs = [
-                            cast_dataframe_to_schema(df, level_schema)
-                            for df in enriched_dfs
+                        enriched_tables = [
+                            cast_table_to_schema(table, level_schema)
+                            for table in enriched_tables
                         ]
 
                     # Align schemas before concatenating
-                    aligned_dfs = align_dataframe_schemas(enriched_dfs)
-                    concatenated = pl.concat(aligned_dfs, how="vertical")
+                    aligned_tables = align_arrow_schemas(enriched_tables)
+                    concatenated = pa.concat_tables(aligned_tables)
 
-                    # Extract only offset/size columns
-                    offset_size_cols = [METADATA_OFFSET, METADATA_SIZE]
-                    columns_to_add = [
-                        col for col in offset_size_cols if col in concatenated.columns
-                    ]
+                    # Extract offset and size columns from concatenated
+                    if (
+                        METADATA_OFFSET in concatenated.schema.names
+                        and METADATA_SIZE in concatenated.schema.names
+                    ):
+                        offset_array = concatenated.column(METADATA_OFFSET)
+                        offset_field = concatenated.schema.field(METADATA_OFFSET)
 
-                    if columns_to_add:
-                        offset_size_df = concatenated.select(columns_to_add)
+                        size_array = concatenated.column(METADATA_SIZE)
+                        size_field = concatenated.schema.field(METADATA_SIZE)
 
-                        # Combine: original (with parent_id) + offset/size
-                        enriched_level = pl.concat(
-                            [original_level, offset_size_df], how="horizontal"
+                        # Combine: original (with parent_id) + size + offset from VirtualZIP
+                        all_arrays = [
+                            original_level.column(i)
+                            for i in range(original_level.num_columns)
+                        ]
+                        all_arrays.extend([size_array, offset_array])
+
+                        all_fields = list(original_level.schema)
+                        all_fields.extend([size_field, offset_field])
+
+                        combined_schema = pa.schema(all_fields)
+                        enriched_level = pa.Table.from_arrays(
+                            all_arrays, schema=combined_schema
                         )
 
                         # Reorder to place internal:* columns at the end
                         enriched_level = reorder_internal_columns(enriched_level)
 
                         # Sort by parent_id to maintain hierarchical order
-                        if METADATA_PARENT_ID in enriched_level.columns:
-                            enriched_level = enriched_level.sort(
-                                METADATA_PARENT_ID, maintain_order=True
+                        if METADATA_PARENT_ID in enriched_level.schema.names:
+                            import pyarrow.compute as pc
+
+                            sort_indices = pc.sort_indices(
+                                enriched_level.column(METADATA_PARENT_ID)
                             )
+                            enriched_level = enriched_level.take(sort_indices)
 
                         metadata_package.levels[depth] = enriched_level
                     else:
                         metadata_package.levels[depth] = original_level
 
                     logger.debug(
-                        f"Level {depth}: {len(metadata_package.levels[depth])} samples "
-                        f"(parent_id={METADATA_PARENT_ID in metadata_package.levels[depth].columns})"
+                        f"Level {depth}: {metadata_package.levels[depth].num_rows} samples "
+                        f"(parent_id={METADATA_PARENT_ID in metadata_package.levels[depth].schema.names})"
                     )
 
             # Write consolidated METADATA/levelX.parquet files
             temp_level_files = {}
-            for i, level_df in enumerate(metadata_package.levels):
+            for i, level_table in enumerate(metadata_package.levels):
                 arc_path = f"METADATA/level{i}.parquet"
                 temp_path = self.temp_dir / f"{uuid.uuid4().hex}_level{i}.parquet"
-                arrow_table = level_df.to_arrow()
 
                 # Merge CDC defaults with user kwargs
                 from tacotoolbox._constants import PARQUET_CDC_DEFAULT_CONFIG
@@ -294,7 +279,7 @@ class ZipWriter:
                 parquet_config = {**PARQUET_CDC_DEFAULT_CONFIG, **parquet_kwargs}
                 parquet_config.pop("mode", None)
 
-                pq.write_table(arrow_table, temp_path, **parquet_config)
+                pq.write_table(level_table, temp_path, **parquet_config)
                 real_size = temp_path.stat().st_size
                 virtual_zip.add_file(str(temp_path), arc_path, file_size=real_size)
                 temp_level_files[arc_path] = temp_path
@@ -348,7 +333,6 @@ class ZipWriter:
             # Write ZIP with placeholder header
             header_entries = [(0, 0) for _ in range(num_entries)]
 
-            # Progress bars controlled by logging level (no ProgressContext needed)
             tacozip.create(
                 zip_path=str(self.output_path),
                 src_files=all_src_files,
@@ -408,30 +392,29 @@ class ZipWriter:
         return by_depth
 
     def _write_single_parquet(
-        self, df: pl.DataFrame, folder_path: str, **parquet_kwargs: Any
+        self, table: pa.Table, folder_path: str, **parquet_kwargs: Any
     ) -> pathlib.Path:
         """Write a single __meta__ Parquet file to temp directory."""
         identifier = folder_path.replace("/", "_").strip("_")
         temp_path = self.temp_dir / f"{uuid.uuid4().hex}_{identifier}.parquet"
 
-        filtered_df = self._filter_metadata_columns(df)
-        arrow_table = filtered_df.to_arrow()
+        filtered_table = self._filter_metadata_columns(table)
 
         # Default config for local __meta__ (simple, no CDC)
         default_config = {"compression": "zstd"}
         parquet_config = {**default_config, **parquet_kwargs}
         parquet_config.pop("mode", None)
 
-        pq.write_table(arrow_table, temp_path, **parquet_config)
+        pq.write_table(filtered_table, temp_path, **parquet_config)
 
         self._register_temp_file(temp_path)
         return temp_path
 
-    def _filter_metadata_columns(self, df: pl.DataFrame) -> pl.DataFrame:
+    def _filter_metadata_columns(self, table: pa.Table) -> pa.Table:
         """Filter columns for __meta__ files (removes 'path' column)."""
         exclude_columns = {"path"}
-        cols_to_keep = [col for col in df.columns if col not in exclude_columns]
-        return df.select(cols_to_keep) if cols_to_keep else df
+        cols_to_keep = [col for col in table.schema.names if col not in exclude_columns]
+        return table.select(cols_to_keep) if cols_to_keep else table
 
     def _get_metadata_offsets(self) -> tuple[list[int], list[int]]:
         """Get offsets and sizes for METADATA/levelX.parquet files."""
@@ -490,67 +473,66 @@ class ZipWriter:
 
 
 def _add_zip_offsets(
-    metadata_df: pl.DataFrame,
+    metadata_table: pa.Table,
     offsets_map: dict[str, tuple[int, int]],
     folder_path: str = "",
-) -> pl.DataFrame:
+) -> pa.Table:
     """
     Add internal:offset and internal:size columns for ZIP containers.
 
-    This is ZIP-SPECIFIC. FOLDER containers don't use offsets.
-
-    Critical behavior:
-    - FILE samples: offset points to actual data file in ZIP
-    - FOLDER samples: offset points to child's __meta__ file in ZIP
+    Both values come from VirtualZIP. For FOLDER samples, points to __meta__ file.
+    For FILE samples, points to actual data file.
     """
-    # Annotate lists to allow None values
     offsets: list[int | None] = []
     sizes: list[int | None] = []
     missing_offsets = []
 
-    for row in metadata_df.iter_rows(named=True):
-        sample_id = row["id"]
-        sample_type = row["type"]
+    id_column = metadata_table.column("id")
+    type_column = metadata_table.column("type")
 
-        # Determine archive path based on type
+    for i in range(metadata_table.num_rows):
+        sample_id = id_column[i].as_py()
+        sample_type = type_column[i].as_py()
+
+        # Build archive path: FOLDERs point to __meta__, FILEs to data
         if sample_type == "FOLDER":
-            # FOLDER: points to __meta__ file
             arc_path = (
                 f"{folder_path}{sample_id}/__meta__"
                 if folder_path
                 else f"DATA/{sample_id}/__meta__"
             )
         else:
-            # FILE: points to actual data file
             arc_path = (
                 f"{folder_path}{sample_id}" if folder_path else f"DATA/{sample_id}"
             )
 
-        # Look up offset and size
+        # Get offset and size from VirtualZIP
         if arc_path in offsets_map:
             offset, size = offsets_map[arc_path]
             offsets.append(offset)
             sizes.append(size)
         else:
-            # Missing offset - track for error
             if not is_padding_id(sample_id):
                 missing_offsets.append(arc_path)
-
             offsets.append(None)
             sizes.append(None)
 
-    # ALWAYS strict: missing offsets indicate a bug
+    # Fail fast if offsets are missing (indicates a bug in VirtualZIP calculation)
     if missing_offsets:
         raise ValueError(
             f"Offsets not found for {len(missing_offsets)} non-padding samples:\n"
-            f"  First 5: {missing_offsets[:5]}\n"
-            f"  This indicates a bug in offset calculation or file mapping."
+            f"  First 5: {missing_offsets[:5]}"
         )
 
-    # Add offset and size columns
-    result_df = metadata_df.with_columns(
-        [pl.Series(METADATA_OFFSET, offsets), pl.Series(METADATA_SIZE, sizes)]
-    )
+    # Add size column
+    size_array = pa.array(sizes, type=pa.int64())
+    size_field = pa.field(METADATA_SIZE, pa.int64())
+    result_table = metadata_table.append_column(size_field, size_array)
 
-    # Reorder to place internal:* columns at the end
-    return reorder_internal_columns(result_df)
+    # Add offset column
+    offset_array = pa.array(offsets, type=pa.int64())
+    offset_field = pa.field(METADATA_OFFSET, pa.int64())
+    result_table = result_table.append_column(offset_field, offset_array)
+
+    # Place internal:* columns at the end for consistency
+    return reorder_internal_columns(result_table)

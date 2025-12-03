@@ -75,11 +75,11 @@ from io import BytesIO
 from pathlib import Path
 from typing import Any
 
-import polars as pl
+import pyarrow as pa
 import pyarrow.parquet as pq
 import tacozip
 
-from tacotoolbox._column_utils import align_dataframe_schemas
+from tacotoolbox._column_utils import align_arrow_schemas
 from tacotoolbox._constants import (
     TACOCAT_FILENAME,
     TACOCAT_MAGIC,
@@ -108,8 +108,8 @@ def _estimate_row_group_size(num_rows: int, num_cols: int) -> int:
     Assumes ~1KB average row size (conservative estimate).
 
     Args:
-        num_rows: Total number of rows in DataFrame
-        num_cols: Number of columns in DataFrame
+        num_rows: Total number of rows in Table
+        num_cols: Number of columns in Table
 
     Returns:
         Optimal row_group_size (capped between 10K and 1M rows)
@@ -300,10 +300,10 @@ class TacoCatWriter:
 
         CRITICAL: Different tacozips may have samples with different extensions
         (e.g., dataset1 has geotiff:stats, dataset2 has scaling:scale_factor).
-        Must align schemas before concatenation to avoid ShapeError.
+        Must align schemas before concatenation.
         """
-        levels_data: dict[int, list[pl.DataFrame]] = {}
-        reference_schemas: dict[int, dict] = {}
+        levels_data: dict[int, list[pa.Table]] = {}
+        reference_schemas: dict[int, pa.Schema] = {}
 
         for idx, dataset_path in enumerate(self.datasets):
             logger.info(
@@ -319,11 +319,11 @@ class TacoCatWriter:
     def _process_single_dataset(
         self,
         dataset_path: Path,
-        levels_data: dict[int, list[pl.DataFrame]],
-        reference_schemas: dict[int, dict],
+        levels_data: dict[int, list[pa.Table]],
+        reference_schemas: dict[int, pa.Schema],
         validate_schema: bool,
     ) -> None:
-        """Process a single dataset and add its DataFrames to levels_data."""
+        """Process a single dataset and add its Tables to levels_data."""
         try:
             entries = tacozip.read_header(str(dataset_path))
         except Exception as e:
@@ -337,70 +337,75 @@ class TacoCatWriter:
                 level = level_idx
                 self.max_depth = max(self.max_depth, level)
 
-                df = self._read_level_dataframe(f, offset, size, dataset_path)
+                table = self._read_level_table(f, offset, size, dataset_path)
 
                 if validate_schema:
                     self._validate_schema_for_level(
-                        df, level, dataset_path, reference_schemas
+                        table, level, dataset_path, reference_schemas
                     )
 
                 if level not in levels_data:
                     levels_data[level] = []
 
-                levels_data[level].append(df)
+                levels_data[level].append(table)
 
-    def _read_level_dataframe(
+    def _read_level_table(
         self, f: Any, offset: int, size: int, dataset_path: Path
-    ) -> pl.DataFrame:
-        """Read a single level DataFrame from file."""
+    ) -> pa.Table:
+        """Read a single level Table from file."""
         f.seek(offset)
         parquet_bytes = f.read(size)
-        df = pl.read_parquet(BytesIO(parquet_bytes))
-        return df.with_columns(pl.lit(dataset_path.name).alias("internal:source_file"))
+        table = pq.read_table(BytesIO(parquet_bytes))
+
+        # Add internal:source_file column
+        source_file_array = pa.array(
+            [dataset_path.name] * table.num_rows, type=pa.string()
+        )
+        source_file_field = pa.field("internal:source_file", pa.string())
+
+        return table.append_column(source_file_field, source_file_array)
 
     def _validate_schema_for_level(
         self,
-        df: pl.DataFrame,
+        table: pa.Table,
         level: int,
         dataset_path: Path,
-        reference_schemas: dict[int, dict],
+        reference_schemas: dict[int, pa.Schema],
     ) -> None:
-        """Validate DataFrame schema against reference schema for level."""
-        current_schema = dict(df.schema)
+        """Validate Table schema against reference schema for level."""
+        current_schema = table.schema
 
         if level in reference_schemas:
-            if current_schema != reference_schemas[level]:
+            if not current_schema.equals(reference_schemas[level]):
                 raise SchemaValidationError(
                     f"Schema mismatch at level {level} in {dataset_path.name}\n"
-                    f"Expected columns: {list(reference_schemas[level].keys())}\n"
-                    f"Got columns: {list(current_schema.keys())}"
+                    f"Expected columns: {reference_schemas[level].names}\n"
+                    f"Got columns: {current_schema.names}"
                 )
         else:
             reference_schemas[level] = current_schema
 
     def _consolidate_levels(
-        self, levels_data: dict[int, list[pl.DataFrame]]
+        self, levels_data: dict[int, list[pa.Table]]
     ) -> tuple[dict[int, bytes], dict[int, int]]:
         """
-        Consolidate DataFrames by level and serialize to Parquet bytes using PyArrow.
+        Consolidate Tables by level and serialize to Parquet bytes using PyArrow.
         """
         levels_bytes = {}
         consolidated_counts = {}
 
         for level in sorted(levels_data.keys()):
             logger.info(
-                f"  Consolidating level {level} ({len(levels_data[level])} DataFrames)..."
+                f"  Consolidating level {level} ({len(levels_data[level])} Tables)..."
             )
 
-            aligned_dfs = align_dataframe_schemas(levels_data[level])
-            consolidated_df = pl.concat(aligned_dfs, how="vertical")
-            consolidated_counts[level] = len(consolidated_df)
+            aligned_tables = align_arrow_schemas(levels_data[level])
+            consolidated_table = pa.concat_tables(aligned_tables)
+            consolidated_counts[level] = consolidated_table.num_rows
 
-            num_rows = len(consolidated_df)
-            num_cols = len(consolidated_df.columns)
+            num_rows = consolidated_table.num_rows
+            num_cols = consolidated_table.num_columns
             row_group_size = _estimate_row_group_size(num_rows, num_cols)
-
-            arrow_table = consolidated_df.to_arrow()
 
             pq_config = self.parquet_config.copy()
 
@@ -408,7 +413,7 @@ class TacoCatWriter:
                 pq_config["row_group_size"] = row_group_size
 
             buffer = BytesIO()
-            pq.write_table(arrow_table, buffer, **pq_config)
+            pq.write_table(consolidated_table, buffer, **pq_config)
             levels_bytes[level] = buffer.getvalue()
 
             size_mb = len(levels_bytes[level]) / (1024**2)

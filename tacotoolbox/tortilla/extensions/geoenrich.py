@@ -11,22 +11,22 @@ Enriches samples with geospatial data from Google Earth Engine:
 Fetches data at sample centroids using Earth Engine reducers.
 Uses spatial sorting (Morton encoding) for improved EE cache locality.
 
-Exports to Polars DataFrame:
-- geoenrich:elevation: Float32
-- geoenrich:cisi: Float32
-- geoenrich:precipitation: Float32
-- geoenrich:temperature: Float32
-- geoenrich:soil_clay: Float32
-- geoenrich:soil_sand: Float32
-- geoenrich:soil_carbon: Float32
-- geoenrich:soil_bulk_density: Float32
-- geoenrich:soil_ph: Float32
-- geoenrich:gdp: Float32
-- geoenrich:human_modification: Float32
-- geoenrich:population: Float32
-- geoenrich:admin_countries: String
-- geoenrich:admin_states: String
-- geoenrich:admin_districts: String
+Exports to Arrow Table:
+- geoenrich:elevation: float32
+- geoenrich:cisi: float32
+- geoenrich:precipitation: float32
+- geoenrich:temperature: float32
+- geoenrich:soil_clay: float32
+- geoenrich:soil_sand: float32
+- geoenrich:soil_carbon: float32
+- geoenrich:soil_bulk_density: float32
+- geoenrich:soil_ph: float32
+- geoenrich:gdp: float32
+- geoenrich:human_modification: float32
+- geoenrich:population: float32
+- geoenrich:admin_countries: string
+- geoenrich:admin_states: string
+- geoenrich:admin_districts: string
 
 Requirements:
 - earthengine-api: pip install earthengine-api
@@ -37,9 +37,11 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import lru_cache
 from importlib.resources import as_file, files
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
-import polars as pl
+import pyarrow as pa
+import pyarrow.compute as pc
+import pyarrow.parquet as pq
 import pydantic
 from pydantic import Field
 from shapely.geometry import Point
@@ -55,20 +57,6 @@ if TYPE_CHECKING:
 # ============================================================================
 # PRODUCT CONFIGURATION
 # ============================================================================
-#
-# To add a new product, just add ONE line here. Everything else is automatic.
-#
-# Format: (name, path, reducer_type, band, collection_type, unmask_value, dtype)
-#   - name: Variable name (will be used as column name with "geoenrich:" prefix)
-#   - path: Earth Engine asset path
-#   - reducer_type: "mean", "mode", or "sum"
-#   - band: Band name to select (None for single-band or all bands)
-#   - collection_type: "Image" or "ImageCollection"
-#   - unmask_value: Value for masked pixels (0 for most, 65535 for admin)
-#   - dtype: Polars data type (pl.Float32 for numeric, pl.Utf8 for text)
-#
-# Example: Add new product
-#   ("soil_moisture", "NASA/SMAP/SPL4SMGP/007", "mean", "sm_surface", "ImageCollection", 0, pl.Float32),
 
 PRODUCT_CONFIGS = [
     # Physical/topographic
@@ -79,7 +67,7 @@ PRODUCT_CONFIGS = [
         None,
         "ImageCollection",
         0,
-        pl.Float32,
+        pa.float32(),
     ),
     (
         "cisi",
@@ -88,7 +76,7 @@ PRODUCT_CONFIGS = [
         None,
         "Image",
         0,
-        pl.Float32,
+        pa.float32(),
     ),
     # Climate
     (
@@ -98,7 +86,7 @@ PRODUCT_CONFIGS = [
         None,
         "Image",
         0,
-        pl.Float32,
+        pa.float32(),
     ),
     (
         "temperature",
@@ -107,7 +95,7 @@ PRODUCT_CONFIGS = [
         None,
         "Image",
         0,
-        pl.Float32,
+        pa.float32(),
     ),
     # Soil (OpenLandMap)
     (
@@ -117,7 +105,7 @@ PRODUCT_CONFIGS = [
         "b0",
         "Image",
         0,
-        pl.Float32,
+        pa.float32(),
     ),
     (
         "soil_sand",
@@ -126,7 +114,7 @@ PRODUCT_CONFIGS = [
         "b0",
         "Image",
         0,
-        pl.Float32,
+        pa.float32(),
     ),
     (
         "soil_carbon",
@@ -135,7 +123,7 @@ PRODUCT_CONFIGS = [
         "b0",
         "Image",
         0,
-        pl.Float32,
+        pa.float32(),
     ),
     (
         "soil_bulk_density",
@@ -144,7 +132,7 @@ PRODUCT_CONFIGS = [
         "b0",
         "Image",
         0,
-        pl.Float32,
+        pa.float32(),
     ),
     (
         "soil_ph",
@@ -153,7 +141,7 @@ PRODUCT_CONFIGS = [
         "b0",
         "Image",
         0,
-        pl.Float32,
+        pa.float32(),
     ),
     # Socioeconomic
     (
@@ -163,7 +151,7 @@ PRODUCT_CONFIGS = [
         "PPP_2022",
         "Image",
         0,
-        pl.Float32,
+        pa.float32(),
     ),
     (
         "human_modification",
@@ -172,7 +160,7 @@ PRODUCT_CONFIGS = [
         "constant",
         "ImageCollection",
         0,
-        pl.Float32,
+        pa.float32(),
     ),
     (
         "population",
@@ -181,9 +169,9 @@ PRODUCT_CONFIGS = [
         None,
         "ImageCollection",
         0,
-        pl.Float32,
+        pa.float32(),
     ),
-    # Administrative (always last) - Utf8 because we resolve to human-readable names
+    # Administrative (always last) - string because we resolve to human-readable names
     (
         "admin_countries",
         "projects/ee-csaybar-real/assets/admin0",
@@ -191,7 +179,7 @@ PRODUCT_CONFIGS = [
         None,
         "Image",
         65535,
-        pl.Utf8,
+        pa.string(),
     ),
     (
         "admin_states",
@@ -200,7 +188,7 @@ PRODUCT_CONFIGS = [
         None,
         "Image",
         65535,
-        pl.Utf8,
+        pa.string(),
     ),
     (
         "admin_districts",
@@ -209,13 +197,13 @@ PRODUCT_CONFIGS = [
         None,
         "Image",
         65535,
-        pl.Utf8,
+        pa.string(),
     ),
 ]
 
-# Auto-generated schema from PRODUCT_CONFIGS (never edit this manually)
-PRODUCT_SCHEMA: dict[str, pl.DataType] = {
-    name: dtype()
+# Auto-generated schema from PRODUCT_CONFIGS
+PRODUCT_SCHEMA: dict[str, pa.DataType] = {
+    name: dtype
     for name, _path, _reducer, _band, _coll_type, _unmask, dtype in PRODUCT_CONFIGS
 }
 
@@ -229,7 +217,6 @@ def _import_earth_engine() -> Any:
     """Lazy import of Earth Engine with helpful error message."""
     try:
         import ee
-
     except ImportError as e:
         raise ImportError(
             "Google Earth Engine API is required for the GeoEnrich extension.\n"
@@ -332,20 +319,23 @@ def _chunks(seq: list, size: int) -> Any:
 
 
 @lru_cache(maxsize=3)
-def _load_admin_layer(level: int) -> pl.DataFrame:
+def _load_admin_layer(level: int) -> pa.Table:
     """Load admin lookup table from embedded parquet file (cached)."""
     base = files("tacotoolbox").joinpath("tortilla/data/admin/")
     traversable = base / f"admin{level}.parquet"
 
     with as_file(traversable) as path:
-        return pl.read_parquet(path)
+        return pq.read_table(path)
 
 
-def resolve_admin_names(df: pl.DataFrame, admin_vars: list[str]) -> pl.DataFrame:
+def resolve_admin_names(table: pa.Table, admin_vars: list[str]) -> pa.Table:
     """
-    Replace admin code columns with human-readable names using efficient joins.
+    Replace admin code columns with human-readable names using PyArrow joins.
 
-    This replaces the old map_elements approach which was 10-100x slower.
+    Uses PyArrow native join (available since 8.0.0) for efficient lookups.
+
+    BUG FIX: PyArrow join with coalesce_keys=True (default) only keeps the LEFT key column.
+    The RIGHT key column (admin_code_col) is NOT in the result, so we don't try to drop it.
     """
     # Map admin variable names to levels
     admin_level_map = {
@@ -360,25 +350,47 @@ def resolve_admin_names(df: pl.DataFrame, admin_vars: list[str]) -> pl.DataFrame
             continue
 
         # Load lookup table (cached via @lru_cache)
-        df_admin = _load_admin_layer(level)
+        admin_table = _load_admin_layer(level)
         admin_code_col = f"admin_code{level}"
 
-        # Cast to Int64 for join compatibility
-        df = df.with_columns(pl.col(admin_var).cast(pl.Int64, strict=False))
+        # Cast admin column to int64 for join compatibility
+        admin_column = table.column(admin_var)
+        admin_column_int64 = pc.cast(admin_column, pa.int64(), safe=False)
+
+        # Replace column with casted version
+        col_idx = table.schema.get_field_index(admin_var)
+        table = table.set_column(col_idx, admin_var, admin_column_int64)
+
+        # Select only needed columns from lookup table
+        lookup_table = admin_table.select([admin_code_col, "name"])
 
         # LEFT JOIN to get human-readable names
-        df = df.join(
-            df_admin.select([admin_code_col, "name"]),
-            left_on=admin_var,
-            right_on=admin_code_col,
-            how="left",
+        joined = table.join(
+            lookup_table,
+            keys=admin_var,
+            right_keys=[admin_code_col],
+            join_type="left outer",
+            right_suffix="_lookup",
         )
 
-        # Replace code column with name, fill nulls for ocean/sea
-        df = df.drop(admin_var).rename({"name": admin_var})
-        df = df.with_columns(pl.col(admin_var).fill_null("Ocean/Sea/Lakes"))
+        # BUG FIX: Only drop admin_var (the left key column)
+        # admin_code_col is NOT in joined because coalesce_keys=True by default
+        joined = joined.drop([admin_var])
 
-    return df
+        # Rename "name" to admin_var
+        col_names = list(joined.schema.names)
+        name_idx = col_names.index("name")
+        col_names[name_idx] = admin_var
+
+        table = joined.rename_columns(col_names)
+
+        # Fill null values with "Ocean/Sea/Lakes"
+        admin_column = table.column(admin_var)
+        filled_column = pc.fill_null(admin_column, "Ocean/Sea/Lakes")
+        col_idx = table.schema.get_field_index(admin_var)
+        table = table.set_column(col_idx, admin_var, filled_column)
+
+    return table
 
 
 # ============================================================================
@@ -397,7 +409,7 @@ class GeoEnrich(TortillaExtension):
         - Flexible variable selection via 'variables' parameter
         - Spatial ordering (Morton) for improved EE cache locality
         - Parallel processing with configurable batching
-        - Fast admin name resolution using vectorized joins
+        - Fast admin name resolution using PyArrow joins
         - Progress bars via tqdm
 
     Requirements:
@@ -407,7 +419,6 @@ class GeoEnrich(TortillaExtension):
 
     model_config = pydantic.ConfigDict(arbitrary_types_allowed=True)
 
-    # Public configuration parameters
     variables: list[str] | None = Field(
         default=None,
         description="List of variable names to fetch. If None, fetches all 15 available variables. See PRODUCT_CONFIGS for complete list.",
@@ -442,10 +453,13 @@ class GeoEnrich(TortillaExtension):
                     f"Valid options: {sorted(PRODUCT_SCHEMA.keys())}"
                 )
 
-    def get_schema(self) -> dict[str, pl.DataType]:
+    def get_schema(self) -> pa.Schema:
         """Return the expected schema for this extension."""
         active_vars = self.variables or list(PRODUCT_SCHEMA.keys())
-        return {f"geoenrich:{var}": PRODUCT_SCHEMA[var] for var in active_vars}
+        fields = [
+            pa.field(f"geoenrich:{var}", PRODUCT_SCHEMA[var]) for var in active_vars
+        ]
+        return pa.schema(fields)
 
     def get_field_descriptions(self) -> dict[str, str]:
         """Return field descriptions for each field."""
@@ -482,13 +496,17 @@ class GeoEnrich(TortillaExtension):
             return all_products
         return [p for p in all_products if p["name"] in self.variables]
 
-    def _extract_points(self, df: pl.DataFrame) -> list[tuple[int, float, float]]:
-        """Extract coordinate points from DataFrame and sort spatially."""
+    def _extract_points(self, table: pa.Table) -> list[tuple[int, float, float]]:
+        """Extract coordinate points from Table and sort spatially."""
         points = []
-        for i, row in enumerate(df.iter_rows(named=True)):
-            # Cast to Point to access .x and .y attributes safely
-            geom = cast(Point, wkb_loads(row["stac:centroid"]))
-            points.append((i, float(geom.x), float(geom.y)))
+        centroid_column = table.column("stac:centroid")
+
+        for i in range(table.num_rows):
+            centroid_wkb = centroid_column[i].as_py()
+            if centroid_wkb is not None:
+                geom = wkb_loads(centroid_wkb)
+                if isinstance(geom, Point):
+                    points.append((i, float(geom.x), float(geom.y)))
 
         # Sort spatially using Morton key for better EE cache locality
         points.sort(key=lambda t: morton_key(t[1], t[2], bits=24))
@@ -505,7 +523,7 @@ class GeoEnrich(TortillaExtension):
             groups[product["reducer"]].append(product)
         return dict(groups)
 
-    def _fix_mode_columns(self, df: pl.DataFrame, products: list[dict]) -> pl.DataFrame:
+    def _fix_mode_columns(self, table: pa.Table, products: list[dict]) -> pa.Table:
         """
         Fix Earth Engine mode() reducer column naming issue.
 
@@ -514,20 +532,32 @@ class GeoEnrich(TortillaExtension):
         This function renames them back to expected product names.
         """
         mode_cols = ["mode"] + [f"mode_{i}" for i in range(1, len(products))]
-        rename_map = {
-            mode_col: product["name"]
-            for mode_col, product in zip(mode_cols, products, strict=False)
-            if mode_col in df.columns
-        }
-        return df.rename(rename_map)
+        rename_map = {}
+
+        for mode_col, product in zip(mode_cols, products, strict=False):
+            if mode_col in table.schema.names:
+                rename_map[mode_col] = product["name"]
+
+        if rename_map:
+            # Build new column names list
+            new_names = [rename_map.get(name, name) for name in table.schema.names]
+            table = table.rename_columns(new_names)
+
+        return table
 
     def _reduce_chunk(
         self,
         chunk: list[tuple[int, float, float]],
         reducer_groups: dict[Any, list[dict]],
         ee: Any,
-    ) -> pl.DataFrame:
-        """Process a chunk of coordinate points with Earth Engine."""
+    ) -> pa.Table:
+        """
+        Process a chunk of coordinate points with Earth Engine.
+
+        BUG FIX: Earth Engine may not return some columns if there's no data at that location.
+        When EE has no data, it simply omits the field from the Feature properties.
+        We detect missing columns and add them with None values.
+        """
         # Create Earth Engine FeatureCollection
         fc = ee.FeatureCollection(
             [
@@ -537,7 +567,7 @@ class GeoEnrich(TortillaExtension):
         )
 
         # Process each reducer type separately
-        all_dataframes = []
+        all_tables = []
 
         for reducer, products in reducer_groups.items():
             # Combine all images for this reducer
@@ -550,34 +580,54 @@ class GeoEnrich(TortillaExtension):
                 scale=self.scale_m,
             ).getInfo()
 
-            # Convert to DataFrame
+            # Convert to Arrow Table
             rows = [f["properties"] for f in data["features"]]
-            df_chunk = pl.DataFrame(rows)
+            chunk_table = pa.Table.from_pylist(rows)
 
             # Fix mode() reducer column names if needed
             if "Reducer.mode" in str(reducer):
-                df_chunk = self._fix_mode_columns(df_chunk, products)
+                chunk_table = self._fix_mode_columns(chunk_table, products)
 
-            all_dataframes.append(df_chunk)
+            # BUG FIX: Add missing columns with None values
+            # Earth Engine omits fields that have no data, so we need to add them
+            expected_columns = {"idx"} | {p["name"] for p in products}
+            actual_columns = set(chunk_table.schema.names)
+            missing_columns = expected_columns - actual_columns
 
-        # Merge all reducer results by idx
-        result = all_dataframes[0]
-        for df in all_dataframes[1:]:
-            result = result.join(df, on="idx", how="inner")
+            if missing_columns:
+                for col_name in sorted(missing_columns):
+                    if col_name == "idx":
+                        continue  # idx should always exist
+
+                    # Get expected type for this column
+                    target_type = PRODUCT_SCHEMA[col_name]
+
+                    # Create array with None values of correct type
+                    null_array = pa.array(
+                        [None] * chunk_table.num_rows, type=target_type
+                    )
+                    chunk_table = chunk_table.append_column(col_name, null_array)
+
+            all_tables.append(chunk_table)
+
+        # Merge all reducer results by idx using PyArrow join
+        result = all_tables[0]
+        for table in all_tables[1:]:
+            result = result.join(table, keys="idx", join_type="inner")
 
         return result
 
     def _process_batches(
         self, points: list[tuple[int, float, float]], products: list[dict]
-    ) -> pl.DataFrame:
-        """Process all point batches in parallel and return consolidated DataFrame."""
+    ) -> pa.Table:
+        """Process all point batches in parallel and return consolidated Table."""
         ee = _import_earth_engine()
         reducer_groups = self._group_products_by_reducer(products)
         chunks = list(_chunks(points, self.batch_size))
 
         # Get expected schema for casting
         product_names = [p["name"] for p in products]
-        expected_schema = {name: PRODUCT_SCHEMA[name] for name in product_names}
+        expected_schema_dict = {name: PRODUCT_SCHEMA[name] for name in product_names}
 
         with ThreadPoolExecutor(max_workers=self.max_concurrency) as executor:
             futures = [
@@ -592,40 +642,61 @@ class GeoEnrich(TortillaExtension):
                 disable=not self.show_progress,
             ) as pbar:
                 for future in as_completed(futures):
-                    df_chunk = future.result()
+                    chunk_table = future.result()
 
-                    # Cast to expected schema BEFORE appending
-                    df_chunk = df_chunk.select(
-                        ["idx"]
-                        + [
-                            pl.col(name).cast(expected_schema[name], strict=False)
-                            for name in product_names
-                        ]
+                    # Cast to expected schema
+                    casted_arrays = [chunk_table.column("idx")]
+                    casted_fields = [pa.field("idx", pa.int64())]
+
+                    for name in product_names:
+                        column = chunk_table.column(name)
+                        target_type = expected_schema_dict[name]
+                        casted_column = pc.cast(column, target_type, safe=False)
+                        casted_arrays.append(casted_column)
+                        casted_fields.append(pa.field(name, target_type))
+
+                    casted_schema = pa.schema(casted_fields)
+                    casted_table = pa.Table.from_arrays(
+                        casted_arrays, schema=casted_schema
                     )
 
-                    results.append(df_chunk)
+                    results.append(casted_table)
                     pbar.update(1)
 
-        return pl.concat(results, how="vertical")
+        return pa.concat_tables(results)
 
-    def _compute(self, tortilla: "Tortilla") -> pl.DataFrame:
+    def _compute(self, tortilla: "Tortilla") -> pa.Table:
         """Process Tortilla and return geographic enrichment."""
-        df = tortilla._metadata_df
+        table = tortilla._metadata_table
 
         # Get active products
         active_products = self._get_active_products()
         if not active_products:
-            # Return empty DataFrame with same row count
-            return pl.DataFrame({"__empty__": [None] * len(df)}).drop("__empty__")
+            # Return empty Table with same row count
+            return pa.table({"__empty__": [None] * table.num_rows}).drop(["__empty__"])
 
         # Extract and spatially sort points
-        points = self._extract_points(df)
+        points = self._extract_points(table)
 
         # Process in parallel batches
         raw_results = self._process_batches(points, active_products)
 
         # Fill nulls with 0 for numeric columns
-        raw_results = raw_results.fill_null(0)
+        product_names = [p["name"] for p in active_products]
+        filled_arrays = [raw_results.column("idx")]
+        filled_fields = [pa.field("idx", pa.int64())]
+
+        for name in product_names:
+            column = raw_results.column(name)
+            if pa.types.is_floating(column.type) or pa.types.is_integer(column.type):
+                filled_column = pc.fill_null(column, 0)
+            else:
+                filled_column = column
+            filled_arrays.append(filled_column)
+            filled_fields.append(pa.field(name, column.type))
+
+        filled_schema = pa.schema(filled_fields)
+        raw_results = pa.Table.from_arrays(filled_arrays, schema=filled_schema)
 
         # Resolve admin names if any admin variables
         admin_vars = [
@@ -636,11 +707,13 @@ class GeoEnrich(TortillaExtension):
         if admin_vars:
             raw_results = resolve_admin_names(raw_results, admin_vars)
 
-        # Sort by idx to match original order, then drop idx
-        raw_results = raw_results.sort("idx").drop("idx")
+        # Sort by idx to match original order
+        sort_indices = pc.sort_indices(raw_results.column("idx"))
+        raw_results = raw_results.take(sort_indices)
+
+        # Drop idx column
+        raw_results = raw_results.drop(["idx"])
 
         # Add "geoenrich:" prefix
-        product_names = [p["name"] for p in active_products]
-        return raw_results.select(
-            [pl.col(name).alias(f"geoenrich:{name}") for name in product_names]
-        )
+        prefixed_names = [f"geoenrich:{name}" for name in product_names]
+        return raw_results.rename_columns(prefixed_names)

@@ -15,7 +15,7 @@ Dataset-level metadata:
 - optical:num_bands: Int32 (number of bands)
 """
 
-import polars as pl
+import pyarrow as pa
 import pydantic
 
 from tacotoolbox.taco.datamodel import TacoExtension
@@ -118,24 +118,29 @@ class OpticalData(TacoExtension):
 
         return self
 
-    def get_schema(self) -> dict[str, pl.DataType]:
-        return {
-            "optical:sensor": pl.Utf8(),
-            "optical:bands": pl.List(
-                pl.Struct(
-                    [
-                        pl.Field("name", pl.Utf8()),
-                        pl.Field("index", pl.Int32()),
-                        pl.Field("common_name", pl.Utf8()),
-                        pl.Field("description", pl.Utf8()),
-                        pl.Field("unit", pl.Utf8()),
-                        pl.Field("center_wavelength", pl.Float64()),
-                        pl.Field("full_width_half_max", pl.Float64()),
-                    ]
-                )
-            ),
-            "optical:num_bands": pl.Int32(),
-        }
+    def get_schema(self) -> pa.Schema:
+        return pa.schema(
+            [
+                pa.field("optical:sensor", pa.string()),
+                pa.field(
+                    "optical:bands",
+                    pa.list_(
+                        pa.struct(
+                            [
+                                pa.field("name", pa.string()),
+                                pa.field("index", pa.int32()),
+                                pa.field("common_name", pa.string()),
+                                pa.field("description", pa.string()),
+                                pa.field("unit", pa.string()),
+                                pa.field("center_wavelength", pa.float64()),
+                                pa.field("full_width_half_max", pa.float64()),
+                            ]
+                        )
+                    ),
+                ),
+                pa.field("optical:num_bands", pa.int32()),
+            ]
+        )
 
     def get_field_descriptions(self) -> dict[str, str]:
         return {
@@ -144,8 +149,8 @@ class OpticalData(TacoExtension):
             "optical:num_bands": "Total number of spectral bands in the dataset",
         }
 
-    def _compute(self, taco) -> pl.DataFrame:
-        """Convert optical data to DataFrame format."""
+    def _compute(self, taco) -> pa.Table:
+        """Convert optical data to Table format."""
         # Convert SpectralBand objects to dictionaries
         bands_data = []
         if self.bands:
@@ -162,7 +167,7 @@ class OpticalData(TacoExtension):
                     }
                 )
 
-        return pl.DataFrame(
+        return pa.Table.from_pylist(
             [
                 {
                     "optical:sensor": self.sensor,

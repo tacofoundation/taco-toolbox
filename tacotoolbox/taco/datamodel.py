@@ -38,7 +38,7 @@ from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from typing import Any, Literal, cast
 
-import polars as pl
+import pyarrow as pa
 import pydantic
 from shapely.geometry import Point
 from shapely.wkb import loads as wkb_loads
@@ -51,8 +51,8 @@ class TacoExtension(ABC, pydantic.BaseModel):
     """Base class for TACO metadata extensions."""
 
     @abstractmethod
-    def get_schema(self) -> dict[str, pl.DataType]:
-        """Return column names and Polars DataTypes for this extension."""
+    def get_schema(self) -> pa.Schema:
+        """Return PyArrow Schema for this extension."""
         pass
 
     @abstractmethod
@@ -61,11 +61,11 @@ class TacoExtension(ABC, pydantic.BaseModel):
         pass
 
     @abstractmethod
-    def _compute(self, taco: "Taco") -> pl.DataFrame:
-        """Compute extension metadata, return single-row DataFrame."""
+    def _compute(self, taco: "Taco") -> pa.Table:
+        """Compute extension metadata, return single-row Table."""
         pass
 
-    def __call__(self, taco: "Taco") -> pl.DataFrame:
+    def __call__(self, taco: "Taco") -> pa.Table:
         """Execute extension computation."""
         return self._compute(taco)
 
@@ -122,13 +122,15 @@ class Contact(TacoExtension):
             raise ValueError("Invalid email format - must contain '@' symbol")
         return v
 
-    def get_schema(self) -> dict[str, pl.DataType]:
-        return {
-            "name": pl.Utf8(),
-            "organization": pl.Utf8(),
-            "email": pl.Utf8(),
-            "role": pl.Utf8(),
-        }
+    def get_schema(self) -> pa.Schema:
+        return pa.schema(
+            [
+                pa.field("name", pa.string()),
+                pa.field("organization", pa.string()),
+                pa.field("email", pa.string()),
+                pa.field("role", pa.string()),
+            ]
+        )
 
     def get_field_descriptions(self) -> dict[str, str]:
         return {
@@ -138,8 +140,8 @@ class Contact(TacoExtension):
             "role": "Contributor role (e.g., principal-investigator, data-curator, maintainer)",
         }
 
-    def _compute(self, taco: "Taco") -> pl.DataFrame:
-        return pl.DataFrame([self.model_dump()])
+    def _compute(self, taco: "Taco") -> pa.Table:
+        return pa.Table.from_pylist([self.model_dump()])
 
 
 class Extent(TacoExtension):
@@ -212,8 +214,13 @@ class Extent(TacoExtension):
 
         return v
 
-    def get_schema(self) -> dict[str, pl.DataType]:
-        return {"spatial": pl.List(pl.Float64()), "temporal": pl.List(pl.Utf8())}
+    def get_schema(self) -> pa.Schema:
+        return pa.schema(
+            [
+                pa.field("spatial", pa.list_(pa.float64())),
+                pa.field("temporal", pa.list_(pa.string())),
+            ]
+        )
 
     def get_field_descriptions(self) -> dict[str, str]:
         return {
@@ -221,8 +228,8 @@ class Extent(TacoExtension):
             "temporal": "Temporal interval [start_datetime, end_datetime] in ISO 8601 format",
         }
 
-    def _compute(self, taco: "Taco") -> pl.DataFrame:
-        return pl.DataFrame([self.model_dump()])
+    def _compute(self, taco: "Taco") -> pa.Table:
+        return pa.Table.from_pylist([self.model_dump()])
 
 
 class Taco(pydantic.BaseModel):
@@ -413,7 +420,7 @@ class Taco(pydantic.BaseModel):
         Calculate extent automatically from STAC/ISTAC metadata in samples.
 
         Searches incrementally through hierarchy levels (0, 1, 2...) until finding
-        STAC or ISTAC columns. Uses that level's DataFrame to compute spatial and
+        STAC or ISTAC columns. Uses that level's Table to compute spatial and
         temporal extents.
 
         Priority: STAC > ISTAC
@@ -425,35 +432,47 @@ class Taco(pydantic.BaseModel):
         max_depth = self.tortilla._current_depth
 
         for depth in range(max_depth + 1):
-            df = self.tortilla.export_metadata(deep=depth)
+            table = self.tortilla.export_metadata(deep=depth)
 
-            has_stac = "stac:centroid" in df.columns and "stac:time_start" in df.columns
+            has_stac = (
+                "stac:centroid" in table.schema.names
+                and "stac:time_start" in table.schema.names
+            )
             has_istac = (
-                "istac:centroid" in df.columns and "istac:time_start" in df.columns
+                "istac:centroid" in table.schema.names
+                and "istac:time_start" in table.schema.names
             )
 
             if has_stac or has_istac:
                 if has_stac:
-                    spatial = _calculate_spatial_extent(df, "stac:centroid")
+                    spatial = _calculate_spatial_extent(table, "stac:centroid")
                     temporal = _calculate_temporal_extent(
-                        df,
+                        table,
                         "stac:time_start",
-                        "stac:time_end" if "stac:time_end" in df.columns else None,
+                        (
+                            "stac:time_end"
+                            if "stac:time_end" in table.schema.names
+                            else None
+                        ),
                         (
                             "stac:time_middle"
-                            if "stac:time_middle" in df.columns
+                            if "stac:time_middle" in table.schema.names
                             else None
                         ),
                     )
                 else:
-                    spatial = _calculate_spatial_extent(df, "istac:centroid")
+                    spatial = _calculate_spatial_extent(table, "istac:centroid")
                     temporal = _calculate_temporal_extent(
-                        df,
+                        table,
                         "istac:time_start",
-                        "istac:time_end" if "istac:time_end" in df.columns else None,
+                        (
+                            "istac:time_end"
+                            if "istac:time_end" in table.schema.names
+                            else None
+                        ),
                         (
                             "istac:time_middle"
-                            if "istac:time_middle" in df.columns
+                            if "istac:time_middle" in table.schema.names
                             else None
                         ),
                     )
@@ -469,14 +488,14 @@ class Taco(pydantic.BaseModel):
 
         Supports:
         - TacoExtension instances (computed)
-        - pl.DataFrame (single-row)
+        - pa.Table (single-row)
         - dict (key-value)
         - Pydantic models (via model_dump)
         """
         if callable(extension) and isinstance(extension, TacoExtension):
             self._handle_taco_extension(extension)
-        elif isinstance(extension, pl.DataFrame):
-            self._handle_dataframe_extension(extension)
+        elif isinstance(extension, pa.Table):
+            self._handle_table_extension(extension)
         elif isinstance(extension, dict):
             self._handle_dict_extension(extension)
         else:
@@ -486,21 +505,31 @@ class Taco(pydantic.BaseModel):
 
     def _handle_taco_extension(self, extension: TacoExtension) -> None:
         """Handle TacoExtension instance."""
-        extension_df = extension(self)
-        if not isinstance(extension_df, pl.DataFrame):
-            raise TypeError("TacoExtension must return pl.DataFrame")
-        if len(extension_df) != 1:
-            raise ValueError("TacoExtension must return single-row DataFrame")
+        extension_table = extension(self)
+        if not isinstance(extension_table, pa.Table):
+            raise TypeError("TacoExtension must return pa.Table")
+        if extension_table.num_rows != 1:
+            raise ValueError("TacoExtension must return single-row Table")
 
-        extension_data = extension_df.to_dicts()[0]
+        extension_data = extension_table.to_pydict()
+        # Convert single-element lists to scalars
+        extension_data = {
+            k: v[0] if isinstance(v, list) and len(v) == 1 else v
+            for k, v in extension_data.items()
+        }
         self._set_extension_attributes(extension_data)
 
-    def _handle_dataframe_extension(self, extension: pl.DataFrame) -> None:
-        """Handle DataFrame extension."""
-        if len(extension) != 1:
-            raise ValueError("DataFrame extension must have exactly one row")
+    def _handle_table_extension(self, extension: pa.Table) -> None:
+        """Handle Table extension."""
+        if extension.num_rows != 1:
+            raise ValueError("Table extension must have exactly one row")
 
-        extension_data = extension.to_dicts()[0]
+        extension_data = extension.to_pydict()
+        # Convert single-element lists to scalars
+        extension_data = {
+            k: v[0] if isinstance(v, list) and len(v) == 1 else v
+            for k, v in extension_data.items()
+        }
         self._set_extension_attributes(extension_data)
 
     def _handle_dict_extension(self, extension: dict[str, Any]) -> None:
@@ -514,7 +543,7 @@ class Taco(pydantic.BaseModel):
             self._set_extension_attributes(extension_data)
         else:
             raise ValueError(
-                "Extension must be TacoExtension, DataFrame, dict, or pydantic model"
+                "Extension must be TacoExtension, Table, dict, or pydantic model"
             )
 
     def _set_extension_attributes(self, extension_data: dict[str, Any]) -> None:
@@ -522,9 +551,9 @@ class Taco(pydantic.BaseModel):
         for key, value in extension_data.items():
             setattr(self, key, value)
 
-    def export_metadata(self) -> pl.DataFrame:
+    def export_metadata(self) -> pa.Table:
         """
-        Export complete metadata as single-row DataFrame.
+        Export complete metadata as single-row Table.
 
         Preserves nested structures (Contact, Extent) without flattening.
         Includes core fields, Tortilla reference, and all extensions.
@@ -544,10 +573,10 @@ class Taco(pydantic.BaseModel):
             else:
                 metadata[key] = value
 
-        return pl.DataFrame([metadata])
+        return pa.Table.from_pylist([metadata])
 
 
-def _calculate_spatial_extent(df: pl.DataFrame, centroid_col: str) -> list[float]:
+def _calculate_spatial_extent(table: pa.Table, centroid_col: str) -> list[float]:
     """
     Calculate spatial bounding box from centroid geometries.
 
@@ -556,7 +585,7 @@ def _calculate_spatial_extent(df: pl.DataFrame, centroid_col: str) -> list[float
     """
     centroids = [
         cast(Point, wkb_loads(wkb))
-        for wkb in df[centroid_col].to_list()
+        for wkb in table.column(centroid_col).to_pylist()
         if wkb is not None
     ]
 
@@ -570,7 +599,7 @@ def _calculate_spatial_extent(df: pl.DataFrame, centroid_col: str) -> list[float
 
 
 def _calculate_temporal_extent(
-    df: pl.DataFrame,
+    table: pa.Table,
     time_start_col: str,
     time_end_col: str | None,
     time_middle_col: str | None,
@@ -586,11 +615,11 @@ def _calculate_temporal_extent(
     """
     # Try columns in priority order until finding one with valid values
     candidate_cols = []
-    if time_middle_col and time_middle_col in df.columns:
+    if time_middle_col and time_middle_col in table.schema.names:
         candidate_cols.append(time_middle_col)
-    if time_start_col in df.columns:
+    if time_start_col in table.schema.names:
         candidate_cols.append(time_start_col)
-    if time_end_col and time_end_col in df.columns:
+    if time_end_col and time_end_col in table.schema.names:
         candidate_cols.append(time_end_col)
 
     if not candidate_cols:
@@ -598,14 +627,16 @@ def _calculate_temporal_extent(
 
     # Try each candidate until finding one with non-None values
     for time_col in candidate_cols:
-        time_values = [dt for dt in df[time_col].to_list() if dt is not None]
+        time_values = [
+            dt for dt in table.column(time_col).to_pylist() if dt is not None
+        ]
 
         if time_values:
             # Found valid values, compute extent
             min_dt = min(time_values)
             max_dt = max(time_values)
 
-            # Convert to UTC if not already (Polars Datetime without timezone is naive)
+            # Convert to UTC if not already (PyArrow timestamp without timezone is naive)
             if min_dt.tzinfo is None:
                 min_dt = min_dt.replace(tzinfo=timezone.utc)
             if max_dt.tzinfo is None:

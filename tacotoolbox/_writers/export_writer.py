@@ -18,9 +18,10 @@ import json
 import pathlib
 import re
 from datetime import datetime, timezone
-from typing import Any, cast
+from typing import Any
 
-import polars as pl
+import pyarrow as pa
+import pyarrow.compute as pc
 from tacoreader import TacoDataset
 from tacoreader.utils.vsi import parse_vsi_subfile, strip_vsi_prefix
 
@@ -156,7 +157,7 @@ class ExportWriter:
                 "Only level0 filters are supported."
             )
 
-        count = len(self.dataset.data._data)
+        count = self.dataset.data._data.num_rows
         if count == 0:
             raise ValueError("Cannot export empty dataset")
 
@@ -179,19 +180,24 @@ class ExportWriter:
         Uses concurrent downloads for FILEs with progress bar.
         FOLDER copying is recursive and processes children concurrently.
         """
-        df = self.dataset.data._data
+        table = self.dataset.data._data
 
-        files_df = df.filter(pl.col("type") == "FILE")
-        folders_df = df.filter(pl.col("type") == "FOLDER")
+        # Filter by type
+        type_column = table.column("type")
+        files_mask = pc.equal(type_column, pa.scalar("FILE"))
+        files_table = table.filter(files_mask)
+
+        folders_mask = pc.equal(type_column, pa.scalar("FOLDER"))
+        folders_table = table.filter(folders_mask)
 
         semaphore = asyncio.Semaphore(self.limit)
 
         # Copy FILEs concurrently with progress bar
-        if len(files_df) > 0:
-            logger.info(f"Copying {len(files_df)} FILEs")
+        if files_table.num_rows > 0:
+            logger.info(f"Copying {files_table.num_rows} FILEs")
 
             tasks = []
-            for row in files_df.iter_rows(named=True):
+            for row in files_table.to_pylist():
                 vsi_path = row["internal:gdal_vsi"]
 
                 relative_path = (
@@ -205,21 +211,19 @@ class ExportWriter:
                 task = self._copy_single_file(vsi_path, dest, semaphore)
                 tasks.append(task)
 
-            # Progress bar controlled by logging level
             await progress_gather(
                 *tasks, desc="Copying FILEs", unit="file", colour="green"
             )
 
         # Copy FOLDERs recursively with progress bar
-        if len(folders_df) > 0:
-            logger.info(f"Copying {len(folders_df)} FOLDERs")
+        if folders_table.num_rows > 0:
+            logger.info(f"Copying {folders_table.num_rows} FOLDERs")
 
             tasks = []
-            for row in folders_df.iter_rows(named=True):
+            for row in folders_table.to_pylist():
                 task = self._copy_folder_recursive(row, level=0, semaphore=semaphore)
                 tasks.append(task)
 
-            # Progress bar controlled by logging level
             await progress_gather(
                 *tasks, desc="Copying FOLDERs", unit="folder", colour="blue"
             )
@@ -246,22 +250,21 @@ class ExportWriter:
                 clean_url = strip_vsi_prefix(zip_path)
 
                 if pathlib.Path(clean_url).exists():
-                    # Local file: sync read (fast, not a bottleneck)
+                    # Local file: sync read
                     with open(clean_url, "rb") as f:
                         f.seek(offset)
                         data = f.read(size)
                 else:
                     # Remote file: use tacotoolbox.remote_io.download_range
-                    # Convert sync download_range to async with to_thread
                     data = await asyncio.to_thread(
                         download_range, clean_url, offset, size
                     )
 
-                # Write to dest (sync is fine - local disk I/O is fast)
+                # Write to dest
                 with open(dest_path, "wb") as f:
                     f.write(data)
             else:
-                # Regular file copy (sync - both read and write are local and fast)
+                # Regular file copy
                 with open(vsi_path, "rb") as src:
                     data = src.read()
                 with open(dest_path, "wb") as dest:
@@ -305,23 +308,20 @@ class ExportWriter:
         # Query children from next level
         if folder_row.get("internal:source_file"):
             # TacoCat case: need to filter by both parent_id AND source_file
-            arrow_table = self.dataset._duckdb.execute(
+            children_table = self.dataset._duckdb.execute(
                 f'SELECT * FROM {safe_view_name} WHERE "internal:parent_id" = ? AND "internal:source_file" = ?',  # noqa: S608
                 [parent_id, folder_row["internal:source_file"]],
             ).fetch_arrow_table()
         else:
             # Single TACO case: only filter by parent_id
-            arrow_table = self.dataset._duckdb.execute(
+            children_table = self.dataset._duckdb.execute(
                 f'SELECT * FROM {safe_view_name} WHERE "internal:parent_id" = ?',  # noqa: S608
                 [parent_id],
             ).fetch_arrow_table()
 
-        # Cast to DataFrame because pl.from_arrow returns DataFrame | Series
-        children_df = cast(pl.DataFrame, pl.from_arrow(arrow_table))
-
         # Process each child concurrently
         tasks = []
-        for child_row in children_df.iter_rows(named=True):
+        for child_row in children_table.to_pylist():
             child_type = child_row["type"]
             child_vsi = child_row["internal:gdal_vsi"]
 
@@ -345,7 +345,7 @@ class ExportWriter:
 
         # Write local __meta__ for this folder in PARQUET format
         meta_path = folder_path / "__meta__"
-        write_parquet_file(children_df, meta_path, **self.parquet_kwargs)
+        write_parquet_file(children_table, meta_path, **self.parquet_kwargs)
 
     def _generate_consolidated_metadata(self) -> None:
         """
@@ -359,7 +359,7 @@ class ExportWriter:
         """
         logger.info("Generating consolidated metadata")
 
-        selected_ids = set(self.dataset.data._data["id"].to_list())
+        selected_ids = set(self.dataset.data._data.column("id").to_pylist())
 
         # Get available levels from pit_schema
         level_names = _get_available_levels(self.dataset)
@@ -370,32 +370,37 @@ class ExportWriter:
             # Sanitize level_name before using in SQL
             safe_level_name = _sanitize_sql_identifier(level_name)
 
-            # Read from DuckDB instead of physical files
-            arrow_table = self.dataset._duckdb.execute(
+            # Read from DuckDB
+            table = self.dataset._duckdb.execute(
                 f"SELECT * FROM {safe_level_name}"  # noqa: S608
             ).fetch_arrow_table()
 
-            # Cast to DataFrame because pl.from_arrow returns DataFrame | Series
-            df = cast(pl.DataFrame, pl.from_arrow(arrow_table))
-
             if level_name == "level0":
                 # Filter to selected samples
-                filtered_df = df.filter(pl.col("id").is_in(selected_ids))
+                id_column = table.column("id")
+                mask = pc.is_in(id_column, pa.array(list(selected_ids)))
+                filtered_table = table.filter(mask)
 
                 # Build mapping: old_parent_id -> new_parent_id
-                old_parent_ids = filtered_df["internal:parent_id"].to_list()
+                old_parent_ids = filtered_table.column("internal:parent_id").to_pylist()
                 parent_id_mapping = {old: new for new, old in enumerate(old_parent_ids)}
 
                 # Assign new sequential parent_id values
-                filtered_df = filtered_df.with_columns(
-                    pl.arange(0, len(filtered_df))
-                    .cast(pl.Int64)
-                    .alias("internal:parent_id")
+                new_parent_ids = pa.array(
+                    range(filtered_table.num_rows), type=pa.int64()
                 )
-                filtered_df = filtered_df.rechunk()
-                filtered_df = reorder_internal_columns(filtered_df)
+
+                # Replace parent_id column
+                parent_id_idx = filtered_table.schema.get_field_index(
+                    "internal:parent_id"
+                )
+                filtered_table = filtered_table.set_column(
+                    parent_id_idx, "internal:parent_id", new_parent_ids
+                )
+
+                filtered_table = filtered_table.combine_chunks()
+                filtered_table = reorder_internal_columns(filtered_table)
             else:
-                # Replace assert with explicit raise
                 if parent_id_mapping is None:
                     raise RuntimeError(
                         "Logic error: level0 must be processed before sublevels. "
@@ -403,33 +408,44 @@ class ExportWriter:
                     )
 
                 # Filter to children of selected parents
-                old_parent_ids_to_keep = set(parent_id_mapping.keys())
-                filtered_df = df.filter(
-                    pl.col("internal:parent_id").is_in(old_parent_ids_to_keep)
-                )
+                old_parent_ids_to_keep = list(parent_id_mapping.keys())
+                parent_id_column = table.column("internal:parent_id")
+                mask = pc.is_in(parent_id_column, pa.array(old_parent_ids_to_keep))
+                filtered_table = table.filter(mask)
 
                 # Remap parent_id values to new indices
-                new_parent_ids = [
-                    parent_id_mapping[old_pid]
-                    for old_pid in filtered_df["internal:parent_id"].to_list()
-                ]
-                filtered_df = filtered_df.with_columns(
-                    pl.Series("internal:parent_id", new_parent_ids)
+                old_pids = filtered_table.column("internal:parent_id").to_pylist()
+                new_parent_ids = pa.array(
+                    [parent_id_mapping[old_pid] for old_pid in old_pids],
+                    type=pa.int64(),
                 )
-                filtered_df = filtered_df.rechunk()
-                filtered_df = reorder_internal_columns(filtered_df)
+
+                # Replace parent_id column
+                parent_id_idx = filtered_table.schema.get_field_index(
+                    "internal:parent_id"
+                )
+                filtered_table = filtered_table.set_column(
+                    parent_id_idx, "internal:parent_id", new_parent_ids
+                )
+
+                filtered_table = filtered_table.combine_chunks()
+                filtered_table = reorder_internal_columns(filtered_table)
 
             # Remove ZIP-specific columns (not used in FOLDER format)
             zip_specific_cols = ["internal:offset", "internal:size"]
-            filtered_df = filtered_df.drop(
-                [col for col in zip_specific_cols if col in filtered_df.columns]
-            )
+            cols_to_drop = [
+                col for col in zip_specific_cols if col in filtered_table.schema.names
+            ]
+            if cols_to_drop:
+                filtered_table = filtered_table.drop(cols_to_drop)
 
             # Write consolidated metadata as PARQUET with CDC
             output_path = self.metadata_dir / f"{level_name}.parquet"
-            write_parquet_file_with_cdc(filtered_df, output_path, **self.parquet_kwargs)
+            write_parquet_file_with_cdc(
+                filtered_table, output_path, **self.parquet_kwargs
+            )
 
-            logger.debug(f"{level_name}.parquet: {len(filtered_df)} samples")
+            logger.debug(f"{level_name}.parquet: {filtered_table.num_rows} samples")
 
     def _generate_collection_json(self) -> None:
         """
@@ -445,7 +461,7 @@ class ExportWriter:
         collection = self.dataset.collection.copy()
 
         # Update sample count
-        new_count = len(self.dataset.data._data)
+        new_count = self.dataset.data._data.num_rows
         collection["taco:pit_schema"]["root"]["n"] = new_count
 
         # Add subset provenance
