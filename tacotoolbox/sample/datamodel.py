@@ -10,6 +10,7 @@ Key features:
 - Dynamic extension system for adding metadata
 - Format validation via validators (TacotiffValidator, etc.)
 - Automatic cleanup of temporary files from bytes
+- Pop metadata fields as DataFrames for reuse
 """
 
 import contextlib
@@ -338,6 +339,59 @@ class Sample(pydantic.BaseModel):
             self._handle_pydantic_extension(extension, name)
 
         return None
+
+    def pop(self, field: str) -> pl.DataFrame:
+        """
+        Remove and return a metadata field as a single-row DataFrame.
+
+        Args:
+            field: Name of the extension field to pop (e.g., "stat:mean")
+
+        Returns:
+            Single-row DataFrame with the field value and proper schema
+
+        Raises:
+            ValueError: If field is a core field or doesn't exist
+        """
+        # Validate field is not core
+        if field in SHARED_CORE_FIELDS:
+            raise ValueError(
+                f"Cannot pop core field: '{field}'. "
+                f"Core fields are: {', '.join(SHARED_CORE_FIELDS)}"
+            )
+
+        # Check field exists
+        if not hasattr(self, field):
+            raise ValueError(
+                f"Field '{field}' does not exist in sample. "
+                f"Available extension fields: {list(self._extension_schemas.keys())}"
+            )
+
+        # Get value
+        value = getattr(self, field)
+
+        # Get schema (or infer if missing)
+        dtype = (
+            self._extension_schemas[field]
+            if field in self._extension_schemas
+            else self._infer_polars_dtype(value)
+        )
+
+        # Create single-row DataFrame with proper schema
+        df = pl.DataFrame({field: [value]}, schema={field: dtype})
+
+        # Remove from sample
+        delattr(self, field)
+
+        # Remove from schema tracking
+        if field in self._extension_schemas:
+            del self._extension_schemas[field]
+
+        # Remove from descriptions if present
+        if field in self._field_descriptions:
+            del self._field_descriptions[field]
+
+        return df
 
     def _handle_sample_extension(self, extension: Any) -> None:
         """Handle SampleExtension (callable with model_dump)."""
