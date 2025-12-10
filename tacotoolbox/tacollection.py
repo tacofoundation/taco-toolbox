@@ -24,13 +24,8 @@ from typing import Any
 
 import tacozip
 
-
-class CollectionError(Exception):
-    """Base exception for collection operations."""
-
-
-class SchemaValidationError(CollectionError):
-    """Raised when schema validation fails."""
+from tacotoolbox._exceptions import TacoConsolidationError, TacoSchemaError
+from tacotoolbox._validation import validate_common_directory
 
 
 def create_tacollection(
@@ -54,34 +49,39 @@ def create_tacollection(
     Sums 'n' values across all datasets.
     Stores individual partition extents for query routing.
     Uses first dataset as base for other metadata.
+
+    Raises:
+        TacoValidationError: If inputs are invalid or in different directories
+        TacoConsolidationError: If consolidation fails
+        TacoSchemaError: If schema validation fails
     """
     if not inputs:
-        raise CollectionError("No datasets provided")
+        raise TacoConsolidationError("No datasets provided")
 
     # Auto-detect output directory if not specified
     if output is None:
-        output = _detect_common_directory(inputs)
+        output = validate_common_directory(inputs)
 
     # Validate output directory
     output = Path(output)
 
     if not output.exists():
-        raise CollectionError(f"Output directory does not exist: {output}")
+        raise TacoConsolidationError(f"Output directory does not exist: {output}")
 
     if not output.is_dir():
-        raise CollectionError(f"Output path must be a directory: {output}")
+        raise TacoConsolidationError(f"Output path must be a directory: {output}")
 
     # Standard output filename
     output_path = output / "TACOLLECTION.json"
 
     if output_path.exists():
-        raise CollectionError(f"TACOLLECTION.json already exists in {output}")
+        raise TacoConsolidationError(f"TACOLLECTION.json already exists in {output}")
 
     # Read all collections
     collections = _read_collections(inputs)
 
     if not collections:
-        raise CollectionError("No valid collections could be read")
+        raise TacoConsolidationError("No valid collections could be read")
 
     # Validate schemas
     if validate_schema:
@@ -118,29 +118,6 @@ def create_tacollection(
     # Write to file
     with open(output_path, "w") as f:
         json.dump(global_collection, f, indent=4)
-
-
-def _detect_common_directory(inputs: list[str | Path]) -> Path:
-    """
-    Detect common parent directory for all input files.
-
-    All input files must be in the same directory for auto-detection.
-    Otherwise raises CollectionError.
-    """
-    # Convert all inputs to Path and get their parent directories
-    input_paths = [Path(p).resolve() for p in inputs]
-    parent_dirs = [p.parent for p in input_paths]
-
-    # Check if all parents are the same
-    first_parent = parent_dirs[0]
-
-    if not all(parent == first_parent for parent in parent_dirs):
-        raise CollectionError(
-            "Input files are in different directories. "
-            "Please specify output directory explicitly."
-        )
-
-    return first_parent
 
 
 def _read_collections(tacozips: list[str | Path]) -> list[dict[str, Any]]:
@@ -190,42 +167,44 @@ def _read_single_collection(tacozip_path: str | Path) -> dict[str, Any]:
             return collection
 
     except json.JSONDecodeError as e:
-        raise CollectionError(f"Invalid JSON in {path}: {e}") from e
-    except CollectionError:
+        raise TacoConsolidationError(f"Invalid JSON in {path}: {e}") from e
+    except TacoConsolidationError:
         raise
     except Exception as e:
-        raise CollectionError(f"Failed to read collection from {path}: {e}") from e
+        raise TacoConsolidationError(
+            f"Failed to read collection from {path}: {e}"
+        ) from e
 
 
 def _raise_empty_header_error(path: Path) -> None:
     """Helper to raise empty TACO_HEADER error."""
-    raise CollectionError(f"Empty TACO_HEADER in {path}")
+    raise TacoConsolidationError(f"Empty TACO_HEADER in {path}")
 
 
 def _raise_empty_collection_error(path: Path) -> None:
     """Helper to raise empty COLLECTION.json error."""
-    raise CollectionError(f"Empty COLLECTION.json in {path}")
+    raise TacoConsolidationError(f"Empty COLLECTION.json in {path}")
 
 
 def _validate_tacozip_file(path: Path) -> None:
     """Validate that the tacozip file exists and is readable."""
     if not path.exists():
-        raise CollectionError(f"File not found: {path}")
+        raise TacoConsolidationError(f"File not found: {path}")
 
     if not path.is_file():
-        raise CollectionError(f"Path is not a file: {path}")
+        raise TacoConsolidationError(f"Path is not a file: {path}")
 
     if path.stat().st_size == 0:
-        raise CollectionError(f"File is empty: {path}")
+        raise TacoConsolidationError(f"File is empty: {path}")
 
 
 def _validate_collection_fields(collection: dict[str, Any], path: Path) -> None:
     """Validate that collection has required fields."""
     if "taco:pit_schema" not in collection:
-        raise CollectionError(f"Missing 'taco:pit_schema' in {path}")
+        raise TacoConsolidationError(f"Missing 'taco:pit_schema' in {path}")
 
     if "taco:field_schema" not in collection:
-        raise CollectionError(f"Missing 'taco:field_schema' in {path}")
+        raise TacoConsolidationError(f"Missing 'taco:field_schema' in {path}")
 
 
 def _validate_pit_structure(collections: list[dict[str, Any]]) -> None:
@@ -243,7 +222,7 @@ def _validate_pit_structure(collections: list[dict[str, Any]]) -> None:
 
     reference_pit = collections[0].get("taco:pit_schema")
     if not reference_pit:
-        raise SchemaValidationError("First collection missing taco:pit_schema")
+        raise TacoSchemaError("First collection missing taco:pit_schema")
 
     reference_root_type = reference_pit.get("root", {}).get("type")
     reference_hierarchy = reference_pit.get("hierarchy", {})
@@ -263,12 +242,12 @@ def _validate_single_pit_structure(
     """Validate PIT structure for a single collection against reference."""
     current_pit = collection.get("taco:pit_schema")
     if not current_pit:
-        raise SchemaValidationError(f"Collection {idx} missing taco:pit_schema")
+        raise TacoSchemaError(f"Collection {idx} missing taco:pit_schema")
 
     # Validate root type
     current_root_type = current_pit.get("root", {}).get("type")
     if current_root_type != reference_root_type:
-        raise SchemaValidationError(
+        raise TacoSchemaError(
             f"Collection {idx} has different root type:\n"
             f"  Expected: {reference_root_type}\n"
             f"  Got: {current_root_type}"
@@ -278,7 +257,7 @@ def _validate_single_pit_structure(
     current_hierarchy = current_pit.get("hierarchy", {})
 
     if set(current_hierarchy.keys()) != set(reference_hierarchy.keys()):
-        raise SchemaValidationError(
+        raise TacoSchemaError(
             f"Collection {idx} has different hierarchy levels:\n"
             f"  Expected: {sorted(reference_hierarchy.keys())}\n"
             f"  Got: {sorted(current_hierarchy.keys())}"
@@ -298,7 +277,7 @@ def _validate_hierarchy_patterns(
         curr_patterns = current_hierarchy[level]
 
         if len(ref_patterns) != len(curr_patterns):
-            raise SchemaValidationError(
+            raise TacoSchemaError(
                 f"Collection {idx} level {level} has different pattern count:\n"
                 f"  Expected: {len(ref_patterns)}\n"
                 f"  Got: {len(curr_patterns)}"
@@ -323,7 +302,7 @@ def _validate_single_pattern(
     curr_types = curr_pattern.get("type", [])
 
     if ref_types != curr_types:
-        raise SchemaValidationError(
+        raise TacoSchemaError(
             f"Collection {idx} level {level} pattern {pattern_idx} "
             f"has different types:\n"
             f"  Expected: {ref_types}\n"
@@ -335,7 +314,7 @@ def _validate_single_pattern(
     curr_ids = curr_pattern.get("id", [])
 
     if ref_ids != curr_ids:
-        raise SchemaValidationError(
+        raise TacoSchemaError(
             f"Collection {idx} level {level} pattern {pattern_idx} "
             f"has different ids:\n"
             f"  Expected: {ref_ids}\n"
@@ -350,16 +329,16 @@ def _validate_field_schema(collections: list[dict[str, Any]]) -> None:
 
     reference_fields = collections[0].get("taco:field_schema")
     if not reference_fields:
-        raise SchemaValidationError("First collection missing taco:field_schema")
+        raise TacoSchemaError("First collection missing taco:field_schema")
 
     for idx, collection in enumerate(collections[1:], start=1):
         current_fields = collection.get("taco:field_schema")
         if not current_fields:
-            raise SchemaValidationError(f"Collection {idx} missing taco:field_schema")
+            raise TacoSchemaError(f"Collection {idx} missing taco:field_schema")
 
         # Check same levels
         if set(current_fields.keys()) != set(reference_fields.keys()):
-            raise SchemaValidationError(
+            raise TacoSchemaError(
                 f"Collection {idx} has different field schema levels:\n"
                 f"  Expected: {sorted(reference_fields.keys())}\n"
                 f"  Got: {sorted(current_fields.keys())}"
@@ -370,7 +349,7 @@ def _validate_field_schema(collections: list[dict[str, Any]]) -> None:
             curr_schema = current_fields[level]
 
             if ref_schema != curr_schema:
-                raise SchemaValidationError(
+                raise TacoSchemaError(
                     f"Collection {idx} has different field schema at {level}:\n"
                     f"  Expected: {ref_schema}\n"
                     f"  Got: {curr_schema}"
@@ -380,17 +359,17 @@ def _validate_field_schema(collections: list[dict[str, Any]]) -> None:
 def _sum_pit_schemas(collections: list[dict[str, Any]]) -> dict[str, Any]:
     """Sum 'n' values across all taco:pit_schemas."""
     if not collections:
-        raise CollectionError("Cannot sum schemas from empty collections list")
+        raise TacoConsolidationError("Cannot sum schemas from empty collections list")
 
     # Validate first collection has pit_schema
     if "taco:pit_schema" not in collections[0]:
-        raise CollectionError("First collection missing taco:pit_schema")
+        raise TacoConsolidationError("First collection missing taco:pit_schema")
 
     # Start with first schema as base (deep copy)
     result = collections[0]["taco:pit_schema"].copy()
 
     if "root" not in result:
-        raise CollectionError("First collection missing 'root' in pit_schema")
+        raise TacoConsolidationError("First collection missing 'root' in pit_schema")
 
     # Sum root n
     root_n_sum = sum(
@@ -398,7 +377,9 @@ def _sum_pit_schemas(collections: list[dict[str, Any]]) -> dict[str, Any]:
     )
 
     if root_n_sum == 0:
-        raise CollectionError("Sum of root 'n' values is zero across all collections")
+        raise TacoConsolidationError(
+            "Sum of root 'n' values is zero across all collections"
+        )
 
     result["root"]["n"] = root_n_sum
 

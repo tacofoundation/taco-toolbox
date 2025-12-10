@@ -350,7 +350,7 @@ class MajorTOM(TortillaExtension):
             "majortom:code": "MajorTOM spherical grid cell identifier (e.g., 0100km_0003U_0005R) with ~dist_km spacing"
         }
 
-    def _compute(self, tortilla: "Tortilla") -> pa.Table:
+    def _compute(self, tortilla: "Tortilla") -> pa.Table:  # noqa: C901
         """
         Process Tortilla and return Arrow Table with MajorTOM codes.
 

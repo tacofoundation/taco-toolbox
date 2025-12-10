@@ -54,9 +54,7 @@ if TYPE_CHECKING:
     from tacotoolbox.tortilla.datamodel import Tortilla
 
 
-# ============================================================================
-# PRODUCT CONFIGURATION
-# ============================================================================
+# Product Configuration
 
 PRODUCT_CONFIGS = [
     # Physical/topographic
@@ -208,11 +206,7 @@ PRODUCT_SCHEMA: dict[str, pa.DataType] = {
 }
 
 
-# ============================================================================
-# EARTH ENGINE UTILITIES
-# ============================================================================
-
-
+# Earth Engine Utilities
 def _import_earth_engine() -> Any:
     """Lazy import of Earth Engine with helpful error message."""
     try:
@@ -272,9 +266,7 @@ def get_geoenrich_products() -> list[dict[str, Any]]:
     return products
 
 
-# ============================================================================
-# SPATIAL UTILITIES
-# ============================================================================
+# Spatial Utilities
 
 
 def morton_key(lon: float, lat: float, bits: int = 24) -> int:
@@ -313,9 +305,7 @@ def _chunks(seq: list, size: int) -> Any:
         yield seq[i : i + size]
 
 
-# ============================================================================
-# ADMIN RESOLUTION
-# ============================================================================
+# Admin Resolution Utilities
 
 
 @lru_cache(maxsize=3)
@@ -393,9 +383,7 @@ def resolve_admin_names(table: pa.Table, admin_vars: list[str]) -> pa.Table:
     return table
 
 
-# ============================================================================
-# MAIN EXTENSION CLASS
-# ============================================================================
+# Main Extension Class
 
 
 class GeoEnrich(TortillaExtension):

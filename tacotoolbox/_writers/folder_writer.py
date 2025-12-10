@@ -27,15 +27,12 @@ from tacotoolbox._constants import (
     FOLDER_METADATA_DIR,
     METADATA_PARENT_ID,
 )
+from tacotoolbox._exceptions import TacoCreationError
 from tacotoolbox._logging import get_logger
 from tacotoolbox._metadata import MetadataPackage
 from tacotoolbox._progress import progress_bar, progress_scope
 
 logger = get_logger(__name__)
-
-
-class FolderWriterError(Exception):
-    """Raised when folder writing operations fail."""
 
 
 class FolderWriter:
@@ -75,7 +72,7 @@ class FolderWriter:
             pathlib.Path: Path to created folder
 
         Raises:
-            FolderWriterError: If folder creation fails
+            TacoCreationError: If folder creation fails
         """
         try:
             logger.info(f"Creating FOLDER container: {self.output_dir}")
@@ -86,18 +83,20 @@ class FolderWriter:
             self._write_consolidated_metadata(metadata_package, **kwargs)
             self._write_collection_json(metadata_package)
 
-        except Exception:
-            logger.exception("Failed to create folder container")
-            raise
-        else:
             logger.info(f"Folder container created: {self.output_dir}/")
+
+        except Exception as e:
+            logger.exception("Failed to create folder container")
+            raise TacoCreationError(
+                f"Failed to create FOLDER at '{self.output_dir}': {e}"
+            ) from e
+        else:
             return self.output_dir
 
     def _create_structure(self) -> None:
         """Create base DATA/ and METADATA/ folders."""
         self.data_dir.mkdir(parents=True, exist_ok=False)
         self.metadata_dir.mkdir(parents=True, exist_ok=False)
-
         logger.debug(f"Created {FOLDER_DATA_DIR}/ and {FOLDER_METADATA_DIR}/")
 
     def _copy_data_files(self, samples: list[Any]) -> None:

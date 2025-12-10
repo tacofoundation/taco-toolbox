@@ -14,7 +14,6 @@ Exports to DataFrame:
 - stac:time_middle: Datetime[μs]
 """
 
-import datetime
 from typing import TypeAlias
 
 import pyarrow as pa
@@ -24,6 +23,7 @@ from pyproj import CRS, Transformer
 from shapely.geometry import Point, Polygon
 from shapely.wkb import dumps as wkb_dumps
 
+from tacotoolbox._timestamps import TimestampLike, _to_utc_microseconds
 from tacotoolbox.sample.datamodel import SampleExtension
 
 # Soft dependency - only imported when check_antimeridian=True
@@ -37,7 +37,6 @@ except ImportError:
 
 ShapeND: TypeAlias = tuple[int, ...]
 GeoTransform6: TypeAlias = tuple[float, float, float, float, float, float]
-TimestampLike: TypeAlias = datetime.datetime | int | float
 
 
 def raster_centroid(
@@ -168,20 +167,11 @@ class STAC(SampleExtension):
 
     @pydantic.model_validator(mode="after")
     def check_times(cls, values):
-        """Validates that time_start <= time_end and converts to microseconds."""
-        # Convert datetime to microseconds (int64)
-        if isinstance(values.time_start, datetime.datetime):
-            values.time_start = int(values.time_start.timestamp() * 1_000_000)
-        else:
-            # Assume seconds, convert to microseconds
-            values.time_start = int(values.time_start * 1_000_000)
+        """Validate that time_start <= time_end and convert to microseconds."""
+        values.time_start = _to_utc_microseconds(values.time_start)
 
         if values.time_end is not None:
-            if isinstance(values.time_end, datetime.datetime):
-                values.time_end = int(values.time_end.timestamp() * 1_000_000)
-            else:
-                # Assume seconds, convert to microseconds
-                values.time_end = int(values.time_end * 1_000_000)
+            values.time_end = _to_utc_microseconds(values.time_end)
 
             if values.time_start > values.time_end:
                 raise ValueError(
@@ -237,6 +227,18 @@ class STAC(SampleExtension):
             ]
         )
 
+    def get_field_descriptions(self) -> dict[str, str]:
+        """Return field descriptions for each field."""
+        return {
+            "stac:crs": "Coordinate reference system (WKT2, EPSG, or PROJ string)",
+            "stac:tensor_shape": "Raster dimensions e.g. [bands, height, width]",
+            "stac:geotransform": "GDAL affine transform [origin_x, pixel_width, rot_x, origin_y, rot_y, pixel_height]",
+            "stac:time_start": "Acquisition start timestamp (microseconds since Unix epoch, UTC)",
+            "stac:centroid": "Raster center point in EPSG:4326 (WKB binary format)",
+            "stac:time_end": "Acquisition end timestamp (microseconds since Unix epoch, UTC)",
+            "stac:time_middle": "Midpoint between start and end timestamps (microseconds since Unix epoch, UTC)",
+        }
+
     def _compute(self, sample) -> pa.Table:
         """Actual computation logic - returns PyArrow Table."""
         data = {
@@ -250,15 +252,3 @@ class STAC(SampleExtension):
         }
 
         return pa.Table.from_pydict(data, schema=self.get_schema())
-
-    def get_field_descriptions(self) -> dict[str, str]:
-        """Return field descriptions for each field."""
-        return {
-            "stac:crs": "Coordinate reference system (WKT2, EPSG, or PROJ string)",
-            "stac:tensor_shape": "Raster dimensions e.g. [bands, height, width]",
-            "stac:geotransform": "GDAL affine transform [origin_x, pixel_width, rot_x, origin_y, rot_y, pixel_height]",
-            "stac:time_start": "Acquisition start timestamp (microseconds since Unix epoch, UTC)",
-            "stac:centroid": "Raster center point in EPSG:4326 (WKB binary format)",
-            "stac:time_end": "Acquisition end timestamp (microseconds since Unix epoch, UTC)",
-            "stac:time_middle": "Midpoint between start and end timestamps (microseconds since Unix epoch, UTC)",
-        }

@@ -157,7 +157,7 @@ class SpatialGrouping(TortillaExtension):
             "spatialgroup:code": "Spatial group identifier using Z-order curve for compact bounding boxes."
         }
 
-    def _compute(self, tortilla) -> pa.Table:
+    def _compute(self, tortilla) -> pa.Table:  # noqa: C901
         """Process Tortilla and return Arrow Table with spatial group codes."""
         if not HAS_NUMPY:
             raise ImportError(

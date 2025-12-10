@@ -7,7 +7,6 @@ Key functions:
 - remove_empty_columns: Remove all-null columns
 - validate_schema_consistency: Check schema compatibility
 - write_parquet_file_with_cdc: Write Parquet with Content-Defined Chunking
-- cast_table_to_schema: Cast columns to match schema spec
 """
 
 from pathlib import Path
@@ -22,7 +21,11 @@ from tacotoolbox._constants import (
     PARQUET_CDC_DEFAULT_CONFIG,
     SHARED_CORE_FIELDS,
 )
-from tacotoolbox._utils import is_internal_column
+
+
+def is_internal_column(column_name: str) -> bool:
+    """Check if column is internal metadata (starts with 'internal:')."""
+    return column_name.startswith("internal:")
 
 
 def align_arrow_schemas(
@@ -282,72 +285,3 @@ def write_parquet_file_with_cdc(
     """
     parquet_config = {**PARQUET_CDC_DEFAULT_CONFIG, **kwargs}
     pq.write_table(table, output_path, **parquet_config)
-
-
-def cast_table_to_schema(table: pa.Table, schema_spec: list[list[str]]) -> pa.Table:
-    """
-    Cast Table columns to match schema spec from taco:field_schema.
-
-    Handles missing columns by adding them with null values and
-    coerces type mismatches using Arrow cast operations.
-
-    schema_spec: List of [column_name, type_string] from taco:field_schema
-    """
-    type_mapping: dict[str, pa.DataType] = {
-        "string": pa.string(),
-        "int64": pa.int64(),
-        "int32": pa.int32(),
-        "float64": pa.float64(),
-        "float32": pa.float32(),
-        "binary": pa.binary(),
-        "bool": pa.bool_(),
-        "list(int64)": pa.list_(pa.int64()),
-        "list(float32)": pa.list_(pa.float32()),
-        "list(float64)": pa.list_(pa.float64()),
-    }
-
-    arrays = []
-    schema_fields = []
-
-    for col_name, type_str in schema_spec:
-        target_type = type_mapping.get(type_str)
-        if target_type is None:
-            continue
-
-        # Column doesn't exist - add null column
-        if col_name not in table.schema.names:
-            null_array = pa.nulls(table.num_rows, type=target_type)
-            arrays.append(null_array)
-            schema_fields.append(pa.field(col_name, target_type))
-            continue
-
-        # Column exists - check if cast needed
-        column = table.column(col_name)
-        current_type = column.type
-
-        if current_type == target_type:
-            arrays.append(column)
-            schema_fields.append(pa.field(col_name, target_type))
-            continue
-
-        # Cast to target type
-        try:
-            casted_column = pc.cast(column, target_type)
-            arrays.append(casted_column)
-            schema_fields.append(pa.field(col_name, target_type))
-        except Exception:
-            # If cast fails, fill nulls first then retry
-            filled_column = pc.fill_null(column, None)
-            casted_column = pc.cast(filled_column, target_type)
-            arrays.append(casted_column)
-            schema_fields.append(pa.field(col_name, target_type))
-
-    # Combine with existing columns not in schema_spec
-    schema_spec_cols = {col_name for col_name, _ in schema_spec}
-    for field in table.schema:
-        if field.name not in schema_spec_cols:
-            arrays.append(table.column(field.name))
-            schema_fields.append(field)
-
-    new_schema = pa.schema(schema_fields)
-    return pa.Table.from_arrays(arrays, schema=new_schema)

@@ -36,13 +36,21 @@ from tacotoolbox._column_utils import (
     remove_empty_columns,
     reorder_internal_columns,
 )
-from tacotoolbox._constants import METADATA_PARENT_ID, METADATA_RELATIVE_PATH
-from tacotoolbox._utils import is_padding_id
+from tacotoolbox._constants import (
+    CORE_FIELD_DESCRIPTIONS,
+    INTERNAL_FIELD_DESCRIPTIONS,
+    METADATA_PARENT_ID,
+    METADATA_RELATIVE_PATH,
+    PADDING_PREFIX,
+)
+from tacotoolbox._logging import get_logger
 from tacotoolbox.tortilla.datamodel import Tortilla
 
 if TYPE_CHECKING:
     from tacotoolbox.sample.datamodel import Sample
     from tacotoolbox.taco.datamodel import Taco
+
+logger = get_logger(__name__)
 
 
 class MetadataPackage:
@@ -94,10 +102,9 @@ class MetadataPackage:
 class MetadataGenerator:
     """Generate complete metadata package for TACO containers."""
 
-    def __init__(self, taco: "Taco", debug: bool = False) -> None:
+    def __init__(self, taco: "Taco") -> None:
         """Initialize metadata generator."""
         self.taco = taco
-        self.debug = debug
         self.max_depth = min(taco.tortilla._current_depth, 5)
 
     def generate_all_levels(self) -> MetadataPackage:
@@ -123,7 +130,7 @@ class MetadataGenerator:
         tables = self._add_relative_paths(tables)
 
         # Generate schemas
-        pit_schema = generate_pit_schema(tables, debug=self.debug)
+        pit_schema = generate_pit_schema(tables)
         field_schema = generate_field_schema(tables, self.taco)
 
         levels = tables
@@ -230,7 +237,7 @@ class MetadataGenerator:
             metadata_table = sample.export_metadata()
             metadata_tables.append(metadata_table)
 
-        # Align schemas before concatenating
+        # Align schemas before concatenating (required for heterogeneous extensions)
         aligned_tables = align_arrow_schemas(metadata_tables)
         table = pa.concat_tables(aligned_tables)
 
@@ -278,6 +285,246 @@ class MetadataGenerator:
         return table
 
 
+# PIT schema generation
+#
+# PIT (Position-Invariant Tree) schema describes the hierarchical structure
+# of a TACO container. It enables deterministic navigation without reading
+# all metadata files.
+#
+# The algorithm finds "canonical" folders - those with the most real (non-padding)
+# samples - to represent each level's structure. Padding samples (__TACOPAD__*)
+# are excluded from the canonical pattern.
+#
+# Uses vectorized PyArrow operations instead of Python loops. Key optimizations:
+# - pc.starts_with for padding detection.
+# - pc.sum on boolean masks for counting.
+# - Single to_pylist() call at the end, not per-iteration.
+
+
+def _compute_real_mask(ids_column: pa.ChunkedArray) -> pa.ChunkedArray:
+    """
+    Compute boolean mask: True for real samples, False for padding.
+
+    Uses pc.starts_with which executes in C++, avoiding Python iteration.
+    PADDING_PREFIX is "__TACOPAD__" defined in _constants.py.
+    """
+    is_padding = pc.starts_with(ids_column, PADDING_PREFIX)
+    return pc.invert(is_padding)
+
+
+def _count_real_in_slice(is_real_mask: pa.ChunkedArray, start: int, length: int) -> int:
+    """
+    Count real samples in a slice of the boolean mask.
+
+    Uses pc.sum on the slice - True counts as 1, False as 0.
+    Avoids converting to Python list for counting.
+    """
+    return pc.sum(is_real_mask.slice(start, length)).as_py()
+
+
+def _find_best_group(
+    table: pa.Table,
+    is_real_mask: pa.ChunkedArray,
+    group_size: int,
+    num_groups: int,
+) -> tuple[list[str], list[str], int]:
+    """
+    Find the group with the most real (non-padding) samples.
+
+    Iterates through groups tracking max real count. Early-exits if a
+    "perfect" group (all real, no padding) is found.
+
+    Critical: Only converts to Python (to_pylist) once at the end for the
+    best group, not during iteration. This is the key performance optimization.
+
+    Returns:
+        Tuple of (best_ids, best_types, best_group_idx)
+    """
+    max_real = 0
+    best_idx = 0
+
+    for idx in range(num_groups):
+        real_count = _count_real_in_slice(is_real_mask, idx * group_size, group_size)
+
+        if real_count > max_real:
+            max_real = real_count
+            best_idx = idx
+
+        # Early exit: perfect group found (all samples are real, no padding)
+        if real_count == group_size:
+            break
+
+    # Single conversion to Python at the end
+    best_group = table.slice(best_idx * group_size, group_size)
+    return (
+        best_group.column("id").to_pylist(),
+        best_group.column("type").to_pylist(),
+        best_idx,
+    )
+
+
+def _process_level1(
+    table: pa.Table,
+    parent_table: pa.Table,
+) -> dict[str, Any]:
+    """
+    Process level 1: direct children of root folders.
+
+    Level 1 is simpler than level 2+ because all children share the same
+    parent structure. Each parent folder has exactly children_per_parent
+    children due to TACO's homogeneity guarantee.
+    """
+    children_per_parent = table.num_rows // parent_table.num_rows
+
+    # Compute mask once for entire level (vectorized)
+    is_real_mask = _compute_real_mask(table.column("id"))
+
+    best_ids, best_types, best_idx = _find_best_group(
+        table, is_real_mask, children_per_parent, parent_table.num_rows
+    )
+
+    parent_id = parent_table.column("id")[best_idx].as_py()
+    real_count = _count_real_in_slice(
+        is_real_mask, best_idx * children_per_parent, children_per_parent
+    )
+    logger.debug(
+        f"Level 1 canonical folder '{parent_id}' "
+        f"with {real_count}/{children_per_parent} samples"
+    )
+
+    return {"n": table.num_rows, "type": best_types, "id": best_ids}
+
+
+def _process_level_n(
+    table: pa.Table,
+    parent_table: pa.Table,
+    parent_pattern: list[str],
+    depth: int,
+) -> list[dict[str, Any]]:
+    """
+    Process level 2+: children of nested folders.
+
+    Level 2+ is more complex because folders can appear at multiple positions
+    within the parent pattern. For example, if parent_pattern is
+    ["FILE", "FOLDER", "FILE", "FOLDER"], there are FOLDERs at positions 1 and 3.
+
+    Each folder position may have different children structures, so we generate
+    a separate pattern for each position.
+
+    Uses pc.is_in for vectorized filtering instead of Python loops.
+    """
+    pattern_size = len(parent_pattern)
+    num_groups = parent_table.num_rows // pattern_size
+
+    # Find positions in parent pattern that are FOLDERs
+    folder_positions = [i for i, t in enumerate(parent_pattern) if t == "FOLDER"]
+    if not folder_positions:
+        return []
+
+    parent_id_column = table.column(METADATA_PARENT_ID)
+    all_patterns = []
+
+    for pos_idx in folder_positions:
+        # Calculate parent_ids for this folder position across all groups
+        # E.g., if pattern_size=4 and pos_idx=1: parent_ids = [1, 5, 9, 13, ...]
+        parent_ids = pa.array([g * pattern_size + pos_idx for g in range(num_groups)])
+
+        # Vectorized filter using pc.is_in (much faster than Python loop)
+        mask = pc.is_in(parent_id_column, parent_ids)
+        children = table.filter(mask)
+
+        if children.num_rows == 0:
+            continue
+
+        samples_per_group = children.num_rows // num_groups
+        if samples_per_group == 0:
+            continue
+
+        # Compute mask for filtered children
+        is_real_mask = _compute_real_mask(children.column("id"))
+
+        best_ids, best_types, best_idx = _find_best_group(
+            children, is_real_mask, samples_per_group, num_groups
+        )
+
+        logger.debug(
+            f"Level {depth} position {pos_idx}: "
+            f"canonical at group {best_idx} with {samples_per_group} samples"
+        )
+
+        all_patterns.append(
+            {
+                "n": num_groups * len(best_types),
+                "type": best_types,
+                "id": best_ids,
+            }
+        )
+
+    return all_patterns
+
+
+def generate_pit_schema(
+    tables: list[pa.Table],
+) -> dict[str, Any]:
+    """
+    Generate PIT schema from metadata tables.
+
+    The PIT schema describes the hierarchical structure of a TACO container,
+    enabling deterministic navigation without reading all metadata.
+
+    Uses vectorized PyArrow operations for performance on large datasets.
+
+    Args:
+        tables: List of PyArrow tables, one per hierarchy level (level0, level1, ...)
+
+    Returns:
+        PIT schema dict with structure:
+        {
+            "root": {"n": 100, "type": "FOLDER"},
+            "hierarchy": {
+                "1": [{"n": 500, "type": ["FILE", "FOLDER"], "id": ["a", "b"]}],
+                "2": [{"n": 200, "type": ["FILE"], "id": ["x"]}]
+            }
+        }
+
+    Raises:
+        ValueError: If tables is empty or missing required columns
+    """
+    if not tables:
+        raise ValueError("Need at least one Table to generate schema")
+
+    table0 = tables[0]
+    if "type" not in table0.schema.names:
+        raise ValueError("Level 0 missing 'type' column")
+
+    # Root level: just count and type
+    root = {"n": table0.num_rows, "type": table0.column("type")[0].as_py()}
+    hierarchy: dict[str, list[dict[str, Any]]] = {}
+
+    for depth in range(1, len(tables)):
+        table = tables[depth]
+        parent_table = tables[depth - 1]
+
+        if table.num_rows == 0:
+            continue
+
+        if METADATA_PARENT_ID not in table.schema.names:
+            raise ValueError(f"Depth {depth} missing '{METADATA_PARENT_ID}'")
+
+        if depth == 1:
+            # Level 1: direct children of root
+            hierarchy["1"] = [_process_level1(table, parent_table)]
+        else:
+            # Level 2+: nested folders, may have multiple folder positions
+            parent_pattern = hierarchy[str(depth - 1)][0]["type"]
+            patterns = _process_level_n(table, parent_table, parent_pattern, depth)
+            if patterns:
+                hierarchy[str(depth)] = patterns
+
+    return {"root": root, "hierarchy": hierarchy}
+
+
+# Field schema & collection
 def generate_field_schema(levels: list[pa.Table], taco: "Taco") -> dict[str, Any]:
     """
     Generate field schema with descriptions from extensions.
@@ -286,12 +533,7 @@ def generate_field_schema(levels: list[pa.Table], taco: "Taco") -> dict[str, Any
     then generates arrays of [name, type, description] for each field.
     If no description exists for a field, uses empty string.
     """
-    from tacotoolbox._constants import (
-        CORE_FIELD_DESCRIPTIONS,
-        INTERNAL_FIELD_DESCRIPTIONS,
-    )
-
-    # Collect all field descriptions
+    # Collect all field descriptions (later sources override earlier)
     all_descriptions: dict[str, str] = {}
 
     # 1. Add core and internal field descriptions first
@@ -318,7 +560,6 @@ def generate_field_schema(levels: list[pa.Table], taco: "Taco") -> dict[str, Any
 
     # Generate field schema with descriptions
     field_schema = {}
-
     for i, level_table in enumerate(levels):
         fields = []
         for field in level_table.schema:
@@ -326,164 +567,9 @@ def generate_field_schema(levels: list[pa.Table], taco: "Taco") -> dict[str, Any
             type_name = str(field.type).lower()
             description = all_descriptions.get(col_name, "")
             fields.append([col_name, type_name, description])
-
         field_schema[f"level{i}"] = fields
 
     return field_schema
-
-
-def generate_pit_schema(  # noqa: C901
-    tables: list[pa.Table], debug: bool = False
-) -> dict[str, Any]:
-    """
-    Generate PIT schema.
-
-    NOTE: This function has high cyclomatic complexity (C901) but is intentionally
-    kept as a single function for algorithmic clarity. The PIT schema generation
-    is inherently complex and splitting it would reduce readability.
-    """
-    if not tables:
-        raise ValueError("Need at least one Table to generate schema")
-
-    table0 = tables[0]
-    if "type" not in table0.schema.names:
-        raise ValueError("Level 0 missing 'type' column")
-
-    # Root level
-    root_type = table0.column("type")[0].as_py()
-    root = {"n": table0.num_rows, "type": root_type}
-
-    hierarchy: dict[str, list[dict]] = {}
-
-    # Process each hierarchical level
-    for depth in range(1, len(tables)):
-        table = tables[depth]
-        parent_table = tables[depth - 1]
-
-        if table.num_rows == 0:
-            continue
-
-        if METADATA_PARENT_ID not in table.schema.names:
-            raise ValueError(f"Depth {depth} missing '{METADATA_PARENT_ID}' column")
-
-        if depth == 1:
-            # LEVEL 1: Find folder with MOST real (non-padding) samples
-            children_per_parent = table.num_rows // parent_table.num_rows
-            target_real_count = children_per_parent
-
-            max_real_count = 0
-            best_group_ids = []
-            best_group_types = []
-
-            for parent_idx in range(parent_table.num_rows):
-                start_idx = parent_idx * children_per_parent
-                end_idx = start_idx + children_per_parent
-                group = table.slice(start_idx, children_per_parent)
-
-                ids = group.column("id").to_pylist()
-                types = group.column("type").to_pylist()
-
-                real_count = sum(1 for id_val in ids if not is_padding_id(id_val))
-
-                if real_count > max_real_count:
-                    max_real_count = real_count
-                    best_group_ids = ids
-                    best_group_types = types
-
-                if real_count == target_real_count:
-                    if debug:
-                        parent_id = parent_table.column("id")[parent_idx].as_py()
-                        print(
-                            f"Found canonical folder '{parent_id}' at depth {depth} "
-                            f"with {real_count}/{children_per_parent} real samples"
-                        )
-                    break
-
-            pattern = {
-                "n": table.num_rows,
-                "type": best_group_types,
-                "id": best_group_ids,
-            }
-            hierarchy[str(depth)] = [pattern]
-
-        else:
-            # LEVEL 2+: Multiple folder positions possible
-            parent_schema = hierarchy[str(depth - 1)]
-            parent_pattern = parent_schema[0]["type"]
-            pattern_size = len(parent_pattern)
-            num_groups = parent_table.num_rows // pattern_size
-
-            folder_positions = [
-                i for i, t in enumerate(parent_pattern) if t == "FOLDER"
-            ]
-
-            if not folder_positions:
-                continue
-
-            all_patterns: list[dict] = []
-
-            for position_idx in folder_positions:
-                parent_ids_for_position = [
-                    group_idx * pattern_size + position_idx
-                    for group_idx in range(num_groups)
-                ]
-
-                # Filter table for matching parent_ids
-                parent_id_column = table.column(METADATA_PARENT_ID)
-                mask = pc.is_in(parent_id_column, pa.array(parent_ids_for_position))
-                position_children = table.filter(mask)
-
-                if position_children.num_rows == 0:
-                    continue
-
-                samples_per_group = position_children.num_rows // num_groups
-
-                if samples_per_group == 0:
-                    continue
-
-                target_real_count = samples_per_group
-                max_real_count = 0
-                best_group_ids = []
-                best_group_types = []
-
-                for group_idx in range(num_groups):
-                    start_idx = group_idx * samples_per_group
-                    group = position_children.slice(start_idx, samples_per_group)
-
-                    ids = group.column("id").to_pylist()
-                    types = group.column("type").to_pylist()
-
-                    real_count = sum(1 for id_val in ids if not is_padding_id(id_val))
-
-                    if real_count > max_real_count:
-                        max_real_count = real_count
-                        best_group_ids = ids
-                        best_group_types = types
-
-                    if real_count == target_real_count:
-                        if debug:
-                            parent_row_idx = parent_ids_for_position[group_idx]
-                            parent_id = parent_table.column("id")[
-                                parent_row_idx
-                            ].as_py()
-                            print(
-                                f"Found canonical folder '{parent_id}' at depth {depth} "
-                                f"position {position_idx} with {real_count}/{samples_per_group} real samples"
-                            )
-                        break
-
-                total_nodes = num_groups * len(best_group_types)
-
-                pattern_dict = {
-                    "n": total_nodes,
-                    "type": best_group_types,
-                    "id": best_group_ids,
-                }
-                all_patterns.append(pattern_dict)
-
-            hierarchy[str(depth)] = all_patterns
-
-    return {"root": root, "hierarchy": hierarchy}
 
 
 def generate_collection_json(taco: "Taco") -> dict[str, Any]:

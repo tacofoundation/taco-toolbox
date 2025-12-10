@@ -22,6 +22,7 @@ from tacotoolbox.sample.datamodel import SampleExtension
 
 if TYPE_CHECKING:
     from osgeo import gdal  # type: ignore[import-untyped]
+
     from tacotoolbox.sample.datamodel import Sample
 
 # Soft dependency - only imported when GDAL operations are used
@@ -92,6 +93,14 @@ class GeotiffStats(SampleExtension):
                 "GDAL is required for GeoTIFF operations. Install: conda install gdal"
             )
 
+        # Type narrowing: GeotiffStats only works with Path
+        if not isinstance(sample.path, pathlib.Path):
+            raise TypeError(
+                f"GeotiffStats requires sample.path to be a Path, "
+                f"got {type(sample.path).__name__}. "
+                f"This extension only works with FILE samples pointing to GeoTIFF files."
+            )
+
         stats = self._extract_stats(sample.path)
 
         # If stats is None (no valid pixels), return None
@@ -117,10 +126,11 @@ class GeotiffStats(SampleExtension):
                 float(cast(Any, scaling_offset)),
             )
 
-        data = {"geotiff:stats": [stats]}
+        # stats is guaranteed non-None here (early return handled None case)
+        data = {"geotiff:stats": [stats]}  # type: ignore[list-item]
         return pa.Table.from_pydict(data, schema=self.get_schema())
 
-    def _extract_stats(self, filepath: pathlib.Path) -> list | None:
+    def _extract_stats(self, filepath: pathlib.Path) -> list[list[float]] | None:
         """Extract statistics using GDAL stats and histograms."""
         if not HAS_GDAL:
             raise ImportError(

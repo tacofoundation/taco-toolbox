@@ -24,8 +24,7 @@ import pyarrow as pa
 import pydantic
 
 from tacotoolbox._column_utils import align_arrow_schemas
-from tacotoolbox._constants import METADATA_PARENT_ID
-from tacotoolbox._utils import validate_depth
+from tacotoolbox._constants import METADATA_PARENT_ID, SHARED_MAX_DEPTH
 
 if TYPE_CHECKING:
     from tacotoolbox.sample.datamodel import Sample
@@ -148,6 +147,32 @@ class Tortilla:
         # Calculate depth and size
         self._current_depth = self._calculate_current_depth()
         self._size_bytes = sum(s._size_bytes for s in self.samples)
+
+    @property
+    def metadata_table(self) -> pa.Table:
+        """Metadata table for extension computation."""
+        return self._metadata_table
+
+    @staticmethod
+    def _validate_depth(depth: int, context: str = "operation") -> None:
+        """
+        Validate that depth is within allowed range.
+
+        Args:
+            depth: Depth value to validate
+            context: Context string for error message
+
+        Raises:
+            ValueError: If depth is invalid
+        """
+        if depth < 0:
+            raise ValueError(f"{context}: depth must be non-negative, got {depth}")
+
+        if depth > SHARED_MAX_DEPTH:
+            raise ValueError(
+                f"{context}: depth {depth} exceeds maximum of {SHARED_MAX_DEPTH} "
+                f"(levels 0-{SHARED_MAX_DEPTH})"
+            )
 
     def _raise_schema_mismatch_error(
         self,
@@ -371,7 +396,7 @@ class Tortilla:
         Raises:
             ValueError: If deep is negative or exceeds maximum depth
         """
-        validate_depth(deep, context="export_metadata")
+        Tortilla._validate_depth(deep, context="export_metadata")
 
         if deep == 0:
             return pa.Table.from_arrays(

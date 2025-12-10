@@ -23,7 +23,7 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.compute as pc
 from tacoreader import TacoDataset
-from tacoreader.utils.vsi import parse_vsi_subfile, strip_vsi_prefix
+from tacoreader._vsi import parse_vsi_subfile, strip_vsi_prefix
 
 from tacotoolbox._column_utils import (
     reorder_internal_columns,
@@ -31,15 +31,15 @@ from tacotoolbox._column_utils import (
     write_parquet_file_with_cdc,
 )
 from tacotoolbox._constants import FOLDER_DATA_DIR, FOLDER_METADATA_DIR
+from tacotoolbox._exceptions import (
+    TacoCreationError,
+    TacoValidationError,
+)
 from tacotoolbox._logging import get_logger
 from tacotoolbox._progress import progress_gather
 from tacotoolbox.remote_io import download_range
 
 logger = get_logger(__name__)
-
-
-class ExportWriterError(Exception):
-    """Raised when export writing operations fail."""
 
 
 def _get_available_levels(dataset: TacoDataset) -> list[str]:
@@ -122,9 +122,8 @@ class ExportWriter:
             pathlib.Path: Path to created FOLDER TACO
 
         Raises:
-            ExportWriterError: If export fails
-            ValueError: If dataset has level1+ joins or is empty
-            FileExistsError: If output already exists
+            TacoValidationError: If dataset has level1+ joins or is empty, or output exists
+            TacoCreationError: If export fails during creation
         """
         try:
             logger.info(f"Starting FOLDER export: {self.output}")
@@ -135,11 +134,16 @@ class ExportWriter:
             self._generate_consolidated_metadata()
             self._generate_collection_json()
 
-        except Exception:
-            logger.exception("Failed to export FOLDER")
-            raise
-        else:
             logger.info(f"FOLDER export complete: {self.output}")
+
+        except TacoValidationError:
+            raise
+        except Exception as e:
+            logger.exception("Failed to export FOLDER")
+            raise TacoCreationError(
+                f"Failed to export FOLDER to '{self.output}': {e}"
+            ) from e
+        else:
             return self.output
 
     def _validate_dataset(self) -> None:
@@ -150,19 +154,22 @@ class ExportWriter:
         - Dataset has no level1+ joins (only level0 filters supported)
         - Dataset is not empty (at least one sample)
         - Output path doesn't exist
+
+        Raises:
+            TacoValidationError: If validation fails
         """
         if self.dataset._has_level1_joins:
-            raise ValueError(
+            raise TacoValidationError(
                 "Cannot export dataset with level1+ joins. "
                 "Only level0 filters are supported."
             )
 
         count = self.dataset.data._data.num_rows
         if count == 0:
-            raise ValueError("Cannot export empty dataset")
+            raise TacoValidationError("Cannot export empty dataset")
 
         if self.output.exists():
-            raise FileExistsError(f"Output already exists: {self.output}")
+            raise TacoValidationError(f"Output already exists: {self.output}")
 
         logger.debug(f"Dataset validated: {count} samples")
 
@@ -170,7 +177,6 @@ class ExportWriter:
         """Create base DATA/ and METADATA/ folders."""
         self.data_dir.mkdir(parents=True)
         self.metadata_dir.mkdir(parents=True)
-
         logger.debug(f"Created {FOLDER_DATA_DIR}/ and {FOLDER_METADATA_DIR}/")
 
     async def _copy_all_bytes(self) -> None:

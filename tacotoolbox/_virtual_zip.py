@@ -30,6 +30,9 @@ from tacotoolbox._constants import (
     ZIP_ZIP64_EXTRA_FIELD_SIZE,
     ZIP_ZIP64_THRESHOLD,
 )
+from tacotoolbox._logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class VirtualFile(pydantic.BaseModel):
@@ -50,7 +53,7 @@ class VirtualFile(pydantic.BaseModel):
     needs_zip64: bool = False
 
     model_config = pydantic.ConfigDict(
-        arbitrary_types_allowed=True,
+        arbitrary_types_allowed=True, slots=True  # type: ignore[typeddict-unknown-key]
     )
 
 
@@ -82,6 +85,8 @@ class VirtualTACOZIP:
         - More than 65,535 files
         - Total archive size >= 4GB
     """
+
+    __slots__ = ["_calculated", "current_offset", "files", "header_size"]
 
     def __init__(self) -> None:
         """Initialize empty virtual ZIP structure."""
@@ -146,7 +151,7 @@ class VirtualTACOZIP:
 
         return vfile
 
-    def calculate_offsets(self, debug: bool = False) -> None:
+    def calculate_offsets(self) -> None:
         """
         Calculate exact byte offsets for all files in the virtual ZIP.
 
@@ -160,10 +165,7 @@ class VirtualTACOZIP:
         """
         current_offset = self.current_offset
 
-        if debug:
-            print(
-                f"DEBUG VirtualTACOZIP: Starting offset calculation from {current_offset}"
-            )
+        logger.debug(f"Starting offset calculation from {current_offset}")
 
         for i, vfile in enumerate(self.files):
             # Determine if ZIP64 needed for this file
@@ -182,11 +184,12 @@ class VirtualTACOZIP:
             vfile.lfh_offset = current_offset
             vfile.data_offset = current_offset + vfile.lfh_size
 
-            if debug and i < 5:
-                print(f"  [{i}] {vfile.arc_path}")
-                print(f"      filename_len={filename_len}, lfh_size={vfile.lfh_size}")
-                print(
-                    f"      lfh_offset={vfile.lfh_offset}, data_offset={vfile.data_offset}, file_size={vfile.file_size}"
+            if i < 5:  # Log first 5 files
+                logger.debug(
+                    f"[{i}] {vfile.arc_path}: "
+                    f"filename_len={filename_len}, lfh_size={vfile.lfh_size}, "
+                    f"lfh_offset={vfile.lfh_offset}, data_offset={vfile.data_offset}, "
+                    f"file_size={vfile.file_size}"
                 )
 
             # Move to next file position

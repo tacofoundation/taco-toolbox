@@ -22,6 +22,7 @@ from tacotoolbox._constants import (
     DOCS_TEMPLATE_HTML,
     DOCS_TEMPLATE_MD,
 )
+from tacotoolbox._exceptions import TacoDocumentationError
 from tacotoolbox._logging import get_logger
 
 try:
@@ -33,10 +34,6 @@ except ImportError:
     DOCS_AVAILABLE = False
 
 logger = get_logger(__name__)
-
-
-class DocsError(Exception):
-    """Base exception for docs operations."""
 
 
 def _check_dependencies() -> None:
@@ -96,9 +93,9 @@ def _load_vendor_files(templates_dir: Path) -> dict:
         logger.debug(f"Loaded {len(vendor_files)} vendor files")
 
     except FileNotFoundError as e:
-        raise DocsError(f"Vendor file not found: {e}") from e
+        raise TacoDocumentationError(f"Vendor file not found: {e}") from e
     except Exception as e:
-        raise DocsError(f"Failed to load vendor files: {e}") from e
+        raise TacoDocumentationError(f"Failed to load vendor files: {e}") from e
 
     return vendor_files
 
@@ -113,6 +110,11 @@ def generate_markdown(
     Args:
         input: Path to TACOLLECTION.json file
         output: Output path for generated markdown
+
+    Raises:
+        ImportError: If jinja2 or markdown packages are not installed
+        FileNotFoundError: If input file does not exist
+        TacoDocumentationError: If documentation generation fails
     """
     _check_dependencies()
 
@@ -128,7 +130,7 @@ def generate_markdown(
         with open(input, encoding="utf-8") as f:
             collection = json.load(f)
     except json.JSONDecodeError as e:
-        raise DocsError(f"Invalid JSON in {input}: {e}") from e
+        raise TacoDocumentationError(f"Invalid JSON in {input}: {e}") from e
 
     logger.debug("Rendering markdown template")
 
@@ -144,7 +146,7 @@ def generate_markdown(
         )
 
     except Exception as e:
-        raise DocsError(f"Failed to render markdown: {e}") from e
+        raise TacoDocumentationError(f"Failed to render markdown: {e}") from e
 
     output.write_text(md_content, encoding="utf-8")
     logger.info(f"Generated Markdown: {output.absolute()}")
@@ -166,6 +168,11 @@ def generate_html(
         inline_deps: Embed JS libraries inline for offline usage
         catalogue_url: URL to link back to catalogue (None to hide)
         download_base_url: Base URL for file downloads (appends filename from extents)
+
+    Raises:
+        ImportError: If jinja2 or markdown packages are not installed
+        FileNotFoundError: If input file does not exist
+        TacoDocumentationError: If documentation generation fails
     """
     _check_dependencies()
 
@@ -181,7 +188,7 @@ def generate_html(
         with open(input, encoding="utf-8") as f:
             collection = json.load(f)
     except json.JSONDecodeError as e:
-        raise DocsError(f"Invalid JSON in {input}: {e}") from e
+        raise TacoDocumentationError(f"Invalid JSON in {input}: {e}") from e
 
     pit_schema = collection.get("taco:pit_schema", {})
     pit_schema_json = json.dumps(pit_schema, indent=2)
@@ -217,9 +224,9 @@ def generate_html(
             logger.info("Using CDN dependencies (requires internet)")
 
     except FileNotFoundError as e:
-        raise DocsError(f"Asset loading failed: {e}") from e
+        raise TacoDocumentationError(f"Asset loading failed: {e}") from e
     except Exception as e:
-        raise DocsError(f"Failed to read assets: {e}") from e
+        raise TacoDocumentationError(f"Failed to read assets: {e}") from e
 
     logger.debug("Rendering HTML template")
 
@@ -243,7 +250,7 @@ def generate_html(
         )
 
     except Exception as e:
-        raise DocsError(f"Failed to render HTML: {e}") from e
+        raise TacoDocumentationError(f"Failed to render HTML: {e}") from e
 
     output.write_text(html_content, encoding="utf-8")
 

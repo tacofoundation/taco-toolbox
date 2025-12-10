@@ -25,6 +25,10 @@ from typing import Any
 from tqdm import tqdm
 from tqdm.asyncio import tqdm as tqdm_asyncio
 
+from tacotoolbox._logging import get_logger
+
+logger = get_logger(__name__)
+
 
 def _should_show_progress() -> bool:
     """
@@ -40,8 +44,6 @@ def _should_show_progress() -> bool:
     Returns:
         bool: True if progress bars should be shown
     """
-    logger = logging.getLogger("tacotoolbox")
-
     # Hide if WARNING or higher, or if completely disabled
     if logger.level >= logging.WARNING or logger.level == logging.CRITICAL + 1:
         return False

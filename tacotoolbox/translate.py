@@ -11,6 +11,7 @@ Key features:
 - Supports all PIT schema patterns
 """
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -19,6 +20,7 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 from tacoreader import TacoDataset
 
+from tacotoolbox._exceptions import TacoCreationError
 from tacotoolbox._logging import get_logger
 from tacotoolbox._metadata import MetadataPackage
 from tacotoolbox._writers.export_writer import ExportWriter
@@ -27,11 +29,7 @@ from tacotoolbox._writers.zip_writer import ZipWriter
 logger = get_logger(__name__)
 
 
-class TranslateError(Exception):
-    """Raised when translation operations fail."""
-
-
-async def zip2folder(
+def zip2folder(
     input: str | Path,
     output: str | Path,
     limit: int = 100,
@@ -51,14 +49,23 @@ async def zip2folder(
         Path: Path to created FOLDER
 
     Raises:
-        TranslateError: If conversion fails
+        TacoCreationError: If conversion fails
 
     Example:
         >>> import tacotoolbox
         >>> tacotoolbox.verbose(False)  # Hide progress
-        >>> await zip2folder("dataset.tacozip", "dataset_folder/")
+        >>> zip2folder("dataset.tacozip", "dataset_folder/")
         PosixPath('dataset_folder')
     """
+    return asyncio.run(_zip2folder_async(input, output, limit))
+
+
+async def _zip2folder_async(
+    input: str | Path,
+    output: str | Path,
+    limit: int = 100,
+) -> Path:
+    """Internal async implementation for zip2folder."""
     try:
         logger.info(f"Converting ZIP to FOLDER: {input} → {output}")
 
@@ -72,11 +79,13 @@ async def zip2folder(
 
         result = await writer.create_folder()
 
+        logger.info(f"Conversion complete: {result}")
+
     except Exception as e:
         logger.exception("Failed to convert ZIP to FOLDER")
-        raise TranslateError(f"Failed to convert ZIP to FOLDER: {e}") from e
+        raise TacoCreationError(f"Failed to convert ZIP to FOLDER: {e}") from e
+
     else:
-        logger.info(f"Conversion complete: {result}")
         return result
 
 
@@ -103,7 +112,7 @@ def folder2zip(
         Path: Path to created .tacozip file
 
     Raises:
-        TranslateError: If conversion fails
+        TacoCreationError: If conversion fails
 
     Example:
         >>> import tacotoolbox
@@ -166,49 +175,61 @@ def folder2zip(
             **kwargs,
         )
 
+        logger.info(f"Conversion complete: {result}")
+
     except Exception as e:
         logger.exception("Failed to convert FOLDER to ZIP")
-        raise TranslateError(f"Failed to convert FOLDER to ZIP: {e}") from e
+        raise TacoCreationError(f"Failed to convert FOLDER to ZIP: {e}") from e
+
     else:
-        logger.info(f"Conversion complete: {result}")
         return result
 
 
 def _read_collection(folder_path: Path) -> dict:
-    """Read COLLECTION.json from FOLDER."""
+    """
+    Read COLLECTION.json from FOLDER.
+
+    Raises:
+        TacoCreationError: If file not found, invalid JSON, or missing required fields
+    """
     collection_path = folder_path / "COLLECTION.json"
 
     if not collection_path.exists():
-        raise TranslateError(f"COLLECTION.json not found in {folder_path}")
+        raise TacoCreationError(f"COLLECTION.json not found in {folder_path}")
 
     try:
         with open(collection_path, encoding="utf-8") as f:
             collection = json.load(f)
     except json.JSONDecodeError as e:
-        raise TranslateError(f"Invalid COLLECTION.json: {e}") from e
+        raise TacoCreationError(f"Invalid COLLECTION.json: {e}") from e
 
     # Validate required fields
     if "taco:pit_schema" not in collection:
-        raise TranslateError("COLLECTION.json missing 'taco:pit_schema'")
+        raise TacoCreationError("COLLECTION.json missing 'taco:pit_schema'")
 
     if "taco:field_schema" not in collection:
-        raise TranslateError("COLLECTION.json missing 'taco:field_schema'")
+        raise TacoCreationError("COLLECTION.json missing 'taco:field_schema'")
 
     return collection
 
 
 def _read_consolidated_metadata(folder_path: Path) -> list[pa.Table]:
-    """Read consolidated metadata from METADATA/levelX.parquet files."""
+    """
+    Read consolidated metadata from METADATA/levelX.parquet files.
+
+    Raises:
+        TacoCreationError: If METADATA directory not found, no level files, or read fails
+    """
     metadata_dir = folder_path / "METADATA"
 
     if not metadata_dir.exists():
-        raise TranslateError(f"METADATA directory not found in {folder_path}")
+        raise TacoCreationError(f"METADATA directory not found in {folder_path}")
 
     # Find all levelX.parquet files
     level_files = sorted(metadata_dir.glob("level*.parquet"))
 
     if not level_files:
-        raise TranslateError(f"No level*.parquet files found in {metadata_dir}")
+        raise TacoCreationError(f"No level*.parquet files found in {metadata_dir}")
 
     logger.debug(f"Found {len(level_files)} metadata files")
 
@@ -219,7 +240,7 @@ def _read_consolidated_metadata(folder_path: Path) -> list[pa.Table]:
             levels.append(table)
             logger.debug(f"Read {level_file.name}: {table.num_rows} rows")
         except Exception as e:
-            raise TranslateError(f"Failed to read {level_file}: {e}") from e
+            raise TacoCreationError(f"Failed to read {level_file}: {e}") from e
 
     return levels
 
@@ -293,11 +314,14 @@ def _scan_data_files(folder_path: Path) -> tuple[list[str], list[str]]:
     Builds parallel lists of source paths (absolute filesystem paths) and
     archive paths (paths within ZIP container). Excludes __meta__ files
     since they're regenerated during ZIP creation.
+
+    Raises:
+        TacoCreationError: If DATA directory not found or no data files found
     """
     data_dir = folder_path / "DATA"
 
     if not data_dir.exists():
-        raise TranslateError(f"DATA directory not found in {folder_path}")
+        raise TacoCreationError(f"DATA directory not found in {folder_path}")
 
     src_files = []
     arc_files = []
@@ -312,7 +336,7 @@ def _scan_data_files(folder_path: Path) -> tuple[list[str], list[str]]:
             arc_files.append(f"DATA/{relative}")
 
     if not src_files:
-        raise TranslateError(f"No data files found in {data_dir}")
+        raise TacoCreationError(f"No data files found in {data_dir}")
 
     logger.debug(f"Scanned {len(src_files)} data files")
     return src_files, arc_files

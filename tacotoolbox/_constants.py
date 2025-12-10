@@ -1,20 +1,12 @@
 """
 Global constants for tacotoolbox.
 
-Organization:
-- SHARED_*    : Used by both ZIP and FOLDER containers
-- ZIP_*       : ZIP container specific
-- FOLDER_*    : FOLDER container specific
-- TACOCAT_*   : TacoCat format specific
-- METADATA_*  : Metadata column names
-- PADDING_*   : Padding-related constants
-- PARQUET_*   : Parquet configuration (including CDC)
+Organized by: Metadata Columns, Core Fields, Hierarchy Limits, Padding,
+Parquet Configuration, ZIP Format, FOLDER Format, TacoCat Format,
+Cloud Storage, Documentation Templates.
 """
 
-# =============================================================================
-# METADATA COLUMNS (SHARED - used by both containers)
-# =============================================================================
-
+# Metadata Columns (shared with tacoreader)
 METADATA_PARENT_ID = "internal:parent_id"
 """Parent sample index in previous level DataFrame (enables relational queries)."""
 
@@ -27,7 +19,6 @@ METADATA_SIZE = "internal:size"
 METADATA_RELATIVE_PATH = "internal:relative_path"
 """Relative path from DATA/ directory (for consolidated metadata only)."""
 
-
 METADATA_COLUMNS_ORDER = [
     METADATA_PARENT_ID,
     METADATA_OFFSET,
@@ -36,17 +27,13 @@ METADATA_COLUMNS_ORDER = [
 ]
 """Preferred order for internal:* columns at end of DataFrames."""
 
-# =============================================================================
-# CORE FIELDS (SHARED - used in Sample datamodel)
-# =============================================================================
 
+# Core Fields (shared with tacoreader)
 SHARED_CORE_FIELDS = {"id", "type", "path"}
 """Core Sample fields that cannot be overwritten by extensions."""
 
-# =============================================================================
-# FIELD DESCRIPTIONS (SHARED - used in field_schema generation)
-# =============================================================================
 
+# Field Descriptions
 CORE_FIELD_DESCRIPTIONS: dict[str, str] = {
     "id": "Unique sample identifier within parent scope. Must be unique among siblings.",
     "type": "Sample type discriminator (FILE or FOLDER).",
@@ -61,15 +48,13 @@ INTERNAL_FIELD_DESCRIPTIONS: dict[str, str] = {
     "internal:offset": "Byte offset in container file where sample data begins. Used for GDAL /vsisubfile/ paths (ZIP, TACOCAT).",
     "internal:size": "Size in bytes of sample data. Derived from sample._size_bytes. Combined with offset for /vsisubfile/ in ZIP/TACOCAT (ZIP, FOLDER, TACOCAT).",
     "internal:gdal_vsi": "Complete GDAL Virtual File System path for direct data access (ZIP, FOLDER, TACOCAT).",
-    "internal:source_file": "Original source ZIP filename in TACOCAT consolidated datasets. Disambiguates samples from multiple sources (only TACOCAT).",
+    "internal:source_file": "Original source tacozip filename in TACOCAT consolidated datasets. Disambiguates samples from multiple sources (only TACOCAT).",
     "internal:relative_path": "Relative path from DATA/ directory. Format: {parent_path}/{id} or {id} for level0 (ZIP, FOLDER, TACOCAT).",
 }
 """Internal field descriptions for field_schema generation."""
 
-# =============================================================================
-# HIERARCHY LIMITS (SHARED)
-# =============================================================================
 
+# Hierarchy Limits (shared with tacoreader)
 SHARED_MAX_DEPTH = 5
 """Maximum hierarchy depth (0-5 means 6 levels total)."""
 
@@ -80,17 +65,13 @@ In TACO containers, we have 5 metadata levels (level0-level5) plus the
 COLLECTION.json entry, making 6 entries total in the TACO_HEADER.
 """
 
-# =============================================================================
-# PADDING (SHARED)
-# =============================================================================
 
+# Padding (shared with tacoreader)
 PADDING_PREFIX = "__TACOPAD__"
 """Prefix for auto-generated padding sample IDs."""
 
-# =============================================================================
-# PARQUET CDC CONFIGURATION (SHARED)
-# =============================================================================
 
+# Parquet Configuration
 PARQUET_CDC_DEFAULT_CONFIG = {
     "compression": "zstd",
     "compression_level": 13,
@@ -120,10 +101,8 @@ User-provided kwargs will override these defaults via merge:
     config = {**PARQUET_CDC_DEFAULT_CONFIG, **user_kwargs}
 """
 
-# =============================================================================
-# ZIP CONTAINER SPECIFIC
-# =============================================================================
 
+# ZIP Container Format
 ZIP_LFH_BASE_SIZE = 30
 """ZIP Local File Header base size in bytes (before filename)."""
 
@@ -148,10 +127,8 @@ ZIP_TACO_HEADER_DATA_SIZE = 116
 ZIP_TACO_HEADER_TOTAL_SIZE = ZIP_TACO_HEADER_LFH_SIZE + ZIP_TACO_HEADER_DATA_SIZE  # 157
 """Total size of TACO_HEADER in ZIP (LFH + data)."""
 
-# =============================================================================
-# FOLDER CONTAINER SPECIFIC
-# =============================================================================
 
+# FOLDER Container Format
 FOLDER_DATA_DIR = "DATA"
 """Directory name for data files in FOLDER container."""
 
@@ -164,64 +141,41 @@ FOLDER_META_FILENAME = "__meta__"
 FOLDER_COLLECTION_FILENAME = "COLLECTION.json"
 """Filename for collection metadata."""
 
-# =============================================================================
-# TACOCAT FORMAT SPECIFIC
-# =============================================================================
 
-TACOCAT_MAGIC = b"TACOCAT\x00"
-"""Magic number identifying TacoCat files (8 bytes)."""
-
-TACOCAT_VERSION = 1
-"""TacoCat format version (uint32)."""
+# TacoCat Format (shared with tacoreader)
+TACOCAT_FOLDER_NAME = ".tacocat"
+"""Fixed folder name for TACOCAT consolidated datasets."""
 
 TACOCAT_MAX_LEVELS = 6
 """
-Fixed number of levels in TacoCat format (always 6 entries).
-Structure: 5 metadata levels (level0-level5) + COLLECTION.json.
-When a level doesn't exist in the dataset, its entry contains zeros (offset=0, size=0).
-This static structure allows for deterministic offset calculations.
+Maximum number of levels in TACOCAT datasets.
+Structure: level0.parquet through level5.parquet (if they exist).
 """
-
-TACOCAT_HEADER_SIZE = 16
-"""TacoCat file header size: Magic(8) + Version(4) + MaxDepth(4)."""
-
-TACOCAT_INDEX_ENTRY_SIZE = 16
-"""Size of each index entry: Offset(8) + Size(8)."""
-
-TACOCAT_INDEX_SIZE = (
-    TACOCAT_MAX_LEVELS * TACOCAT_INDEX_ENTRY_SIZE + TACOCAT_INDEX_ENTRY_SIZE
-)  # 112
-"""Total index block size: 7 entries x 16 bytes."""
-
-TACOCAT_TOTAL_HEADER_SIZE = TACOCAT_HEADER_SIZE + TACOCAT_INDEX_SIZE  # 128
-"""Total header + index size (data starts at byte 128)."""
 
 TACOCAT_DEFAULT_PARQUET_CONFIG = {
     "compression": "zstd",
-    "compression_level": 13,
+    "compression_level": 19,
     "row_group_size": 65_536,
     "write_statistics": True,
     "use_content_defined_chunking": True,
 }
-"""Default Parquet config for TacoCat with CDC and optimized row groups."""
+"""
+Default Parquet config for TACOCAT with CDC and optimized compression.
 
-TACOCAT_FILENAME = "__TACOCAT__"
-"""Fixed filename for TacoCat consolidated files."""
+Higher compression_level (19) than standard config since TACOCAT files
+are written once and read many times.
+"""
 
-# =============================================================================
-# FILE PATHS (SHARED)
-# =============================================================================
 
+# File Paths (shared with tacoreader)
 SHARED_DATA_PREFIX = "DATA/"
 """Prefix for data files in archive paths."""
 
 SHARED_METADATA_PREFIX = "METADATA/"
 """Prefix for metadata files in archive paths."""
 
-# =============================================================================
-# CLOUD STORAGE & PROTOCOLS
-# =============================================================================
 
+# Cloud Storage & Protocols (shared with tacoreader)
 PROTOCOL_MAPPINGS = {
     "s3": {"standard": "s3://", "vsi": "/vsis3/"},
     "gcs": {"standard": "gs://", "vsi": "/vsigs/"},
@@ -238,10 +192,8 @@ Maps storage protocols to their standard URL scheme and GDAL VSI prefix.
 'alt' key provides alternative protocol names (e.g., azure:// vs az://).
 """
 
-# =============================================================================
-# DOCUMENTATION TEMPLATES & ASSETS
-# =============================================================================
 
+# Documentation Templates & Assets
 DOCS_TEMPLATE_HTML = "collection.html"
 """Jinja2 template for interactive HTML documentation."""
 
@@ -259,10 +211,3 @@ DOCS_JS_MAP = "map.js"
 
 DOCS_JS_UI = "ui-interactions.js"
 """JavaScript for UI interactions (tabs, copy buttons, syntax highlighting)."""
-
-# =============================================================================
-# VERSION INFO
-# =============================================================================
-
-TACO_SPECIFICATION_VERSION = "2.1.0"
-"""TACO spec version. v2.1.0: FOLDER uses Parquet+CDC instead of Avro."""

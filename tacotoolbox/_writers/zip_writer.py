@@ -34,7 +34,6 @@ import tacozip
 
 from tacotoolbox._column_utils import (
     align_arrow_schemas,
-    cast_table_to_schema,
     reorder_internal_columns,
 )
 from tacotoolbox._constants import (
@@ -42,16 +41,13 @@ from tacotoolbox._constants import (
     METADATA_PARENT_ID,
     METADATA_SIZE,
 )
+from tacotoolbox._exceptions import TacoCreationError
 from tacotoolbox._logging import get_logger
 from tacotoolbox._metadata import MetadataPackage
-from tacotoolbox._utils import is_padding_id
+from tacotoolbox._validation import is_padding_id
 from tacotoolbox._virtual_zip import VirtualTACOZIP
 
 logger = get_logger(__name__)
-
-
-class ZipWriterError(Exception):
-    """Raised when ZIP writing operations fail."""
 
 
 class ZipWriter:
@@ -116,7 +112,7 @@ class ZipWriter:
             pathlib.Path: Path to created .tacozip file
 
         Raises:
-            ZipWriterError: If ZIP creation fails
+            TacoCreationError: If ZIP creation fails
         """
         try:
             logger.info("Starting bottom-up __meta__ generation")
@@ -202,21 +198,10 @@ class ZipWriter:
                 if enriched_metadata_by_depth.get(depth):
                     original_level = metadata_package.levels[depth]
 
-                    # Extract field schema for this level
-                    field_schema = metadata_package.collection.get(
-                        "taco:field_schema", {}
-                    )
-                    level_schema = field_schema.get(f"level{depth}", [])
-
-                    # Cast all Tables to match schema before concatenating
+                    # Concatenate enriched tables (already have correct types from Pydantic validation)
                     enriched_tables = enriched_metadata_by_depth[depth]
-                    if level_schema:
-                        enriched_tables = [
-                            cast_table_to_schema(table, level_schema)
-                            for table in enriched_tables
-                        ]
 
-                    # Align schemas before concatenating
+                    # Align schemas and concatenate
                     aligned_tables = align_arrow_schemas(enriched_tables)
                     concatenated = pa.concat_tables(aligned_tables)
 
@@ -351,11 +336,14 @@ class ZipWriter:
 
             tacozip.update_header(zip_path=str(self.output_path), entries=real_entries)
 
-        except Exception:
-            logger.exception("Failed to create ZIP")
-            raise
-        else:
             logger.info(f"ZIP created successfully: {self.output_path}")
+
+        except Exception as e:
+            logger.exception("Failed to create ZIP")
+            raise TacoCreationError(
+                f"Failed to create ZIP at '{self.output_path}': {e}"
+            ) from e
+        else:
             return self.output_path
         finally:
             self._cleanup()
@@ -482,6 +470,9 @@ def _add_zip_offsets(
 
     Both values come from VirtualZIP. For FOLDER samples, points to __meta__ file.
     For FILE samples, points to actual data file.
+
+    Raises:
+        TacoCreationError: If offsets are missing for non-padding samples
     """
     offsets: list[int | None] = []
     sizes: list[int | None] = []
@@ -519,9 +510,9 @@ def _add_zip_offsets(
 
     # Fail fast if offsets are missing (indicates a bug in VirtualZIP calculation)
     if missing_offsets:
-        raise ValueError(
-            f"Offsets not found for {len(missing_offsets)} non-padding samples:\n"
-            f"  First 5: {missing_offsets[:5]}"
+        raise TacoCreationError(
+            f"Offsets not found for {len(missing_offsets)} non-padding samples. "
+            f"First 5: {missing_offsets[:5]}"
         )
 
     # Add size column

@@ -5,35 +5,32 @@ This module provides validation functions used during TACO creation to ensure:
 - Output paths are valid and available
 - Size parameters are correctly formatted
 - Format options are compatible with other parameters
+- Input files are in valid locations
 
 All validation functions raise TacoValidationError with clear, actionable
 error messages when validation fails.
 
 Functions:
+    - is_padding_id: Check if sample ID is auto-generated padding
     - validate_output_path: Check output path availability
+    - validate_common_directory: Validate all inputs are in same directory
     - validate_split_size: Parse and validate split size parameter
     - validate_format_value: Validate format parameter value
     - validate_format_and_split: Check format/split compatibility
     - parse_size: Convert human-readable sizes to bytes
-
-Exception:
-    - TacoValidationError: Base exception for all validation errors
 """
 
 import pathlib
 import re
 from typing import Literal
 
+from tacotoolbox._constants import PADDING_PREFIX
+from tacotoolbox._exceptions import TacoValidationError
 
-class TacoValidationError(Exception):
-    """
-    Raised when TACO creation validation fails.
 
-    Error messages are designed to be actionable, telling users exactly
-    what's wrong and how to fix it.
-    """
-
-    pass
+def is_padding_id(sample_id: str) -> bool:
+    """Check if sample ID is auto-generated padding."""
+    return sample_id.startswith(PADDING_PREFIX)
 
 
 def validate_output_path(
@@ -44,6 +41,9 @@ def validate_output_path(
 
     Checks that output path doesn't already exist to prevent accidental overwrite.
     Parent directories are created automatically if they don't exist.
+
+    Raises:
+        TacoValidationError: If output path already exists
     """
     if path.exists():
         if output_format == "zip":
@@ -58,6 +58,38 @@ def validate_output_path(
             )
 
 
+def validate_common_directory(inputs: list[str | pathlib.Path]) -> pathlib.Path:
+    """
+    Validate that all input files are in the same directory.
+
+    Returns the common parent directory for output auto-detection.
+    Used by tacocat and tacollection when output directory is not specified.
+
+    Args:
+        inputs: List of input file paths
+
+    Returns:
+        pathlib.Path: Common parent directory
+
+    Raises:
+        TacoValidationError: If files are in different directories or no inputs
+    """
+    if not inputs:
+        raise TacoValidationError("No input files provided")
+
+    input_paths = [pathlib.Path(p).resolve() for p in inputs]
+    parent_dirs = [p.parent for p in input_paths]
+    first_parent = parent_dirs[0]
+
+    if not all(parent == first_parent for parent in parent_dirs):
+        raise TacoValidationError(
+            "Input files are in different directories. "
+            "Please specify output directory explicitly."
+        )
+
+    return first_parent
+
+
 def validate_split_size(size_str: str) -> int:
     """
     Validate and parse split_size parameter to bytes.
@@ -67,6 +99,12 @@ def validate_split_size(size_str: str) -> int:
     - Value is positive (greater than zero)
 
     Uses parse_size() internally for actual parsing.
+
+    Returns:
+        int: Size in bytes
+
+    Raises:
+        TacoValidationError: If size format is invalid or value is non-positive
     """
     try:
         size_bytes = parse_size(size_str)
@@ -87,6 +125,9 @@ def validate_format_and_split(
 
     Ensures that split_size is only used with ZIP format, as FOLDER
     format doesn't support splitting.
+
+    Raises:
+        TacoValidationError: If split_size is used with folder format
     """
     if output_format == "folder" and split_size is not None:
         raise TacoValidationError(
@@ -100,6 +141,9 @@ def validate_format_value(output_format: str) -> None:
     Validate that format parameter has allowed value.
 
     Only "zip" and "folder" are valid TACO container formats.
+
+    Raises:
+        TacoValidationError: If format is not 'zip' or 'folder'
     """
     if output_format not in ("zip", "folder"):
         raise TacoValidationError(
@@ -120,6 +164,12 @@ def parse_size(size_str: str) -> int:
     Decimal values are supported (e.g., "4.5GB").
     Case-insensitive (e.g., "4gb" == "4GB").
     Whitespace between number and unit is allowed.
+
+    Returns:
+        int: Size in bytes
+
+    Raises:
+        ValueError: If size format is invalid
     """
     size_str = size_str.strip().upper()
 
