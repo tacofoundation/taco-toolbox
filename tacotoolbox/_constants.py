@@ -3,7 +3,7 @@ Global constants for tacotoolbox.
 
 Organized by: Metadata Columns, Core Fields, Hierarchy Limits, Padding,
 Parquet Configuration, ZIP Format, FOLDER Format, TacoCat Format,
-Cloud Storage, Documentation Templates.
+Reserved Names, Cloud Storage, Documentation Templates.
 """
 
 # Metadata Columns (shared with tacoreader)
@@ -164,6 +164,22 @@ Default Parquet config for TACOCAT with CDC and optimized compression.
 
 Higher compression_level (19) than standard config since TACOCAT files
 are written once and read many times.
+"""
+
+
+# Reserved Folder Names (shared with tacoreader)
+RESERVED_FOLDER_NAMES = frozenset(
+    {TACOCAT_FOLDER_NAME, FOLDER_DATA_DIR, FOLDER_METADATA_DIR}
+)
+"""
+Folder names reserved by TACO specification.
+
+These names cannot be used as output folder names in FOLDER format:
+- .tacocat: Reserved for TacoCat consolidated format
+- DATA: Reserved for FOLDER format data directory
+- METADATA: Reserved for FOLDER format metadata directory
+
+Using any of these names would conflict with TACO container structure.
 """
 
 

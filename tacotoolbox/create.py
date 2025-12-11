@@ -223,6 +223,19 @@ def _validate_all_inputs(
     validate_format_value(output_format)
     validate_output_path(output_path, output_format)
 
+    # Check reserved folder names for FOLDER format
+    if output_format == "folder":
+        from tacotoolbox._constants import RESERVED_FOLDER_NAMES
+
+        folder_name = output_path.name
+        if folder_name in RESERVED_FOLDER_NAMES:
+            raise TacoValidationError(
+                f"Output folder name '{folder_name}' is reserved by TACO specification.\n"
+                f"Reserved names: {', '.join(sorted(RESERVED_FOLDER_NAMES))}\n"
+                f"These names conflict with TACO container structure.\n"
+                f"Please choose a different output name."
+            )
+
     if split_size is not None:
         if output_format == "folder":
             raise TacoValidationError(
