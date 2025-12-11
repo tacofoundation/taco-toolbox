@@ -22,6 +22,7 @@ Functions:
 
 import pathlib
 import re
+from collections.abc import Sequence
 from typing import Literal
 
 from tacotoolbox._constants import PADDING_PREFIX
@@ -58,7 +59,9 @@ def validate_output_path(
             )
 
 
-def validate_common_directory(inputs: list[str | pathlib.Path]) -> pathlib.Path:
+def validate_common_directory(
+    inputs: Sequence[str | pathlib.Path],
+) -> pathlib.Path:
     """
     Validate that all input files are in the same directory.
 
@@ -66,7 +69,7 @@ def validate_common_directory(inputs: list[str | pathlib.Path]) -> pathlib.Path:
     Used by tacocat and tacollection when output directory is not specified.
 
     Args:
-        inputs: List of input file paths
+        inputs: Sequence of input file paths
 
     Returns:
         pathlib.Path: Common parent directory

@@ -6,7 +6,6 @@ from tacotoolbox.create import create
 from tacotoolbox.docs import generate_html, generate_markdown
 from tacotoolbox.export import export
 from tacotoolbox.tacocat import create_tacocat
-from tacotoolbox.tacollection import create_tacollection
 from tacotoolbox.translate import folder2zip, zip2folder
 
 
@@ -60,7 +59,6 @@ __version__ = _get_version()
 __all__ = [
     "create",
     "create_tacocat",
-    "create_tacollection",
     "datamodel",
     "export",
     "folder2zip",

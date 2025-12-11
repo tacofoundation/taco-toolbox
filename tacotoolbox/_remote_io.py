@@ -7,8 +7,7 @@ The use of obstore is temporary until I have time to properly review OpenDAL.
 
 Currently only used by export_writer.py for downloading remote ZIP entries.
 
-NOTE: This module was renamed from 'io.py' to 'remote_io.py' to avoid
-shadowing Python's standard library 'io' module.
+TODO: The use of obstore is temporary until get time to review OpenDAL properly.
 """
 
 import obstore as obs

@@ -2,9 +2,10 @@
 TacoCat - Consolidate multiple TACO datasets into .tacocat/ folder.
 
 Consolidates multiple .tacozip files into a single .tacocat/ folder with
-unified parquet files optimized for DuckDB queries.
+unified parquet files optimized for DuckDB queries plus COLLECTION.json metadata.
 """
 
+from collections.abc import Sequence
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,7 @@ from tacotoolbox._exceptions import (
     TacoValidationError,
 )
 from tacotoolbox._logging import get_logger
+from tacotoolbox._tacollection import create_tacollection
 from tacotoolbox._validation import validate_common_directory
 
 logger = get_logger(__name__)
@@ -48,7 +50,7 @@ def _estimate_row_group_size(num_rows: int, num_cols: int) -> int:
 
 
 def create_tacocat(
-    inputs: list[str | Path],
+    inputs: Sequence[str | Path],
     output: str | Path | None = None,
     parquet_kwargs: dict[str, Any] | None = None,
     validate_schema: bool = True,
@@ -57,7 +59,8 @@ def create_tacocat(
     Create .tacocat/ folder from multiple TACO datasets.
 
     Consolidates multiple .tacozip files into a single .tacocat/ folder
-    with unified parquet files optimized for DuckDB queries.
+    with unified parquet files optimized for DuckDB queries plus consolidated
+    COLLECTION.json metadata.
 
     If output is not specified, all input files must be in the same directory
     and .tacocat/ will be created there.
@@ -70,8 +73,15 @@ def create_tacocat(
         use_content_defined_chunking: True
         row_group_size: auto-estimated (10K-1M rows, ~128MB target)
 
+    Output structure:
+        .tacocat/
+        ├── level0.parquet
+        ├── level1.parquet
+        ├── level2.parquet
+        └── COLLECTION.json
+
     Args:
-        inputs: List of .tacozip file paths to consolidate
+        inputs: Sequence of .tacozip file paths to consolidate
         output: Output directory path (folder .tacocat/ will be created inside)
         parquet_kwargs: Optional PyArrow Parquet writer parameters
         validate_schema: If True, validate schemas match across datasets
@@ -161,7 +171,7 @@ class TacoCatWriter:
 
     def write(self, validate_schema: bool = True) -> None:
         """
-        Write consolidated .tacocat/ folder.
+        Write consolidated .tacocat/ folder with parquets + COLLECTION.json.
 
         Raises:
             TacoConsolidationError: If no datasets added or writing fails
@@ -174,17 +184,22 @@ class TacoCatWriter:
             f"Consolidating {len(self.datasets)} TACO datasets into .tacocat/..."
         )
 
+        # 1. Consolidate and write parquet files
         levels_data = self._consolidate_parquet_files(validate_schema)
         self._write_parquet_files(levels_data)
 
-        folder_size_gb = sum(
-            f.stat().st_size for f in self.output_path.glob("*.parquet")
-        ) / (1024**3)
+        # 2. Generate COLLECTION.json metadata
+        self._write_collection_metadata(validate_schema)
 
-        logger.info(f"TacoCat folder created: {self.output_path}")
+        # Calculate total folder size
+        folder_size_gb = sum(f.stat().st_size for f in self.output_path.glob("*")) / (
+            1024**3
+        )
+
+        logger.info(f"TacoCat created: {self.output_path}")
         logger.info(f"   Datasets: {len(self.datasets)}")
         logger.info(f"   Max depth: {self.max_depth}")
-        logger.info(f"   Folder size: {folder_size_gb:.2f} GB")
+        logger.info(f"   Total size: {folder_size_gb:.2f} GB")
 
     def _consolidate_parquet_files(self, validate_schema: bool) -> dict[int, pa.Table]:
         """
@@ -328,3 +343,19 @@ class TacoCatWriter:
                 f"     Wrote {output_file.name}: {size_mb:.2f} MB "
                 f"(row_group_size={actual_row_group_size:,})"
             )
+
+    def _write_collection_metadata(self, validate_schema: bool) -> None:
+        """Generate and write COLLECTION.json to .tacocat/ folder."""
+        logger.info("  Generating COLLECTION.json metadata...")
+
+        collection_path = self.output_path / "COLLECTION.json"
+
+        # Use create_tacollection with full output path
+        create_tacollection(
+            inputs=self.datasets,
+            output=collection_path,
+            validate_schema=validate_schema,
+        )
+
+        size_kb = collection_path.stat().st_size / 1024
+        logger.info(f"     Wrote COLLECTION.json: {size_kb:.2f} KB")

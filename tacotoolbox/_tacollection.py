@@ -1,9 +1,8 @@
 """
 TacoCollection - Merge multiple TACO datasets into global collection metadata.
 
-This module provides functionality to consolidate COLLECTION.json metadata
-from multiple TACO datasets. It validates schema consistency and sums sample
-counts across datasets to create a unified global collection.
+Internal module for consolidating COLLECTION.json metadata from multiple TACO
+datasets. Can be used standalone or called by tacocat to generate metadata.
 
 Key features:
 - Read COLLECTION.json from multiple TACO files
@@ -11,13 +10,13 @@ Key features:
 - Sum 'n' values across datasets
 - Merge spatial/temporal extents into global coverage
 - Store individual partition extents for query routing
-- Generate standard TACOLLECTION.json with consolidated metadata
 
 Main function:
     create_tacollection(): Merge multiple TACO datasets into single collection
 """
 
 import json
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -29,18 +28,14 @@ from tacotoolbox._validation import validate_common_directory
 
 
 def create_tacollection(
-    inputs: list[str | Path],
+    inputs: Sequence[str | Path],
     output: str | Path | None = None,
     validate_schema: bool = True,
 ) -> None:
     """
-    Create global TACOLLECTION.json from multiple TACO datasets.
+    Create global collection metadata from multiple TACO datasets.
 
-    Always generates a file named TACOLLECTION.json in the output directory.
-    This is a standard naming convention for global TACO collections.
-
-    If output is not specified, all input files must be in the same directory
-    and TACOLLECTION.json will be created there.
+    Generates a consolidated metadata file.
 
     Validates that all datasets have:
     - Identical taco:pit_schema structure (types)
@@ -50,6 +45,12 @@ def create_tacollection(
     Stores individual partition extents for query routing.
     Uses first dataset as base for other metadata.
 
+    Args:
+        inputs: Sequence of .tacozip file paths to consolidate
+        output: Output file path (e.g., 'TACOLLECTION.json' or '.tacocat/COLLECTION.json')
+                If None, creates COLLECTION.json in same dir as inputs
+        validate_schema: If True, validate schemas match across datasets
+
     Raises:
         TacoValidationError: If inputs are invalid or in different directories
         TacoConsolidationError: If consolidation fails
@@ -58,24 +59,19 @@ def create_tacollection(
     if not inputs:
         raise TacoConsolidationError("No datasets provided")
 
-    # Auto-detect output directory if not specified
+    # Auto-detect output path if not specified
     if output is None:
-        output = validate_common_directory(inputs)
+        common_dir = validate_common_directory(inputs)
+        output_path = common_dir / "COLLECTION.json"
+    else:
+        output_path = Path(output)
 
-    # Validate output directory
-    output = Path(output)
-
-    if not output.exists():
-        raise TacoConsolidationError(f"Output directory does not exist: {output}")
-
-    if not output.is_dir():
-        raise TacoConsolidationError(f"Output path must be a directory: {output}")
-
-    # Standard output filename
-    output_path = output / "TACOLLECTION.json"
-
+    # Validate output path
     if output_path.exists():
-        raise TacoConsolidationError(f"TACOLLECTION.json already exists in {output}")
+        raise TacoConsolidationError(f"Output file already exists: {output_path}")
+
+    # Ensure parent directory exists
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Read all collections
     collections = _read_collections(inputs)
@@ -120,7 +116,7 @@ def create_tacollection(
         json.dump(global_collection, f, indent=4)
 
 
-def _read_collections(tacozips: list[str | Path]) -> list[dict[str, Any]]:
+def _read_collections(tacozips: Sequence[str | Path]) -> list[dict[str, Any]]:
     """
     Read COLLECTION.json from all tacozips.
 
@@ -492,7 +488,7 @@ def _merge_temporal_extents(collections: list[dict[str, Any]]) -> list[str] | No
 
 
 def _collect_partition_extents(
-    collections: list[dict[str, Any]], tacozips: list[str | Path]
+    collections: list[dict[str, Any]], tacozips: Sequence[str | Path]
 ) -> list[dict[str, Any]]:
     """
     Collect individual spatial/temporal extents from each partition.

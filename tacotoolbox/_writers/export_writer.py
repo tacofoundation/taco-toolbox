@@ -37,7 +37,7 @@ from tacotoolbox._exceptions import (
 )
 from tacotoolbox._logging import get_logger
 from tacotoolbox._progress import progress_gather
-from tacotoolbox.remote_io import download_range
+from tacotoolbox._remote_io import download_range
 
 logger = get_logger(__name__)
 
@@ -244,7 +244,7 @@ class ExportWriter:
         - /vsisubfile/... paths (ZIP entries): Downloads bytes from offset/size
         - Regular filesystem paths: Direct file copy
 
-        Uses tacotoolbox.remote_io for all remote downloads (S3/HTTP/GCS).
+        Uses tacotoolbox._remote_io for all remote downloads (S3/HTTP/GCS).
         Local file I/O uses sync operations as they're fast and not the bottleneck.
         """
         async with semaphore:
@@ -261,7 +261,7 @@ class ExportWriter:
                         f.seek(offset)
                         data = f.read(size)
                 else:
-                    # Remote file: use tacotoolbox.remote_io.download_range
+                    # Remote file: use tacotoolbox._remote_io.download_range
                     data = await asyncio.to_thread(
                         download_range, clean_url, offset, size
                     )

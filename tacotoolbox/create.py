@@ -6,7 +6,8 @@ Main workflow:
 2. Validate inputs
 3. Generate metadata package
 4. Create container(s) using appropriate writer
-5. Cleanup temp files automatically
+5. Auto-consolidate into .tacocat/ when multiple ZIPs are created
+6. Cleanup temp files automatically
 
 Example:
     >>> import tacotoolbox
@@ -14,6 +15,7 @@ Example:
     >>> taco = Taco(tortilla=Tortilla(samples=[...]), ...)
     >>> paths = create(taco, "output.tacozip")  # auto-detects ZIP
     >>> paths = create(taco, "output_dataset")  # auto-detects FOLDER
+    >>> paths = create(taco, "data.tacozip", split_size="4GB")  # auto-creates .tacocat/
 """
 
 import pathlib
@@ -47,6 +49,7 @@ def create(  # noqa: C901
     output_format: Literal["zip", "folder", "auto"] = "auto",
     split_size: str | None = "4GB",
     group_by: str | list[str] | None = None,
+    consolidate: bool = True,
     temp_dir: str | pathlib.Path | None = None,
     **kwargs: Any,
 ) -> list[pathlib.Path]:
@@ -62,6 +65,12 @@ def create(  # noqa: C901
       (split_size is ignored, entire group goes into single file)
     - If group_by is None: Split by size using split_size parameter
 
+    Auto-consolidation (consolidate=True, default):
+    - When multiple ZIPs are created (split or grouped), automatically creates
+      .tacocat/ folder with consolidated parquets + COLLECTION.json metadata
+    - Enables querying all ZIPs together with TacoCatReader
+    - If consolidation fails, logs warning but keeps individual ZIPs
+
     Temp files from Sample(path=bytes) are always cleaned up after success.
 
     Args:
@@ -70,6 +79,7 @@ def create(  # noqa: C901
         output_format: Container format ("zip", "folder", or "auto")
         split_size: Max size per ZIP file (e.g., "4GB"), None disables splitting
         group_by: Column(s) to group by (creates one ZIP per unique value)
+        consolidate: Auto-create .tacocat/ when multiple ZIPs generated (default: True)
         temp_dir: Directory for temporary files (default: system temp)
         **kwargs: Additional Parquet writer parameters
 
@@ -101,7 +111,9 @@ def create(  # noqa: C901
         # but mypy doesn't know "auto" is handled above for the variable assignment
         final_format = cast(Literal["zip", "folder"], output_format)
 
-    _validate_all_inputs(taco, output_path, final_format, split_size, group_by)
+    _validate_all_inputs(
+        taco, output_path, final_format, split_size, group_by, consolidate
+    )
 
     # Adjust output path for folder format
     if final_format == "folder" and output_path.suffix.lower() in (".zip", ".tacozip"):
@@ -113,7 +125,10 @@ def create(  # noqa: C901
         split_size = None
         group_by = None
         temp_dir = None
-        logger.debug("Folder format: split_size, group_by, and temp_dir ignored")
+        consolidate = False
+        logger.debug(
+            "Folder format: split_size, group_by, temp_dir, and consolidate ignored"
+        )
 
     # Convert temp_dir to Path if provided
     temp_path_dir = pathlib.Path(temp_dir) if temp_dir else None
@@ -149,6 +164,16 @@ def create(  # noqa: C901
         logger.debug("Cleaning up temporary files from tortilla")
         _cleanup_tortilla_temp_files(taco.tortilla)
 
+        # Auto-consolidate when multiple ZIPs are created
+        if consolidate and len(result) > 1 and final_format == "zip":
+            try:
+                _create_consolidated_tacocat(result, output_path.parent)
+            except Exception as e:
+                logger.warning(
+                    f"Failed to create .tacocat/ consolidation: {e}\n"
+                    f"Individual ZIP files were created successfully."
+                )
+
     except (TacoCreationError, TacoValidationError):
         raise
     except Exception as e:
@@ -159,12 +184,38 @@ def create(  # noqa: C901
         return result
 
 
+def _create_consolidated_tacocat(
+    zip_paths: list[pathlib.Path],
+    output_dir: pathlib.Path,
+) -> None:
+    """
+    Create .tacocat/ folder from multiple ZIP files.
+
+    Automatically consolidates multiple ZIPs into a single queryable folder
+    with unified parquet files and COLLECTION.json metadata.
+
+    Assumes validation has already passed (no .tacocat/ conflict).
+    """
+    from tacotoolbox.tacocat import create_tacocat
+
+    logger.info(f"Creating .tacocat/ consolidation for {len(zip_paths)} ZIPs...")
+
+    create_tacocat(
+        inputs=zip_paths,
+        output=output_dir,
+        validate_schema=True,
+    )
+
+    logger.info(f"Consolidation complete: {output_dir / '.tacocat'}")
+
+
 def _validate_all_inputs(
     taco: Taco,
     output_path: pathlib.Path,
     output_format: Literal["zip", "folder"],
     split_size: str | None,
     group_by: str | list[str] | None,
+    consolidate: bool,
 ) -> None:
     """Validate all inputs before starting. Fails fast."""
     logger.debug("Validating inputs")
@@ -188,6 +239,19 @@ def _validate_all_inputs(
 
     if not taco.tortilla.samples:
         raise TacoValidationError("Cannot create container from empty tortilla")
+
+    # Check .tacocat/ conflict BEFORE creating any ZIPs (fail fast)
+    if consolidate and output_format == "zip" and (split_size or group_by):
+        tacocat_path = output_path.parent / ".tacocat"
+        if tacocat_path.exists():
+            raise TacoValidationError(
+                f".tacocat/ already exists in {output_path.parent}\n"
+                f"This conflicts with automatic consolidation.\n"
+                f"Options:\n"
+                f"  1. Remove existing .tacocat/ directory: rm -rf {tacocat_path}\n"
+                f"  2. Set consolidate=False to skip consolidation\n"
+                f"  3. Use a different output directory"
+            )
 
     logger.debug("All inputs validated successfully")
 
