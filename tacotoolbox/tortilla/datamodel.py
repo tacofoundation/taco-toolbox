@@ -24,7 +24,11 @@ import pyarrow as pa
 import pydantic
 
 from tacotoolbox._column_utils import align_arrow_schemas
-from tacotoolbox._constants import METADATA_PARENT_ID, SHARED_MAX_DEPTH
+from tacotoolbox._constants import (
+    METADATA_PARENT_ID,
+    SHARED_CORE_FIELDS,
+    SHARED_MAX_DEPTH,
+)
 
 if TYPE_CHECKING:
     from tacotoolbox.sample.datamodel import Sample
@@ -88,14 +92,23 @@ class Tortilla:
     - _field_descriptions: Field descriptions from extensions
     """
 
-    def __init__(
+    def __init__( #noqa: C901
         self,
         samples: list["Sample"],
         pad_to: int | None = None,
         strict_schema: bool = True,
+        _metadata_table: pa.Table | None = None,
     ) -> None:
         """
         Create Tortilla with Arrow Table construction and schema validation.
+
+        Args:
+            samples: List of Sample objects
+            pad_to: Auto-pad to make length divisible by this value
+            strict_schema: Require identical schemas across samples
+            _metadata_table: Pre-built metadata table (internal use for filtering).
+                           When provided, skips reconstruction and uses this table directly.
+                           This preserves TortillaExtension fields when creating filtered Tortillas.
 
         Raises:
             ValueError: If samples have inconsistent metadata schemas (strict_schema=True)
@@ -119,30 +132,46 @@ class Tortilla:
         # Check ordering best practice (only for mixed types)
         self._check_sample_ordering()
 
-        # Extract metadata from all samples
-        metadata_tables = []
-        for sample in samples:
-            metadata_tables.append(sample.export_metadata())
+        # Use pre-built table if provided (preserves TortillaExtension fields)
+        if _metadata_table is not None:
+            # Validate row count matches
+            if _metadata_table.num_rows != len(samples):
+                raise ValueError(
+                    f"Metadata table has {_metadata_table.num_rows} rows but "
+                    f"{len(samples)} samples provided"
+                )
+
+            self._metadata_table = _metadata_table
 
             # Collect field descriptions from samples
-            if hasattr(sample, "_field_descriptions"):
-                self._field_descriptions.update(sample._field_descriptions)
-
-        # Handle schema validation/alignment
-        if strict_schema:
-            reference_schema = metadata_tables[0].schema
-            for i, table in enumerate(metadata_tables[1:], start=1):
-                if not table.schema.equals(reference_schema):
-                    self._raise_schema_mismatch_error(
-                        i, samples[i], reference_schema, table.schema
-                    )
+            for sample in samples:
+                if hasattr(sample, "_field_descriptions"):
+                    self._field_descriptions.update(sample._field_descriptions)
         else:
-            metadata_tables = align_arrow_schemas(
-                metadata_tables, core_fields=["id", "type", "path"]
-            )
+            # Build table from samples (normal flow)
+            metadata_tables = []
+            for sample in samples:
+                metadata_tables.append(sample.export_metadata())
 
-        # Concatenate Arrow Tables
-        self._metadata_table = pa.concat_tables(metadata_tables)
+                # Collect field descriptions from samples
+                if hasattr(sample, "_field_descriptions"):
+                    self._field_descriptions.update(sample._field_descriptions)
+
+            # Handle schema validation/alignment
+            if strict_schema:
+                reference_schema = metadata_tables[0].schema
+                for i, table in enumerate(metadata_tables[1:], start=1):
+                    if not table.schema.equals(reference_schema):
+                        self._raise_schema_mismatch_error(
+                            i, samples[i], reference_schema, table.schema
+                        )
+            else:
+                metadata_tables = align_arrow_schemas(
+                    metadata_tables, core_fields=["id", "type", "path"]
+                )
+
+            # Concatenate Arrow Tables
+            self._metadata_table = pa.concat_tables(metadata_tables)
 
         # Calculate depth and size
         self._current_depth = self._calculate_current_depth()
@@ -383,6 +412,64 @@ class Tortilla:
             combined_arrays, schema=combined_schema
         )
         return self
+
+    def pop(self, field: str) -> pa.Table:
+        """
+        Remove and return a Tortilla extension field.
+
+        Only works for fields added via tortilla.extend_with(TortillaExtension).
+        For Sample extension fields, use sample.pop() on individual samples.
+
+        Args:
+            field: Name of the Tortilla extension field to pop
+
+        Returns:
+            Arrow Table with N rows (one per sample) containing the removed field
+
+        Raises:
+            ValueError: If field is a core field or comes from Sample extensions
+            KeyError: If field doesn't exist in metadata table
+        """
+        # Validate field is not core
+        if field in SHARED_CORE_FIELDS:
+            raise ValueError(
+                f"Cannot pop core field: '{field}'. "
+                f"Core fields are: {', '.join(SHARED_CORE_FIELDS)}"
+            )
+
+        # Check field exists in metadata table
+        if field not in self._metadata_table.schema.names:
+            available_fields = [
+                name
+                for name in self._metadata_table.schema.names
+                if name not in SHARED_CORE_FIELDS
+            ]
+            raise KeyError(
+                f"Field '{field}' does not exist in Tortilla metadata. "
+                f"Available extension fields: {available_fields}"
+            )
+
+        # Check this is a Tortilla extension field (not from Sample)
+        if self.samples and hasattr(self.samples[0], field):
+            raise ValueError(
+                f"Cannot pop '{field}': this field comes from Sample extensions. "
+                f"Use sample.pop('{field}') on individual samples instead."
+            )
+
+        # Extract the column as Arrow Table
+        field_column = self._metadata_table.column(field)
+        field_schema = pa.schema([self._metadata_table.schema.field(field)])
+        popped_table = pa.Table.from_arrays([field_column], schema=field_schema)
+
+        # Remove column from metadata table
+        field_index = self._metadata_table.schema.get_field_index(field)
+        self._metadata_table = self._metadata_table.remove_column(field_index)
+
+        # Remove from Tortilla's field descriptions
+        if field in self._field_descriptions:
+            del self._field_descriptions[field]
+
+        return popped_table
 
     def export_metadata(self, deep: int = 0) -> pa.Table:
         """

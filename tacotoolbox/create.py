@@ -23,6 +23,9 @@ import re
 import warnings
 from typing import TYPE_CHECKING, Any, Literal, cast
 
+import pyarrow as pa
+import pyarrow.compute as pc
+
 from tacotoolbox._exceptions import TacoCreationError, TacoValidationError
 from tacotoolbox._logging import get_logger
 from tacotoolbox._metadata import MetadataGenerator
@@ -404,7 +407,14 @@ def _create_grouped_zips(
     for group_key, group_samples in progress_bar(
         groups.items(), desc="Creating grouped ZIPs", unit="group", colour="cyan"
     ):
-        chunk_tortilla = Tortilla(samples=group_samples)
+        # Filter existing metadata table to preserve TortillaExtension fields
+        sample_ids = [s.id for s in group_samples]
+        id_column = taco.tortilla._metadata_table.column("id")
+        mask = pc.is_in(id_column, pa.array(sample_ids))
+        filtered_table = taco.tortilla._metadata_table.filter(mask)
+
+        chunk_tortilla = Tortilla(samples=group_samples, _metadata_table=filtered_table)
+
         chunk_taco_data = taco.model_dump()
         chunk_taco_data["tortilla"] = chunk_tortilla
         chunk_taco_data.pop("extent", None)
@@ -594,7 +604,14 @@ def _create_with_splitting(
         ),
         1,
     ):
-        chunk_tortilla = Tortilla(samples=chunk_samples)
+        # Filter existing metadata table to preserve TortillaExtension fields
+        sample_ids = [s.id for s in chunk_samples]
+        id_column = taco.tortilla._metadata_table.column("id")
+        mask = pc.is_in(id_column, pa.array(sample_ids))
+        filtered_table = taco.tortilla._metadata_table.filter(mask)
+
+        chunk_tortilla = Tortilla(samples=chunk_samples, _metadata_table=filtered_table)
+
         chunk_taco_data = taco.model_dump()
         chunk_taco_data["tortilla"] = chunk_tortilla
         chunk_taco_data.pop("extent", None)

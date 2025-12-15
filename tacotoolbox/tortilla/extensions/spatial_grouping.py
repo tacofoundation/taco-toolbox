@@ -96,24 +96,24 @@ class SpatialGrouping(TortillaExtension):
     Each spatial group will have samples that are spatially close,
     resulting in compact bounding boxes when computing extents.
 
-    Grouping modes:
-    - target_count only: Group by number of samples (default: 1000)
+    Grouping modes (you MUST specify at least one):
+    - target_count only: Group by number of samples
     - target_size only: Group by cumulative size ("1GB", "512MB", etc.)
     - Both: Cut group when EITHER limit is reached (whichever comes first)
 
     Examples:
-        # Group by sample count (default)
+        # Group by sample count
         spatial = SpatialGrouping(target_count=1000)
 
         # Group by size
-        spatial = SpatialGrouping(target_count=None, target_size="1GB")
+        spatial = SpatialGrouping(target_size="1GB")
 
         # Hybrid: whichever limit is hit first
         spatial = SpatialGrouping(target_count=1000, target_size="512MB")
     """
 
     target_count: int | None = Field(
-        default=1000,
+        default=None,
         gt=0,
         description="Maximum samples per spatial group (None = no limit)",
     )
@@ -130,7 +130,18 @@ class SpatialGrouping(TortillaExtension):
 
     @pydantic.model_validator(mode="after")
     def parse_target_size(self) -> "SpatialGrouping":
-        """Parse target_size string to bytes using parse_size()."""
+        """Parse target_size string to bytes and validate at least one limit."""
+        # Validate at least one limit is specified
+        if self.target_count is None and self.target_size is None:
+            raise ValueError(
+                "Must specify at least one of 'target_count' or 'target_size'.\n\n"
+                "Examples:\n"
+                "  SpatialGrouping(target_count=1000)      # Group by count\n"
+                "  SpatialGrouping(target_size='1GB')      # Group by size\n"
+                "  SpatialGrouping(target_count=1000, target_size='512MB')  # Both"
+            )
+
+        # Parse target_size if provided
         if self.target_size is not None:
             try:
                 self._target_size_bytes = parse_size(self.target_size)
