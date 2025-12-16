@@ -150,7 +150,7 @@ class Extent(TacoExtension):
 
     Spatial: [min_lon, min_lat, max_lon, max_lat] in WGS84 decimal degrees
     Temporal: [start_iso, end_iso] in ISO 8601 format (optional)
-    
+
     Note: Allows point extents where min == max for datasets with samples
     at a single location (e.g., time series at fixed coordinates).
     """

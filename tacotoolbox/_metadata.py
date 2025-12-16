@@ -33,7 +33,6 @@ import pyarrow.compute as pc
 
 from tacotoolbox._column_utils import (
     align_arrow_schemas,
-    remove_empty_columns,
     reorder_internal_columns,
 )
 from tacotoolbox._constants import (
@@ -273,8 +272,12 @@ class MetadataGenerator:
         if cols_to_drop:
             table = table.drop(cols_to_drop)
 
-        # Remove empty columns (preserves core + internal automatically)
-        table = remove_empty_columns(table, preserve_core=True, preserve_internal=True)
+        # Do not remove empty columns when using group_by.
+        # When creating multiple ZIPs via grouping, some groups may have all-None
+        # for certain columns while others have values. Removing empty columns
+        # breaks schema consistency across groups, causing TacoCat consolidation
+        # to fail with schema mismatch errors.
+        # table = remove_empty_columns(table, preserve_core=True, preserve_internal=True)
 
         if table.num_columns == 0:
             raise ValueError(
