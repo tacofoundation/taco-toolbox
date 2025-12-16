@@ -150,6 +150,9 @@ class Extent(TacoExtension):
 
     Spatial: [min_lon, min_lat, max_lon, max_lat] in WGS84 decimal degrees
     Temporal: [start_iso, end_iso] in ISO 8601 format (optional)
+    
+    Note: Allows point extents where min == max for datasets with samples
+    at a single location (e.g., time series at fixed coordinates).
     """
 
     spatial: list[float]  # [min_lon, min_lat, max_lon, max_lat]
@@ -171,11 +174,12 @@ class Extent(TacoExtension):
         if not (-90 <= min_lat <= 90) or not (-90 <= max_lat <= 90):
             raise ValueError("Latitude values must be between -90 and 90 degrees")
 
-        if min_lon >= max_lon:
-            raise ValueError("min_longitude must be less than max_longitude")
+        # Allow min == max for point extents (single location datasets)
+        if min_lon > max_lon:
+            raise ValueError("min_longitude cannot be greater than max_longitude")
 
-        if min_lat >= max_lat:
-            raise ValueError("min_latitude must be less than max_latitude")
+        if min_lat > max_lat:
+            raise ValueError("min_latitude cannot be greater than max_latitude")
 
         return v
 
