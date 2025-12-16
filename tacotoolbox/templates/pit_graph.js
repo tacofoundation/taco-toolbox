@@ -204,8 +204,8 @@ function renderPITGraph(pitSchema) {
                     toY: childNode.y
                 });
                 
-                // Only expand first child if it's a FOLDER
-                if (i === 0 && childType === 'FOLDER') {
+                // Expand first FOLDER found in visible children
+                if (!expandedChild && childType === 'FOLDER') {
                     expandedChild = childNode;
                 }
                 

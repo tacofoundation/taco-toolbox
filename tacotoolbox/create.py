@@ -414,6 +414,8 @@ def _create_grouped_zips(
         filtered_table = taco.tortilla._metadata_table.filter(mask)
 
         chunk_tortilla = Tortilla(samples=group_samples, _metadata_table=filtered_table)
+        # Preserve TortillaExtension field descriptions from parent
+        chunk_tortilla._field_descriptions.update(taco.tortilla._field_descriptions)
 
         chunk_taco_data = taco.model_dump()
         chunk_taco_data["tortilla"] = chunk_tortilla
@@ -611,6 +613,8 @@ def _create_with_splitting(
         filtered_table = taco.tortilla._metadata_table.filter(mask)
 
         chunk_tortilla = Tortilla(samples=chunk_samples, _metadata_table=filtered_table)
+        # Preserve TortillaExtension field descriptions from parent
+        chunk_tortilla._field_descriptions.update(taco.tortilla._field_descriptions)
 
         chunk_taco_data = taco.model_dump()
         chunk_taco_data["tortilla"] = chunk_tortilla
