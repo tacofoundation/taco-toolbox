@@ -9,6 +9,8 @@
 
 ## Dataset Information
 
+**Version**: {{ collection.get("dataset_version", "1.0.0") }}
+
 **License**: {{ collection.get("licenses", ["Unknown"])|join(", ") }}
 
 **Keywords**: {{ keywords|join(', ') if keywords else 'None' }}
@@ -16,12 +18,12 @@
 **Tasks**: {{ collection.get("tasks", [])|join(', ') if collection.get("tasks") else 'None' }}
 
 {% if sources %}
-## Sources
+## Dataset Overview
 
 **Partitions**: {{ sources["count"] }} file{% if sources["count"] != 1 %}s{% endif %}
 
 {% if extent.get("spatial") %}
-**Spatial coverage**: [{{ "%.2f"|format(extent["spatial"][0]) }}, {{ "%.2f"|format(extent["spatial"][1]) }}, {{ "%.2f"|format(extent["spatial"][2]) }}, {{ "%.2f"|format(extent["spatial"][3]) }}]
+**Spatial coverage**: [{{ "%.2f"|format(extent["spatial"][0]) }}, {{ "%.2f"|format(extent["spatial"][1]) }}, {{ "%.2f"|format(extent["spatial"][2]) }}, {{ "%.2f"|format(extent["spatial"][3]) }}] (WGS84)
 {% endif %}
 {% if extent.get("temporal") %}
 **Temporal coverage**: {{ extent["temporal"][0][:10] }} to {{ extent["temporal"][1][:10] }}
@@ -64,39 +66,106 @@
 ### Python
 
 ```python
-# pip install tacotoolbox
+# pip install tacoreader
 import tacoreader
 
 ds = tacoreader.load("{{ id }}.tacozip")
+print(f"ID: {ds.id}")
+print(f"Version: {ds.version}")
 print(f"Samples: {len(ds.data)}")
 ```
 
 ### R
 
 ```r
+# Coming soon: R support is planned but not yet available
 # install.packages("tacoreader")
 library(tacoreader)
 
 ds <- load_taco("{{ id }}.tacozip")
+cat(sprintf("ID: %s\n", ds$id))
+cat(sprintf("Version: %s\n", ds$version))
 cat(sprintf("Samples: %d\n", nrow(ds$data)))
 ```
 
 ### Julia
 
 ```julia
+# Coming soon: Julia support is planned but not yet available
 # using Pkg; Pkg.add("TacoReader")
 using TacoReader
 
 ds = load_taco("{{ id }}.tacozip")
+println("ID: ", ds.id)
+println("Version: ", ds.version)
 println("Samples: ", size(ds.data, 1))
 ```
 
+{% if collection.get("providers") %}
+## Data Providers
+
+{% for provider in collection["providers"] %}
+- **{{ provider.get("name", "Unknown") }}**{% if provider.get("organization") %} ({{ provider["organization"] }}){% endif %}{% if provider.get("role") %} - *{{ provider["role"] }}*{% endif %}
+
+{% endfor %}
+{% endif %}
+
 {% if collection.get("curators") %}
-## Curators
+## Dataset Curators
 
 {% for curator in collection["curators"] %}
-- **{{ curator.get("name", "Unknown") }}**{% if curator.get("organization") %} ({{ curator["organization"] }}){% endif %}
+- **{{ curator.get("name", "Unknown") }}**{% if curator.get("organization") %} ({{ curator["organization"] }}){% endif %}{% if curator.get("email") %} - {{ curator["email"] }}{% endif %}
+
 {% endfor %}
+{% endif %}
+
+{% if collection.get("publications") %}
+## Publications & Citations
+
+If you use this dataset in your research, please cite:
+
+{% for pub in collection["publications"] %}
+
+**DOI**: {{ pub.get("doi", "No DOI") }}
+
+{{ pub.get("citation", "No citation provided") }}
+{% if pub.get("summary") %}
+
+*{{ pub.get("summary") }}*
+{% endif %}
+
+---
+{% endfor %}
+
+### BibTeX
+
+```bibtex
+@dataset{ {{- collection.get("id", "dataset") -}} {{ collection.get("dataset_version", "2024").split(".")[0] }},
+  title = { {{- collection.get("title", collection.get("id", "Dataset")) -}} },
+  author = { 
+    {%- if collection.get("curators") -%}
+      {{ collection["curators"]|map(attribute='name')|join(' and ') }}
+    {%- else -%}
+      Unknown
+    {%- endif -%}
+  },
+  year = { 
+    {%- if extent.get("temporal") -%}
+      {{ extent["temporal"][0][:4] }}
+    {%- else -%}
+      2024
+    {%- endif -%}
+  },
+  version = { {{- collection.get("dataset_version", "1.0.0") -}} },
+  publisher = { 
+    {%- if collection.get("curators") and collection["curators"][0].get("organization") -%}
+      {{ collection["curators"][0]["organization"] }}
+    {%- else -%}
+      Unknown
+    {%- endif -%}
+  }
+}
+```
 {% endif %}
 
 ---

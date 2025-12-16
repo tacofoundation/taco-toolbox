@@ -92,7 +92,7 @@ class Tortilla:
     - _field_descriptions: Field descriptions from extensions
     """
 
-    def __init__( #noqa: C901
+    def __init__(  # noqa: C901
         self,
         samples: list["Sample"],
         pad_to: int | None = None,

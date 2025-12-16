@@ -287,10 +287,16 @@ println("Samples: ", size(ds.data, 1))</code></pre>
             <div class="citation-box">
                 <h3>How to Cite This Dataset</h3>
                 <p>If you use this dataset in your research, please cite:</p>
-                {% if collection.get("publications:list") %}
-                {% for pub in collection["publications:list"] %}
+                {% if collection.get("publications") %}
+                {% for pub in collection["publications"] %}
                 <div class="publication-item">
-                    {% if pub.get("doi") %}<div class="publication-doi"><a href="https://doi.org/{{ pub['doi'] }}" target="_blank">{{ pub['doi'] }}</a></div>{% endif %}
+                    {% if pub.get("doi") %}
+                    <div class="publication-doi">
+                        <a href="{{ 'https://doi.org/' + pub['doi'] if not pub['doi'].startswith('http') else pub['doi'] }}" target="_blank">
+                            {{ pub['doi'] }}
+                        </a>
+                    </div>
+                    {% endif %}
                     {% if pub.get("citation") %}<div class="publication-citation">{{ pub['citation'] }}</div>{% endif %}
                 </div>
                 {% endfor %}
