@@ -7,6 +7,9 @@ Reserved Names, Cloud Storage, Documentation Templates.
 """
 
 # Metadata Columns (shared with tacoreader)
+METADATA_CURRENT_ID = "internal:current_id"
+"""Current sample index at this level (enables O(1) position lookups and relational queries)."""
+
 METADATA_PARENT_ID = "internal:parent_id"
 """Parent sample index in previous level DataFrame (enables relational queries)."""
 
@@ -20,6 +23,7 @@ METADATA_RELATIVE_PATH = "internal:relative_path"
 """Relative path from DATA/ directory (for consolidated metadata only)."""
 
 METADATA_COLUMNS_ORDER = [
+    METADATA_CURRENT_ID,
     METADATA_PARENT_ID,
     METADATA_OFFSET,
     METADATA_SIZE,
@@ -44,6 +48,7 @@ Note: 'path' is excluded as it's removed during container materialization.
 """
 
 INTERNAL_FIELD_DESCRIPTIONS: dict[str, str] = {
+    "internal:current_id": "Current sample position at this level (0-indexed). Enables O(1) random access and relational JOINs (ZIP, FOLDER, TACOCAT).",
     "internal:parent_id": "Foreign key referencing parent sample position in previous level (ZIP, FOLDER, TACOCAT).",
     "internal:offset": "Byte offset in container file where sample data begins. Used for GDAL /vsisubfile/ paths (ZIP, TACOCAT).",
     "internal:size": "Size in bytes of sample data. Derived from sample._size_bytes. Combined with offset for /vsisubfile/ in ZIP/TACOCAT (ZIP, FOLDER, TACOCAT).",

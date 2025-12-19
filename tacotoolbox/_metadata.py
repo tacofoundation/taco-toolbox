@@ -6,6 +6,7 @@ This module generates the dual metadata system used by both ZIP and FOLDER conta
 1. CONSOLIDATED METADATA (METADATA/levelX files):
    - One file per hierarchy level (level0.parquet, level1.parquet, etc.)
    - Contains ALL samples at that level across the entire dataset
+   - Includes internal:current_id for O(1) position lookups (all levels)
    - Includes internal:parent_id for relational queries (all levels)
    - Includes internal:relative_path for fast SQL queries (level 1+ only)
    - Used for: sql queries, navigation, statistics
@@ -38,6 +39,7 @@ from tacotoolbox._column_utils import (
 from tacotoolbox._constants import (
     CORE_FIELD_DESCRIPTIONS,
     INTERNAL_FIELD_DESCRIPTIONS,
+    METADATA_CURRENT_ID,
     METADATA_PARENT_ID,
     METADATA_RELATIVE_PATH,
     PADDING_PREFIX,
@@ -62,23 +64,20 @@ class MetadataPackage:
     - Collection metadata (COLLECTION.json)
     - Schema information (PIT + field schemas)
 
+    The internal:current_id column stores each sample's position (0, 1, 2...) at its level.
     The internal:parent_id column enables hierarchical navigation via SQL JOINs.
     The internal:relative_path column enables fast queries without JOINs.
-    Level 0 uses row index as parent_id, while level 1+ link to parent rows.
 
     SQL examples:
-        # Level 0: Use 'id' directly (no relative_path)
-        SELECT * FROM level0 WHERE id = 'A'
+        # Simple JOIN using current_id and parent_id
+        SELECT l1.id, l0.id as parent_folder
+        FROM level0 l0
+        JOIN level1 l1 ON l1."internal:parent_id" = l0."internal:current_id"
+        WHERE l0.id = 'A'
 
         # Level 1+: Use relative_path (fast, no JOIN needed)
         SELECT * FROM level1
         WHERE "internal:relative_path" LIKE 'A/%'
-
-        # Traditional JOIN approach (works but slower):
-        SELECT l1.id, l0.id as parent_folder
-        FROM level0 l0
-        JOIN level1 l1 ON l1."internal:parent_id" = l0."internal:parent_id"
-        WHERE l0.id = 'A'
     """
 
     def __init__(
@@ -116,13 +115,20 @@ class MetadataGenerator:
             table = self.taco.tortilla.export_metadata(deep=depth)
             table = self._clean_table(table)
 
-            # Add internal:parent_id for level 0 as row index
+            # Add internal:current_id if not already present (deep>0 already has it)
+            if METADATA_CURRENT_ID not in table.schema.names:
+                current_id_array = pa.array(range(table.num_rows), type=pa.int64())
+                current_id_field = pa.field(METADATA_CURRENT_ID, pa.int64())
+                table = table.append_column(current_id_field, current_id_array)
+
+            # Add internal:parent_id for level 0 (uses current_id values)
             if depth == 0:
+                # For level0, parent_id equals current_id (self-referential for consistency)
                 parent_id_array = pa.array(range(table.num_rows), type=pa.int64())
                 parent_id_field = pa.field(METADATA_PARENT_ID, pa.int64())
                 table = table.append_column(parent_id_field, parent_id_array)
-                table = reorder_internal_columns(table)
 
+            table = reorder_internal_columns(table)
             tables.append(table)
 
         # Add internal:relative_path for fast SQL queries

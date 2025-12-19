@@ -7,7 +7,7 @@ for maximum throughput with remote data sources.
 
 Key features:
 - Concurrent file downloading from TacoDataset (S3/HTTP/local)
-- Automatic parent_id reindexing for consistency
+- Automatic current_id and parent_id reindexing for consistency
 - Recursive FOLDER handling with local metadata
 - Zero-copy data transfer via tacoreader.io
 - High-performance concurrent downloads with progress bars
@@ -30,7 +30,12 @@ from tacotoolbox._column_utils import (
     write_parquet_file,
     write_parquet_file_with_cdc,
 )
-from tacotoolbox._constants import FOLDER_DATA_DIR, FOLDER_METADATA_DIR
+from tacotoolbox._constants import (
+    FOLDER_DATA_DIR,
+    FOLDER_METADATA_DIR,
+    METADATA_CURRENT_ID,
+    METADATA_PARENT_ID,
+)
 from tacotoolbox._exceptions import (
     TacoCreationError,
     TacoValidationError,
@@ -115,7 +120,7 @@ class ExportWriter:
         1. Validates dataset (no level1+ joins, not empty)
         2. Creates FOLDER structure (DATA/, METADATA/)
         3. Copies files concurrently (FILEs and FOLDERs) with progress bars
-        4. Generates consolidated metadata with reindexed parent_id
+        4. Generates consolidated metadata with reindexed current_id and parent_id
         5. Creates COLLECTION.json with subset metadata
 
         Returns:
@@ -298,7 +303,7 @@ class ExportWriter:
         folder_path = self.data_dir / relative_path
         folder_path.mkdir(parents=True, exist_ok=True)
 
-        parent_id = folder_row["internal:parent_id"]
+        parent_id = folder_row[METADATA_PARENT_ID]
         next_level = level + 1
 
         # Check if next level exists
@@ -315,13 +320,13 @@ class ExportWriter:
         if folder_row.get("internal:source_file"):
             # TacoCat case: need to filter by both parent_id AND source_file
             children_table = self.dataset._duckdb.execute(
-                f'SELECT * FROM {safe_view_name} WHERE "internal:parent_id" = ? AND "internal:source_file" = ?',  # noqa: S608
+                f'SELECT * FROM {safe_view_name} WHERE "{METADATA_PARENT_ID}" = ? AND "internal:source_file" = ?',  # noqa: S608
                 [parent_id, folder_row["internal:source_file"]],
             ).fetch_arrow_table()
         else:
             # Single TACO case: only filter by parent_id
             children_table = self.dataset._duckdb.execute(
-                f'SELECT * FROM {safe_view_name} WHERE "internal:parent_id" = ?',  # noqa: S608
+                f'SELECT * FROM {safe_view_name} WHERE "{METADATA_PARENT_ID}" = ?',  # noqa: S608
                 [parent_id],
             ).fetch_arrow_table()
 
@@ -358,7 +363,8 @@ class ExportWriter:
         Generate consolidated metadata files (METADATA/levelX.parquet).
 
         Filters existing consolidated metadata to selected samples and reindexes
-        internal:parent_id to maintain relational consistency in the new dataset.
+        both internal:current_id and internal:parent_id to maintain relational
+        consistency in the new dataset.
 
         Also removes ZIP-specific columns (internal:offset, internal:size) since
         FOLDER format doesn't use them.
@@ -388,20 +394,29 @@ class ExportWriter:
                 filtered_table = table.filter(mask)
 
                 # Build mapping: old_parent_id -> new_parent_id
-                old_parent_ids = filtered_table.column("internal:parent_id").to_pylist()
+                old_parent_ids = filtered_table.column(METADATA_PARENT_ID).to_pylist()
                 parent_id_mapping = {old: new for new, old in enumerate(old_parent_ids)}
 
-                # Assign new sequential parent_id values
+                # Assign new sequential current_id values
+                new_current_ids = pa.array(
+                    range(filtered_table.num_rows), type=pa.int64()
+                )
+                current_id_idx = filtered_table.schema.get_field_index(
+                    METADATA_CURRENT_ID
+                )
+                filtered_table = filtered_table.set_column(
+                    current_id_idx, METADATA_CURRENT_ID, new_current_ids
+                )
+
+                # Assign new sequential parent_id values (same as current_id for level0)
                 new_parent_ids = pa.array(
                     range(filtered_table.num_rows), type=pa.int64()
                 )
-
-                # Replace parent_id column
                 parent_id_idx = filtered_table.schema.get_field_index(
-                    "internal:parent_id"
+                    METADATA_PARENT_ID
                 )
                 filtered_table = filtered_table.set_column(
-                    parent_id_idx, "internal:parent_id", new_parent_ids
+                    parent_id_idx, METADATA_PARENT_ID, new_parent_ids
                 )
 
                 filtered_table = filtered_table.combine_chunks()
@@ -415,23 +430,32 @@ class ExportWriter:
 
                 # Filter to children of selected parents
                 old_parent_ids_to_keep = list(parent_id_mapping.keys())
-                parent_id_column = table.column("internal:parent_id")
+                parent_id_column = table.column(METADATA_PARENT_ID)
                 mask = pc.is_in(parent_id_column, pa.array(old_parent_ids_to_keep))
                 filtered_table = table.filter(mask)
 
+                # Assign new sequential current_id values
+                new_current_ids = pa.array(
+                    range(filtered_table.num_rows), type=pa.int64()
+                )
+                current_id_idx = filtered_table.schema.get_field_index(
+                    METADATA_CURRENT_ID
+                )
+                filtered_table = filtered_table.set_column(
+                    current_id_idx, METADATA_CURRENT_ID, new_current_ids
+                )
+
                 # Remap parent_id values to new indices
-                old_pids = filtered_table.column("internal:parent_id").to_pylist()
+                old_pids = filtered_table.column(METADATA_PARENT_ID).to_pylist()
                 new_parent_ids = pa.array(
                     [parent_id_mapping[old_pid] for old_pid in old_pids],
                     type=pa.int64(),
                 )
-
-                # Replace parent_id column
                 parent_id_idx = filtered_table.schema.get_field_index(
-                    "internal:parent_id"
+                    METADATA_PARENT_ID
                 )
                 filtered_table = filtered_table.set_column(
-                    parent_id_idx, "internal:parent_id", new_parent_ids
+                    parent_id_idx, METADATA_PARENT_ID, new_parent_ids
                 )
 
                 filtered_table = filtered_table.combine_chunks()

@@ -25,6 +25,7 @@ import pydantic
 
 from tacotoolbox._column_utils import align_arrow_schemas
 from tacotoolbox._constants import (
+    METADATA_CURRENT_ID,
     METADATA_PARENT_ID,
     SHARED_CORE_FIELDS,
     SHARED_MAX_DEPTH,
@@ -478,7 +479,7 @@ class Tortilla:
         Args:
             deep: Expansion level (0-max depth)
                 - 0: Current level only (with extensions)
-                - >0: Expand N levels deep (base metadata only, adds internal:parent_id)
+                - >0: Expand N levels deep (adds internal:current_id and internal:parent_id)
 
         Raises:
             ValueError: If deep is negative or exceeds maximum depth
@@ -500,11 +501,11 @@ class Tortilla:
         """
         Build expanded Arrow Table for hierarchical samples.
 
-        Adds internal:parent_id column to link children to their parent's GLOBAL index.
-        This column is permanent and enables relational queries.
+        Adds internal:current_id (position at this level) and internal:parent_id
+        (link to parent's position) columns to enable relational queries.
 
-        Uses cumulative global index tracking to ensure parent_id values
-        reference the correct row in the previous level's DataFrame.
+        Uses cumulative global index tracking to ensure current_id and parent_id
+        values reference the correct row positions.
         """
         if target_deep > self._current_depth:
             raise ValueError(
@@ -529,11 +530,11 @@ class Tortilla:
                         for child_sample in tortilla_path.samples:
                             child_metadata_table = child_sample.export_metadata()
 
+                            # Add internal:parent_id (references parent's position)
                             parent_id_array = pa.array(
                                 [global_parent_idx], type=pa.int64()
                             )
                             parent_id_field = pa.field(METADATA_PARENT_ID, pa.int64())
-
                             child_metadata_table = child_metadata_table.append_column(
                                 parent_id_field, parent_id_array
                             )
@@ -541,13 +542,29 @@ class Tortilla:
                             next_tables.append(child_metadata_table)
                             next_samples.append(child_sample)
 
+            # After collecting all children at this level, add internal:current_id
+            # current_id = position in the current level (0, 1, 2, ...)
+            for idx, table in enumerate(next_tables):
+                current_id_array = pa.array([idx], type=pa.int64())
+                current_id_field = pa.field(METADATA_CURRENT_ID, pa.int64())
+                next_tables[idx] = table.append_column(
+                    current_id_field, current_id_array
+                )
+
             current_tables = next_tables
             current_samples = next_samples
 
         # Align schemas before concatenating
         if len(current_tables) > 1:
             current_tables = align_arrow_schemas(
-                current_tables, core_fields=["id", "type", "path", METADATA_PARENT_ID]
+                current_tables,
+                core_fields=[
+                    "id",
+                    "type",
+                    "path",
+                    METADATA_CURRENT_ID,
+                    METADATA_PARENT_ID,
+                ],
             )
 
         return pa.concat_tables(current_tables)
