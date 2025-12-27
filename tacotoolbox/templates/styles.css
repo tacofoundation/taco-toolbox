@@ -706,25 +706,26 @@ pre:hover .copy-button {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    background: linear-gradient(135deg, var(--taco-green) 0%, var(--taco-green-dark) 100%);
-    color: white;
+    background: white;
+    color: var(--taco-green);
     text-decoration: none;
     padding: 10px 16px;
     border-radius: 6px;
     font-size: 13px;
     font-weight: 600;
     transition: all 0.2s ease;
-    border: none;
+    border: 2px solid var(--taco-green);
     cursor: pointer;
     width: 100%;
     justify-content: center;
-    box-shadow: 0 2px 4px rgba(76, 175, 80, 0.2);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .download-button:hover {
-    background: linear-gradient(135deg, var(--taco-green-dark) 0%, var(--taco-green-dark) 100%);
+    background: var(--taco-green);
+    color: white;
     transform: translateY(-1px);
-    box-shadow: 0 4px 8px rgba(76, 175, 80, 0.3);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
 .download-button svg {
