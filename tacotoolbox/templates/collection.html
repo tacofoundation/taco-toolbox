@@ -23,6 +23,15 @@
     
     <!-- TACO custom styles -->
     <style>{{ css|safe }}</style>
+    
+    <!-- Theme color overrides -->
+    <style>
+        :root {
+            --taco-green: {{ colors.primary }};
+            --taco-green-dark: {{ colors.dark }};
+            --taco-green-light: {{ colors.light }};
+        }
+    </style>
 </head>
 <body>
     <div class="container">
@@ -103,11 +112,11 @@
         <!-- Structure -->
         {% if pit_schema %}
         <section id="structure" class="section">
-            <h2>TACO Structure (Position-Invariant Tree)</h2>
+            <h2>TACO Structure (Root-Sibling Uniform Tree)</h2>
             <p class="section-description">
                 Hierarchical structure showing representative samples across levels.
                 The "..." notation indicates additional samples following the same pattern.
-                All samples at the same level share identical structure (PIT constraint).
+                All samples at the same level share identical structure (RSUT constraint).
             </p>
 
             <h3>Hierarchy Details</h3>
@@ -196,11 +205,11 @@
             
             <!-- Python Code -->
             <div class="code-block" data-lang="python">
-                <pre><code class="language-python"># pip install tacotoolbox
+                <pre><code class="language-python"># pip install tacoreader
 import tacoreader
 
 # Load dataset
-ds = tacoreader.load("{{ collection.get('id', 'dataset') }}.tacozip")
+ds = tacoreader.load("{{ dataset_example_path }}")
 
 # Basic info
 print(f"ID: {ds.id}")
@@ -215,7 +224,7 @@ print(f"Samples: {len(ds.data)}")</code></pre>
 library(tacoreader)
 
 # Load dataset
-ds <- load_taco("{{ collection.get('id', 'dataset') }}.tacozip")
+ds <- load_taco("{{ dataset_example_path }}")
 
 # Basic info
 cat(sprintf("ID: %s\n", ds$id))
@@ -230,7 +239,7 @@ cat(sprintf("Samples: %d\n", nrow(ds$data)))</code></pre>
 using TacoReader
 
 # Load dataset
-ds = load_taco("{{ collection.get('id', 'dataset') }}.tacozip")
+ds = load_taco("{{ dataset_example_path }}")
 
 # Basic info
 println("ID: ", ds.id)
@@ -346,6 +355,7 @@ println("Samples: ", size(ds.data, 1))</code></pre>
     </div>
 
     <!-- Data for visualizations -->
+    <script>const themeColor = "{{ colors.primary }}";</script>
     <script>const pitSchemaData = {{ pit_schema_json|safe }};</script>
     <script>const datasetExtents = {{ extents_json|safe }};</script>
     <script>const downloadBaseUrl = {{ ('"%s"' % download_base_url)|safe if download_base_url else 'null' }};</script>
@@ -372,6 +382,6 @@ println("Samples: ", size(ds.data, 1))</code></pre>
     <!-- TACO custom scripts (always inline) -->
     <script>{{ js_pit|safe }}</script>
     <script>{{ js_ui|safe }}</script>
-    {% if js_map %}<script>{{ js_map|safe }}</script>{% endif %}
+    <script>{{ js_map|safe }}</script>
 </body>
 </html>

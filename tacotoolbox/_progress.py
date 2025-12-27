@@ -94,11 +94,24 @@ def progress_bar(
     """
     disable = not _should_show_progress()
 
-    return tqdm(iterable, desc=desc, total=total, unit=unit, colour=colour, leave=leave, disable=disable, **kwargs)
+    return tqdm(
+        iterable,
+        desc=desc,
+        total=total,
+        unit=unit,
+        colour=colour,
+        leave=leave,
+        disable=disable,
+        **kwargs,
+    )
 
 
 async def progress_gather(
-    *tasks, desc: str | None = None, unit: str = "task", colour: str | None = None, **kwargs: Any
+    *tasks,
+    desc: str | None = None,
+    unit: str = "task",
+    colour: str | None = None,
+    **kwargs: Any,
 ):
     """
     Async gather with progress bar (respects logging level).

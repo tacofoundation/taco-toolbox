@@ -618,7 +618,7 @@ pre:hover .copy-button {
     padding: 20px;
     background: linear-gradient(135deg, #F5F5F5 0%, #FAFAFA 100%);
     border-radius: 8px;
-    border-left: 4px solid #4CAF50;
+    border-left: 4px solid var(--taco-green);
 }
 
 .overview-stat {
@@ -629,7 +629,7 @@ pre:hover .copy-button {
 .overview-stat strong {
     display: block;
     font-size: 24px;
-    color: #4CAF50;
+    color: var(--taco-green);
     font-weight: 700;
     margin-bottom: 4px;
 }
@@ -673,10 +673,10 @@ pre:hover .copy-button {
 .map-popup-title {
     font-size: 15px;
     font-weight: 700;
-    color: #4CAF50;
+    color: var(--taco-green);
     margin-bottom: 10px;
     padding-bottom: 8px;
-    border-bottom: 2px solid #4CAF50;
+    border-bottom: 2px solid var(--taco-green);
 }
 
 .map-popup-row {
@@ -706,7 +706,7 @@ pre:hover .copy-button {
     display: inline-flex;
     align-items: center;
     gap: 8px;
-    background: linear-gradient(135deg, #4CAF50 0%, #388E3C 100%);
+    background: linear-gradient(135deg, var(--taco-green) 0%, var(--taco-green-dark) 100%);
     color: white;
     text-decoration: none;
     padding: 10px 16px;
@@ -722,7 +722,7 @@ pre:hover .copy-button {
 }
 
 .download-button:hover {
-    background: linear-gradient(135deg, #388E3C 0%, #2E7D32 100%);
+    background: linear-gradient(135deg, var(--taco-green-dark) 0%, var(--taco-green-dark) 100%);
     transform: translateY(-1px);
     box-shadow: 0 4px 8px rgba(76, 175, 80, 0.3);
 }

@@ -103,7 +103,7 @@ class MajorTOM(TortillaExtension):
 
         for lat in self._lats:
             circ_km = 2.0 * math.pi * self.R_EQUATOR_KM * math.cos(math.radians(lat))
-            n_cols = max(1, int(math.ceil(circ_km / self.dist_km)))
+            n_cols = max(1, math.ceil(circ_km / self.dist_km))
 
             lons_full = np.linspace(-180.0, 180.0, n_cols + 1)[:-1]
             lons_full = np.mod(lons_full, 360) - 180  # type: ignore[assignment]

@@ -85,9 +85,60 @@ def _load_vendor_files(templates_dir: Path) -> dict:
     return vendor_files
 
 
+def _get_color_variants(hex_color: str) -> dict[str, str]:
+    """
+    Generate color variants from a base hex color without external dependencies.
+
+    Args:
+        hex_color: Base color in hex format (with or without #)
+
+    Returns:
+        Dictionary with 'primary', 'dark', and 'light' color variants
+    """
+    # Normalize hex input
+    hex_color = hex_color.lstrip("#").upper()
+
+    if len(hex_color) != 6:
+        logger.warning(f"Invalid hex color '{hex_color}', using default green")
+        hex_color = "4CAF50"
+
+    try:
+        # Parse RGB components
+        r = int(hex_color[0:2], 16)
+        g = int(hex_color[2:4], 16)
+        b = int(hex_color[4:6], 16)
+
+        # Dark variant: reduce RGB by 25%
+        dark_r = max(0, int(r * 0.75))
+        dark_g = max(0, int(g * 0.75))
+        dark_b = max(0, int(b * 0.75))
+        dark = f"#{dark_r:02X}{dark_g:02X}{dark_b:02X}"
+
+        # Light variant: blend 70% toward white
+        light_r = min(255, int(r + (255 - r) * 0.70))
+        light_g = min(255, int(g + (255 - g) * 0.70))
+        light_b = min(255, int(b + (255 - b) * 0.70))
+        light = f"#{light_r:02X}{light_g:02X}{light_b:02X}"
+
+    except (ValueError, IndexError) as e:
+        logger.warning(f"Failed to parse hex color '{hex_color}': {e}, using default")
+        return {
+            "primary": "#4CAF50",
+            "dark": "#388E3C",
+            "light": "#C8E6C9",
+        }
+    else:
+        return {
+            "primary": f"#{hex_color}",
+            "dark": dark,
+            "light": light,
+        }
+
+
 def generate_markdown(
     input: str | Path,
     output: str | Path = "README.md",
+    dataset_example_path: str | None = None,
 ) -> None:
     """
     Generate Markdown documentation from TACOLLECTION.json.
@@ -95,6 +146,8 @@ def generate_markdown(
     Args:
         input: Path to TACOLLECTION.json file
         output: Output path for generated markdown
+        dataset_example_path: Real path for reproducible code examples.
+                            If None, uses collection ID with .tacozip extension
 
     Raises:
         ImportError: If jinja2 or markdown packages are not installed
@@ -117,6 +170,10 @@ def generate_markdown(
     except json.JSONDecodeError as e:
         raise TacoDocumentationError(f"Invalid JSON in {input}: {e}") from e
 
+    # Determine example path
+    if dataset_example_path is None:
+        dataset_example_path = f"{collection.get('id', 'dataset')}.tacozip"
+
     logger.debug("Rendering markdown template")
 
     try:
@@ -128,6 +185,7 @@ def generate_markdown(
             id=collection.get("id", "TACO Dataset"),
             description=collection.get("description", ""),
             keywords=collection.get("keywords", []),
+            dataset_example_path=dataset_example_path,
         )
 
     except Exception as e:
@@ -143,6 +201,8 @@ def generate_html(
     inline_deps: bool = True,
     catalogue_url: str = "https://tacofoundation.github.io/catalogue",
     download_base_url: str | None = None,
+    theme_color: str = "#4CAF50",
+    dataset_example_path: str | None = None,
 ) -> None:
     """
     Generate interactive HTML documentation from TACOLLECTION.json.
@@ -153,6 +213,9 @@ def generate_html(
         inline_deps: Embed JS libraries inline for offline usage
         catalogue_url: URL to link back to catalogue (None to hide)
         download_base_url: Base URL for file downloads (appends filename from extents)
+        theme_color: Primary theme color in hex format (e.g., "#4CAF50", "#FF5722")
+        dataset_example_path: Real path for reproducible code examples.
+                            If None, uses collection ID with .tacozip extension
 
     Raises:
         ImportError: If jinja2 or markdown packages are not installed
@@ -175,6 +238,15 @@ def generate_html(
     except json.JSONDecodeError as e:
         raise TacoDocumentationError(f"Invalid JSON in {input}: {e}") from e
 
+    # Generate color variants from theme color
+    colors = _get_color_variants(theme_color)
+    logger.debug(f"Theme colors: primary={colors['primary']}, dark={colors['dark']}, light={colors['light']}")
+
+    # Determine example path
+    if dataset_example_path is None:
+        dataset_example_path = f"{collection.get('id', 'dataset')}.tacozip"
+
+    # Extract RSUT schema (stored as pit_schema for backwards compatibility)
     pit_schema = collection.get("taco:pit_schema", {})
     pit_schema_json = json.dumps(pit_schema, indent=2)
 
@@ -232,6 +304,8 @@ def generate_html(
             vendor=vendor,
             catalogue_url=catalogue_url,
             download_base_url=download_base_url,
+            colors=colors,
+            dataset_example_path=dataset_example_path,
         )
 
     except Exception as e:

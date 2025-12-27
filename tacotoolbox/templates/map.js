@@ -6,19 +6,6 @@
  * color-coded partition rectangles and optional download links.
  */
 
-const PARTITION_COLORS = [
-    '#4CAF50',  // Green
-    '#2196F3',  // Blue
-    '#FF9800',  // Orange
-    '#9C27B0',  // Purple
-    '#F44336',  // Red
-    '#00BCD4',  // Cyan
-    '#FFEB3B',  // Yellow
-    '#795548',  // Brown
-    '#607D8B',  // Blue Grey
-    '#E91E63'   // Pink
-];
-
 document.addEventListener('DOMContentLoaded', function() {
     if (typeof datasetExtents === 'undefined') {
         console.warn('datasetExtents not found - map will not render');
@@ -29,6 +16,22 @@ document.addEventListener('DOMContentLoaded', function() {
         console.error('Leaflet library not loaded');
         return;
     }
+    
+    // Get theme color (injected from template) or fallback to default
+    const primaryColor = typeof themeColor !== 'undefined' ? themeColor : '#4CAF50';
+    
+    const PARTITION_COLORS = [
+        primaryColor,   // Use theme color as first partition color
+        '#2196F3',      // Blue
+        '#FF9800',      // Orange
+        '#9C27B0',      // Purple
+        '#F44336',      // Red
+        '#00BCD4',      // Cyan
+        '#FFEB3B',      // Yellow
+        '#795548',      // Brown
+        '#607D8B',      // Blue Grey
+        '#E91E63'       // Pink
+    ];
     
     // Create base map
     const map = L.map('dataset-map', {

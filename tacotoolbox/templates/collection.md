@@ -31,7 +31,7 @@
 {% endif %}
 
 {% if pit %}
-## Dataset Structure
+## Dataset Structure (Root-Sibling Uniform Tree)
 
 **Root**: {{ pit.get("root", {}).get("type", "UNKNOWN") }} ({{ "{:,}".format(pit.get("root", {}).get("n", 0)) }} samples)
 
@@ -69,7 +69,7 @@
 # pip install tacoreader
 import tacoreader
 
-ds = tacoreader.load("{{ id }}.tacozip")
+ds = tacoreader.load("{{ dataset_example_path }}")
 print(f"ID: {ds.id}")
 print(f"Version: {ds.version}")
 print(f"Samples: {len(ds.data)}")
@@ -82,7 +82,7 @@ print(f"Samples: {len(ds.data)}")
 # install.packages("tacoreader")
 library(tacoreader)
 
-ds <- load_taco("{{ id }}.tacozip")
+ds <- load_taco("{{ dataset_example_path }}")
 cat(sprintf("ID: %s\n", ds$id))
 cat(sprintf("Version: %s\n", ds$version))
 cat(sprintf("Samples: %d\n", nrow(ds$data)))
@@ -95,7 +95,7 @@ cat(sprintf("Samples: %d\n", nrow(ds$data)))
 # using Pkg; Pkg.add("TacoReader")
 using TacoReader
 
-ds = load_taco("{{ id }}.tacozip")
+ds = load_taco("{{ dataset_example_path }}")
 println("ID: ", ds.id)
 println("Version: ", ds.version)
 println("Samples: ", size(ds.data, 1))
