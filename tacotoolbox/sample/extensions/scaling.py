@@ -72,34 +72,26 @@ class Scaling(SampleExtension):
             return v
 
         if len(v) != 4:
-            raise ValueError(
-                "padding must be a list of 4 integers [top, right, bottom, left]"
-            )
+            raise ValueError("padding must be a list of 4 integers [top, right, bottom, left]")
         return [int(x) for x in v]
 
     def get_schema(self) -> pa.Schema:
         """Return the expected Arrow schema for this extension."""
         # Determine if factor/offset are lists or scalars
-        has_list = isinstance(self.scale_factor, list) or isinstance(
-            self.scale_offset, list
-        )
+        has_list = isinstance(self.scale_factor, list) or isinstance(self.scale_offset, list)
 
         if has_list:
-            return pa.schema(
-                [
-                    pa.field("scaling:scale_factor", pa.list_(pa.float32())),
-                    pa.field("scaling:scale_offset", pa.list_(pa.float32())),
-                    pa.field("scaling:padding", pa.list_(pa.int32())),
-                ]
-            )
+            return pa.schema([
+                pa.field("scaling:scale_factor", pa.list_(pa.float32())),
+                pa.field("scaling:scale_offset", pa.list_(pa.float32())),
+                pa.field("scaling:padding", pa.list_(pa.int32())),
+            ])
         else:
-            return pa.schema(
-                [
-                    pa.field("scaling:scale_factor", pa.float32()),
-                    pa.field("scaling:scale_offset", pa.float32()),
-                    pa.field("scaling:padding", pa.list_(pa.int32())),
-                ]
-            )
+            return pa.schema([
+                pa.field("scaling:scale_factor", pa.float32()),
+                pa.field("scaling:scale_offset", pa.float32()),
+                pa.field("scaling:padding", pa.list_(pa.int32())),
+            ])
 
     def get_field_descriptions(self) -> dict[str, str]:
         """Return field descriptions for each field."""
@@ -112,9 +104,7 @@ class Scaling(SampleExtension):
     def _compute(self, sample) -> pa.Table:
         """Actual computation logic - returns PyArrow Table."""
         # Determine output format based on inputs
-        has_list = isinstance(self.scale_factor, list) or isinstance(
-            self.scale_offset, list
-        )
+        has_list = isinstance(self.scale_factor, list) or isinstance(self.scale_offset, list)
 
         if has_list:
             # Convert to lists for consistency

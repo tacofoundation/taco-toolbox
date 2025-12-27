@@ -94,17 +94,13 @@ def create_tacocat(
     output_dir = validate_common_directory(inputs) if output is None else Path(output)
 
     if output_dir.exists() and output_dir.is_file():
-        raise TacoConsolidationError(
-            f"output must be a directory, not a file: {output}"
-        )
+        raise TacoConsolidationError(f"output must be a directory, not a file: {output}")
 
     output_dir.mkdir(parents=True, exist_ok=True)
     tacocat_folder = output_dir / TACOCAT_FOLDER_NAME
 
     if tacocat_folder.exists():
-        raise TacoConsolidationError(
-            f"{TACOCAT_FOLDER_NAME} already exists in {output_dir}"
-        )
+        raise TacoConsolidationError(f"{TACOCAT_FOLDER_NAME} already exists in {output_dir}")
 
     tacocat_folder.mkdir(parents=True, exist_ok=True)
 
@@ -163,9 +159,7 @@ class TacoCatWriter:
         try:
             tacozip.read_header(str(path))
         except Exception as e:
-            raise TacoConsolidationError(
-                f"Invalid TACO file (cannot read header): {path}\n  Error: {e}"
-            ) from e
+            raise TacoConsolidationError(f"Invalid TACO file (cannot read header): {path}\n  Error: {e}") from e
 
         self.datasets.append(path)
 
@@ -180,9 +174,7 @@ class TacoCatWriter:
         if not self.datasets:
             raise TacoConsolidationError("No datasets added. Use add_dataset() first.")
 
-        logger.info(
-            f"Consolidating {len(self.datasets)} TACO datasets into .tacocat/..."
-        )
+        logger.info(f"Consolidating {len(self.datasets)} TACO datasets into .tacocat/...")
 
         # 1. Consolidate and write parquet files
         levels_data = self._consolidate_parquet_files(validate_schema)
@@ -192,9 +184,7 @@ class TacoCatWriter:
         self._write_collection_metadata(validate_schema)
 
         # Calculate total folder size
-        folder_size_gb = sum(f.stat().st_size for f in self.output_path.glob("*")) / (
-            1024**3
-        )
+        folder_size_gb = sum(f.stat().st_size for f in self.output_path.glob("*")) / (1024**3)
 
         logger.info(f"TacoCat created: {self.output_path}")
         logger.info(f"   Datasets: {len(self.datasets)}")
@@ -210,13 +200,9 @@ class TacoCatWriter:
         reference_schemas: dict[int, pa.Schema] = {}
 
         for idx, dataset_path in enumerate(self.datasets):
-            logger.info(
-                f"  [{idx+1}/{len(self.datasets)}] Processing {dataset_path.name}"
-            )
+            logger.info(f"  [{idx + 1}/{len(self.datasets)}] Processing {dataset_path.name}")
 
-            self._process_single_dataset(
-                dataset_path, levels_data, reference_schemas, validate_schema
-            )
+            self._process_single_dataset(dataset_path, levels_data, reference_schemas, validate_schema)
 
         return self._merge_levels(levels_data)
 
@@ -237,9 +223,7 @@ class TacoCatWriter:
         try:
             entries = tacozip.read_header(str(dataset_path))
         except Exception as e:
-            raise TacoConsolidationError(
-                f"Failed to read header from {dataset_path}: {e}"
-            ) from e
+            raise TacoConsolidationError(f"Failed to read header from {dataset_path}: {e}") from e
 
         with open(dataset_path, "rb") as f:
             for level_idx, (offset, size) in enumerate(entries[:-1]):
@@ -252,27 +236,21 @@ class TacoCatWriter:
                 table = self._read_level_table(f, offset, size, dataset_path)
 
                 if validate_schema:
-                    self._validate_schema_for_level(
-                        table, level, dataset_path, reference_schemas
-                    )
+                    self._validate_schema_for_level(table, level, dataset_path, reference_schemas)
 
                 if level not in levels_data:
                     levels_data[level] = []
 
                 levels_data[level].append(table)
 
-    def _read_level_table(
-        self, f: Any, offset: int, size: int, dataset_path: Path
-    ) -> pa.Table:
+    def _read_level_table(self, f: Any, offset: int, size: int, dataset_path: Path) -> pa.Table:
         """Read a single level Table from file."""
         f.seek(offset)
         parquet_bytes = f.read(size)
         table = pq.read_table(BytesIO(parquet_bytes))
 
         # Add internal:source_file column
-        source_file_array = pa.array(
-            [dataset_path.name] * table.num_rows, type=pa.string()
-        )
+        source_file_array = pa.array([dataset_path.name] * table.num_rows, type=pa.string())
         source_file_field = pa.field("internal:source_file", pa.string())
 
         return table.append_column(source_file_field, source_file_array)
@@ -302,16 +280,12 @@ class TacoCatWriter:
         else:
             reference_schemas[level] = current_schema
 
-    def _merge_levels(
-        self, levels_data: dict[int, list[pa.Table]]
-    ) -> dict[int, pa.Table]:
+    def _merge_levels(self, levels_data: dict[int, list[pa.Table]]) -> dict[int, pa.Table]:
         """Merge Tables by level using schema alignment."""
         merged = {}
 
         for level in sorted(levels_data.keys()):
-            logger.info(
-                f"  Consolidating level {level} ({len(levels_data[level])} Tables)..."
-            )
+            logger.info(f"  Consolidating level {level} ({len(levels_data[level])} Tables)...")
 
             aligned_tables = align_arrow_schemas(levels_data[level])
             merged[level] = pa.concat_tables(aligned_tables)
@@ -339,10 +313,7 @@ class TacoCatWriter:
 
             size_mb = output_file.stat().st_size / (1024**2)
             actual_row_group_size = pq_config.get("row_group_size", row_group_size)
-            logger.info(
-                f"     Wrote {output_file.name}: {size_mb:.2f} MB "
-                f"(row_group_size={actual_row_group_size:,})"
-            )
+            logger.info(f"     Wrote {output_file.name}: {size_mb:.2f} MB (row_group_size={actual_row_group_size:,})")
 
     def _write_collection_metadata(self, validate_schema: bool) -> None:
         """Generate and write COLLECTION.json to .tacocat/ folder."""

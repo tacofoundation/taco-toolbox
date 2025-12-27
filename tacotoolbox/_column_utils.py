@@ -68,14 +68,10 @@ def align_arrow_schemas(
 
     # Define column ordering: core first, then extensions alphabetically
     extension_fields = sorted([col for col in all_fields if col not in core_fields])
-    ordered_columns = [
-        col for col in core_fields if col in all_fields
-    ] + extension_fields
+    ordered_columns = [col for col in core_fields if col in all_fields] + extension_fields
 
     # Build target schema with ordered columns
-    target_schema = pa.schema(
-        [pa.field(name, all_fields[name]) for name in ordered_columns]
-    )
+    target_schema = pa.schema([pa.field(name, all_fields[name]) for name in ordered_columns])
 
     # Align each table to target schema
     aligned_tables = []
@@ -124,13 +120,9 @@ def reorder_internal_columns(table: pa.Table) -> pa.Table:
            internal:size → other internal:* columns
     """
     regular_cols = [col for col in table.schema.names if not is_internal_column(col)]
-    ordered_internal = [
-        col for col in METADATA_COLUMNS_ORDER if col in table.schema.names
-    ]
+    ordered_internal = [col for col in METADATA_COLUMNS_ORDER if col in table.schema.names]
     other_internal = [
-        col
-        for col in table.schema.names
-        if is_internal_column(col) and col not in METADATA_COLUMNS_ORDER
+        col for col in table.schema.names if is_internal_column(col) and col not in METADATA_COLUMNS_ORDER
     ]
 
     new_order = regular_cols + ordered_internal + other_internal
@@ -181,9 +173,7 @@ def remove_empty_columns(
     return table.select(cols_to_keep)
 
 
-def validate_schema_consistency(
-    tables: list[pa.Table], context: str = "Table list"
-) -> None:
+def validate_schema_consistency(tables: list[pa.Table], context: str = "Table list") -> None:
     """
     Validate all Tables have consistent schemas for safe vertical concatenation.
 
@@ -226,9 +216,7 @@ def validate_schema_consistency(
             curr_type = current_schema.field(col).type
 
             if ref_type != curr_type:
-                type_mismatches.append(
-                    f"  Column '{col}': expected {ref_type}, got {curr_type}"
-                )
+                type_mismatches.append(f"  Column '{col}': expected {ref_type}, got {curr_type}")
 
         if type_mismatches:
             error_msg = f"{context}: Type mismatches at index {i}:\n"
@@ -236,17 +224,12 @@ def validate_schema_consistency(
             raise ValueError(error_msg)
 
 
-def ensure_columns_exist(
-    table: pa.Table, required_columns: list[str], context: str = "Table"
-) -> None:
+def ensure_columns_exist(table: pa.Table, required_columns: list[str], context: str = "Table") -> None:
     """Validate Table contains all required columns."""
     missing = [col for col in required_columns if col not in table.schema.names]
 
     if missing:
-        raise ValueError(
-            f"{context}: Missing required columns: {missing}\n"
-            f"Available columns: {table.schema.names}"
-        )
+        raise ValueError(f"{context}: Missing required columns: {missing}\nAvailable columns: {table.schema.names}")
 
 
 def read_metadata_file(file_path: Path | str) -> pa.Table:
@@ -256,10 +239,7 @@ def read_metadata_file(file_path: Path | str) -> pa.Table:
     if file_path.suffix == ".parquet":
         return pq.read_table(file_path)
     else:
-        raise ValueError(
-            f"Unsupported metadata format: {file_path.suffix}\n"
-            f"Expected .parquet, got {file_path}"
-        )
+        raise ValueError(f"Unsupported metadata format: {file_path.suffix}\nExpected .parquet, got {file_path}")
 
 
 def write_parquet_file(table: pa.Table, output_path: Path | str, **kwargs: Any) -> None:
@@ -274,9 +254,7 @@ def write_parquet_file(table: pa.Table, output_path: Path | str, **kwargs: Any) 
     pq.write_table(table, output_path, **parquet_config)
 
 
-def write_parquet_file_with_cdc(
-    table: pa.Table, output_path: Path | str, **kwargs: Any
-) -> None:
+def write_parquet_file_with_cdc(table: pa.Table, output_path: Path | str, **kwargs: Any) -> None:
     """
     Write Parquet with Content-Defined Chunking (for consolidated metadata).
 

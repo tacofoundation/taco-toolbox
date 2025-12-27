@@ -173,9 +173,7 @@ are written once and read many times.
 
 
 # Reserved Folder Names (shared with tacoreader)
-RESERVED_FOLDER_NAMES = frozenset(
-    {TACOCAT_FOLDER_NAME, FOLDER_DATA_DIR, FOLDER_METADATA_DIR}
-)
+RESERVED_FOLDER_NAMES = frozenset({TACOCAT_FOLDER_NAME, FOLDER_DATA_DIR, FOLDER_METADATA_DIR})
 """
 Folder names reserved by TACO specification.
 

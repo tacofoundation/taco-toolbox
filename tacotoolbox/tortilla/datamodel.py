@@ -138,8 +138,7 @@ class Tortilla:
             # Validate row count matches
             if _metadata_table.num_rows != len(samples):
                 raise ValueError(
-                    f"Metadata table has {_metadata_table.num_rows} rows but "
-                    f"{len(samples)} samples provided"
+                    f"Metadata table has {_metadata_table.num_rows} rows but {len(samples)} samples provided"
                 )
 
             self._metadata_table = _metadata_table
@@ -163,13 +162,9 @@ class Tortilla:
                 reference_schema = metadata_tables[0].schema
                 for i, table in enumerate(metadata_tables[1:], start=1):
                     if not table.schema.equals(reference_schema):
-                        self._raise_schema_mismatch_error(
-                            i, samples[i], reference_schema, table.schema
-                        )
+                        self._raise_schema_mismatch_error(i, samples[i], reference_schema, table.schema)
             else:
-                metadata_tables = align_arrow_schemas(
-                    metadata_tables, core_fields=["id", "type", "path"]
-                )
+                metadata_tables = align_arrow_schemas(metadata_tables, core_fields=["id", "type", "path"])
 
             # Concatenate Arrow Tables
             self._metadata_table = pa.concat_tables(metadata_tables)
@@ -200,8 +195,7 @@ class Tortilla:
 
         if depth > SHARED_MAX_DEPTH:
             raise ValueError(
-                f"{context}: depth {depth} exceeds maximum of {SHARED_MAX_DEPTH} "
-                f"(levels 0-{SHARED_MAX_DEPTH})"
+                f"{context}: depth {depth} exceeds maximum of {SHARED_MAX_DEPTH} (levels 0-{SHARED_MAX_DEPTH})"
             )
 
     def _raise_schema_mismatch_error(
@@ -252,15 +246,10 @@ class Tortilla:
         resulting in missing files in the final container.
         """
         ids = [s.id for s in self.samples]
-        duplicates = {
-            sample_id: count for sample_id, count in Counter(ids).items() if count > 1
-        }
+        duplicates = {sample_id: count for sample_id, count in Counter(ids).items() if count > 1}
 
         if duplicates:
-            dup_list = ", ".join(
-                f"'{sample_id}' ({count}x)"
-                for sample_id, count in list(duplicates.items())[:10]
-            )
+            dup_list = ", ".join(f"'{sample_id}' ({count}x)" for sample_id, count in list(duplicates.items())[:10])
 
             raise ValueError(
                 f"Duplicate sample IDs found in Tortilla: {dup_list}\n"
@@ -299,17 +288,11 @@ class Tortilla:
             dummy = Sample._create_padding(index=i)
 
             # Get extension columns (excluding core fields)
-            extension_cols = [
-                field.name
-                for field in ref_table.schema
-                if field.name not in ["id", "type", "path"]
-            ]
+            extension_cols = [field.name for field in ref_table.schema if field.name not in ["id", "type", "path"]]
 
             if extension_cols:
                 # Create Arrow Table with None values using reference schema
-                extension_schema = pa.schema(
-                    [ref_table.schema.field(col) for col in extension_cols]
-                )
+                extension_schema = pa.schema([ref_table.schema.field(col) for col in extension_cols])
                 none_data = {col: [None] for col in extension_cols}
                 padding_table = pa.Table.from_pydict(none_data, schema=extension_schema)
 
@@ -333,15 +316,9 @@ class Tortilla:
             (i for i, sample in enumerate(self.samples) if sample.type == "FOLDER"),
             None,
         )
-        first_file_idx = next(
-            (i for i, sample in enumerate(self.samples) if sample.type == "FILE"), None
-        )
+        first_file_idx = next((i for i, sample in enumerate(self.samples) if sample.type == "FILE"), None)
 
-        if (
-            first_file_idx is not None
-            and first_folder_idx is not None
-            and first_file_idx < first_folder_idx
-        ):
+        if first_file_idx is not None and first_folder_idx is not None and first_file_idx < first_folder_idx:
             warnings.warn(
                 f"Consider placing FOLDERs before FILEs for better organization. "
                 f"Found FILE at position {first_file_idx} before FOLDER at position {first_folder_idx}.",
@@ -386,9 +363,7 @@ class Tortilla:
                 f"expected {self._metadata_table.num_rows} (one per sample)."
             )
 
-        conflicts = set(result_table.schema.names) & set(
-            self._metadata_table.schema.names
-        )
+        conflicts = set(result_table.schema.names) & set(self._metadata_table.schema.names)
         if conflicts:
             raise ValueError(f"Column conflicts: {sorted(conflicts)}")
 
@@ -397,21 +372,12 @@ class Tortilla:
             descriptions = extension.get_field_descriptions()
             self._field_descriptions.update(descriptions)
 
-        combined_schema = pa.schema(
-            list(self._metadata_table.schema) + list(result_table.schema)
-        )
+        combined_schema = pa.schema(list(self._metadata_table.schema) + list(result_table.schema))
 
-        combined_arrays = [
-            self._metadata_table.column(i)
-            for i in range(self._metadata_table.num_columns)
-        ]
-        combined_arrays.extend(
-            [result_table.column(i) for i in range(result_table.num_columns)]
-        )
+        combined_arrays = [self._metadata_table.column(i) for i in range(self._metadata_table.num_columns)]
+        combined_arrays.extend([result_table.column(i) for i in range(result_table.num_columns)])
 
-        self._metadata_table = pa.Table.from_arrays(
-            combined_arrays, schema=combined_schema
-        )
+        self._metadata_table = pa.Table.from_arrays(combined_arrays, schema=combined_schema)
         return self
 
     def pop(self, field: str) -> pa.Table:
@@ -433,21 +399,13 @@ class Tortilla:
         """
         # Validate field is not core
         if field in SHARED_CORE_FIELDS:
-            raise ValueError(
-                f"Cannot pop core field: '{field}'. "
-                f"Core fields are: {', '.join(SHARED_CORE_FIELDS)}"
-            )
+            raise ValueError(f"Cannot pop core field: '{field}'. Core fields are: {', '.join(SHARED_CORE_FIELDS)}")
 
         # Check field exists in metadata table
         if field not in self._metadata_table.schema.names:
-            available_fields = [
-                name
-                for name in self._metadata_table.schema.names
-                if name not in SHARED_CORE_FIELDS
-            ]
+            available_fields = [name for name in self._metadata_table.schema.names if name not in SHARED_CORE_FIELDS]
             raise KeyError(
-                f"Field '{field}' does not exist in Tortilla metadata. "
-                f"Available extension fields: {available_fields}"
+                f"Field '{field}' does not exist in Tortilla metadata. Available extension fields: {available_fields}"
             )
 
         # Check this is a Tortilla extension field (not from Sample)
@@ -488,10 +446,7 @@ class Tortilla:
 
         if deep == 0:
             return pa.Table.from_arrays(
-                [
-                    self._metadata_table.column(i)
-                    for i in range(self._metadata_table.num_columns)
-                ],
+                [self._metadata_table.column(i) for i in range(self._metadata_table.num_columns)],
                 schema=self._metadata_table.schema,
             )
 
@@ -531,13 +486,9 @@ class Tortilla:
                             child_metadata_table = child_sample.export_metadata()
 
                             # Add internal:parent_id (references parent's position)
-                            parent_id_array = pa.array(
-                                [global_parent_idx], type=pa.int64()
-                            )
+                            parent_id_array = pa.array([global_parent_idx], type=pa.int64())
                             parent_id_field = pa.field(METADATA_PARENT_ID, pa.int64())
-                            child_metadata_table = child_metadata_table.append_column(
-                                parent_id_field, parent_id_array
-                            )
+                            child_metadata_table = child_metadata_table.append_column(parent_id_field, parent_id_array)
 
                             next_tables.append(child_metadata_table)
                             next_samples.append(child_sample)
@@ -547,9 +498,7 @@ class Tortilla:
             for idx, table in enumerate(next_tables):
                 current_id_array = pa.array([idx], type=pa.int64())
                 current_id_field = pa.field(METADATA_CURRENT_ID, pa.int64())
-                next_tables[idx] = table.append_column(
-                    current_id_field, current_id_array
-                )
+                next_tables[idx] = table.append_column(current_id_field, current_id_array)
 
             current_tables = next_tables
             current_samples = next_samples

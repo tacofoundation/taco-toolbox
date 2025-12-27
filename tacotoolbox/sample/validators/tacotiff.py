@@ -22,9 +22,7 @@ def requires_gdal(min_version="3.11"):
 
         def _raise_gdal_version_error(current_version, min_version):
             """Raise ImportError for GDAL version mismatch."""
-            raise ImportError(
-                f"GDAL {min_version}+ required. Current: {current_version}"
-            )
+            raise ImportError(f"GDAL {min_version}+ required. Current: {current_version}")
 
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -84,15 +82,11 @@ class TacotiffValidator(SampleValidator):
 
         # Check sample type is FILE
         if sample.type != "FILE":
-            raise ValidationError(
-                f"TACOTIFF requires type='FILE', got type='{sample.type}'"
-            )
+            raise ValidationError(f"TACOTIFF requires type='FILE', got type='{sample.type}'")
 
         # Check path is a Path object (not Tortilla)
         if not isinstance(sample.path, pathlib.Path):
-            raise ValidationError(
-                f"TACOTIFF requires path to be pathlib.Path, got {type(sample.path)}"
-            )
+            raise ValidationError(f"TACOTIFF requires path to be pathlib.Path, got {type(sample.path)}")
 
         # Validate the actual file format
         self._validate_format(sample.path)
@@ -116,16 +110,12 @@ class TacotiffValidator(SampleValidator):
             # Validate ZSTD compression
             compression = ds_args.get("COMPRESSION", "").upper()
             if compression != "ZSTD":
-                raise ValidationError(
-                    f"TACOTIFF assets must use ZSTD compression, found: {compression or 'NONE'}"
-                )
+                raise ValidationError(f"TACOTIFF assets must use ZSTD compression, found: {compression or 'NONE'}")
 
             # Validate TILE interleave
             interleave = ds_args.get("INTERLEAVE", "").upper()
             if interleave != "TILE":
-                raise ValidationError(
-                    f"TACOTIFF assets must use TILE interleave, found: {interleave or 'PIXEL'}"
-                )
+                raise ValidationError(f"TACOTIFF assets must use TILE interleave, found: {interleave or 'PIXEL'}")
 
             # Validate no overviews present
             band = ds.GetRasterBand(1)

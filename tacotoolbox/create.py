@@ -107,9 +107,7 @@ def create(  # noqa: C901
     if output_format == "auto":
         if output_path.suffix.lower() in (".zip", ".tacozip"):
             final_format = "zip"
-            logger.debug(
-                f"Auto-detected format='zip' from extension: {output_path.suffix}"
-            )
+            logger.debug(f"Auto-detected format='zip' from extension: {output_path.suffix}")
         else:
             final_format = "folder"
             logger.debug("Auto-detected format='folder' (no .zip/.tacozip extension)")
@@ -137,9 +135,7 @@ def create(  # noqa: C901
         temp_dir = None
         consolidate = False
 
-    _validate_all_inputs(
-        taco, output_path, final_format, split_size, group_by, consolidate
-    )
+    _validate_all_inputs(taco, output_path, final_format, split_size, group_by, consolidate)
 
     # Convert temp_dir to Path if provided
     temp_path_dir = pathlib.Path(temp_dir) if temp_dir else None
@@ -181,8 +177,7 @@ def create(  # noqa: C901
                 _create_consolidated_tacocat(result, output_path.parent)
             except Exception as e:
                 logger.warning(
-                    f"Failed to create .tacocat/ consolidation: {e}\n"
-                    f"Individual ZIP files were created successfully."
+                    f"Failed to create .tacocat/ consolidation: {e}\nIndividual ZIP files were created successfully."
                 )
 
     except (TacoCreationError, TacoValidationError):
@@ -274,10 +269,7 @@ def _validate_group_column(group_column: str, table_columns: list[str]) -> None:
     """Validate that group column exists in metadata."""
     if group_column not in table_columns:
         available = sorted(table_columns)
-        raise TacoCreationError(
-            f"Group column '{group_column}' not found in metadata.\n"
-            f"Available columns: {available}"
-        )
+        raise TacoCreationError(f"Group column '{group_column}' not found in metadata.\nAvailable columns: {available}")
 
 
 def _sanitize_filename(name: str) -> str:
@@ -307,9 +299,7 @@ def _sanitize_filename(name: str) -> str:
     return sanitized
 
 
-def _group_samples_by_column(
-    taco: Taco, group_by: str | list[str]
-) -> dict[str, list["Sample"]]:
+def _group_samples_by_column(taco: Taco, group_by: str | list[str]) -> dict[str, list["Sample"]]:
     """
     Group samples by metadata column(s).
 
@@ -338,8 +328,7 @@ def _group_samples_by_column(
             sample_value = table.column(col).to_pylist()[0]
             if isinstance(sample_value, int):
                 warnings.warn(
-                    f"Group column '{col}' contains integer values. "
-                    f"Converting to strings for file naming.",
+                    f"Group column '{col}' contains integer values. Converting to strings for file naming.",
                     UserWarning,
                     stacklevel=3,
                 )
@@ -363,9 +352,7 @@ def _group_samples_by_column(
                 groups[group_key] = []
             groups[group_key].append(sample)
 
-        logger.debug(
-            f"Grouped {len(taco.tortilla.samples)} samples into {len(groups)} groups"
-        )
+        logger.debug(f"Grouped {len(taco.tortilla.samples)} samples into {len(groups)} groups")
 
     except KeyError as e:
         raise TacoCreationError(f"Failed to group samples: {e}") from e
@@ -428,13 +415,10 @@ def _create_grouped_zips(
 
         if group_path.exists():
             raise TacoValidationError(
-                f"Group file already exists: {group_path}\n"
-                f"Remove existing files or choose a different output path."
+                f"Group file already exists: {group_path}\nRemove existing files or choose a different output path."
             )
 
-        logger.info(
-            f"Creating group '{group_key}': {len(group_samples)} samples → {group_filename}"
-        )
+        logger.info(f"Creating group '{group_key}': {len(group_samples)} samples → {group_filename}")
 
         created_path = _create_zip(chunk_taco, group_path, temp_dir, **kwargs)
         created_files.append(created_path)
@@ -597,9 +581,7 @@ def _create_with_splitting(
     created_files = []
 
     for i, chunk_samples in enumerate(
-        progress_bar(
-            sample_chunks, desc="Creating ZIP chunks", unit="chunk", colour="cyan"
-        ),
+        progress_bar(sample_chunks, desc="Creating ZIP chunks", unit="chunk", colour="cyan"),
         1,
     ):
         # Filter existing metadata table to preserve TortillaExtension fields
@@ -626,10 +608,7 @@ def _create_with_splitting(
         created_path = _create_zip(chunk_taco, chunk_path, temp_dir, **kwargs)
         created_files.append(created_path)
 
-    logger.info(
-        f"Created {len(created_files)} ZIP chunks with max size "
-        f"{max_size / (1024**3):.1f}GB"
-    )
+    logger.info(f"Created {len(created_files)} ZIP chunks with max size {max_size / (1024**3):.1f}GB")
     return created_files
 
 

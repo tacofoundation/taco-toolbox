@@ -87,9 +87,7 @@ class FolderWriter:
 
         except Exception as e:
             logger.exception("Failed to create folder container")
-            raise TacoCreationError(
-                f"Failed to create FOLDER at '{self.output_dir}': {e}"
-            ) from e
+            raise TacoCreationError(f"Failed to create FOLDER at '{self.output_dir}': {e}") from e
         else:
             return self.output_dir
 
@@ -108,35 +106,23 @@ class FolderWriter:
         size_threshold = 1_000_000_000
 
         if total_size > size_threshold:
-            logger.debug(
-                f"Total size: {total_size / (1024**3):.2f} GB (showing progress)"
-            )
-            with progress_scope(
-                desc="Copying files", total=total_size, unit="B", colour="cyan"
-            ) as pbar:
+            logger.debug(f"Total size: {total_size / (1024**3):.2f} GB (showing progress)")
+            with progress_scope(desc="Copying files", total=total_size, unit="B", colour="cyan") as pbar:
                 self._copy_samples_recursive(samples, path_prefix="", pbar=pbar)
         else:
-            logger.debug(
-                f"Total size: {total_size / (1024**2):.2f} MB (no progress bar)"
-            )
+            logger.debug(f"Total size: {total_size / (1024**2):.2f} MB (no progress bar)")
             self._copy_samples_recursive(samples, path_prefix="")
 
-    def _copy_samples_recursive(
-        self, samples: list[Any], path_prefix: str = "", pbar=None
-    ) -> None:
+    def _copy_samples_recursive(self, samples: list[Any], path_prefix: str = "", pbar=None) -> None:
         """Recursively copy samples to DATA/."""
         for sample in samples:
             if sample.type == "FOLDER":
-                new_prefix = (
-                    f"{path_prefix}{sample.id}/" if path_prefix else f"{sample.id}/"
-                )
+                new_prefix = f"{path_prefix}{sample.id}/" if path_prefix else f"{sample.id}/"
                 nested_dir = self.data_dir / new_prefix.rstrip("/")
                 nested_dir.mkdir(parents=True, exist_ok=True)
 
                 # Recursively copy nested samples, passing pbar along
-                self._copy_samples_recursive(
-                    sample.path.samples, path_prefix=new_prefix, pbar=pbar
-                )
+                self._copy_samples_recursive(sample.path.samples, path_prefix=new_prefix, pbar=pbar)
             else:
                 src_path = sample.path
                 dst_path = self.data_dir / f"{path_prefix}{sample.id}"
@@ -207,9 +193,7 @@ class FolderWriter:
         These files preserve ALL columns including internal:parent_id
         for hierarchical navigation via JOINs.
         """
-        logger.debug(
-            f"Writing {len(metadata_package.levels)} consolidated metadata files"
-        )
+        logger.debug(f"Writing {len(metadata_package.levels)} consolidated metadata files")
 
         for i, level_table in enumerate(metadata_package.levels):
             output_path = self.metadata_dir / f"level{i}.parquet"

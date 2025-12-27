@@ -68,7 +68,7 @@ def progress_bar(
     unit: str = "it",
     colour: str | None = None,
     leave: bool = True,
-    **kwargs: Any
+    **kwargs: Any,
 ) -> tqdm:
     """
     Create progress bar with automatic suppression based on logging level.
@@ -94,24 +94,11 @@ def progress_bar(
     """
     disable = not _should_show_progress()
 
-    return tqdm(
-        iterable,
-        desc=desc,
-        total=total,
-        unit=unit,
-        colour=colour,
-        leave=leave,
-        disable=disable,
-        **kwargs
-    )
+    return tqdm(iterable, desc=desc, total=total, unit=unit, colour=colour, leave=leave, disable=disable, **kwargs)
 
 
 async def progress_gather(
-    *tasks,
-    desc: str | None = None,
-    unit: str = "task",
-    colour: str | None = None,
-    **kwargs: Any
+    *tasks, desc: str | None = None, unit: str = "task", colour: str | None = None, **kwargs: Any
 ):
     """
     Async gather with progress bar (respects logging level).
@@ -135,9 +122,7 @@ async def progress_gather(
     """
     disable = not _should_show_progress()
 
-    return await tqdm_asyncio.gather(
-        *tasks, desc=desc, unit=unit, colour=colour, disable=disable, **kwargs
-    )
+    return await tqdm_asyncio.gather(*tasks, desc=desc, unit=unit, colour=colour, disable=disable, **kwargs)
 
 
 @contextmanager

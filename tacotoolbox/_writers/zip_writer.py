@@ -85,9 +85,7 @@ class ZipWriter:
         # Use ExitStack for robust cleanup
         self._cleanup_stack = ExitStack()
 
-        logger.debug(
-            f"ZipWriter initialized: output={output_path}, temp_dir={self.temp_dir}"
-        )
+        logger.debug(f"ZipWriter initialized: output={output_path}, temp_dir={self.temp_dir}")
 
     def create_complete_zip(  # noqa: C901
         self,
@@ -159,23 +157,17 @@ class ZipWriter:
                     local_table = metadata_package.local_metadata[folder_path]
 
                     # Add ZIP-specific offset and size columns from VirtualZIP
-                    enriched_table = _add_zip_offsets(
-                        local_table, offsets_map, folder_path
-                    )
+                    enriched_table = _add_zip_offsets(local_table, offsets_map, folder_path)
                     enriched_metadata_by_depth[depth].append(enriched_table)
 
                     # Write __meta__ as Parquet
                     meta_arc_path = f"{folder_path}__meta__"
-                    temp_parquet = self._write_single_parquet(
-                        enriched_table, folder_path, **parquet_kwargs
-                    )
+                    temp_parquet = self._write_single_parquet(enriched_table, folder_path, **parquet_kwargs)
                     temp_meta_files[meta_arc_path] = temp_parquet
 
                     # Add to virtual ZIP and recalculate offsets
                     real_size = temp_parquet.stat().st_size
-                    virtual_zip.add_file(
-                        str(temp_parquet), meta_arc_path, file_size=real_size
-                    )
+                    virtual_zip.add_file(str(temp_parquet), meta_arc_path, file_size=real_size)
 
                 # Recalculate offsets after adding __meta__ files
                 virtual_zip.calculate_offsets()
@@ -187,9 +179,7 @@ class ZipWriter:
 
             # Level 0: Add offset and size from VirtualZIP
             original_level0 = metadata_package.levels[0]
-            metadata_package.levels[0] = _add_zip_offsets(
-                original_level0, offsets_map, folder_path=""
-            )
+            metadata_package.levels[0] = _add_zip_offsets(original_level0, offsets_map, folder_path="")
 
             logger.debug(f"Level 0: {metadata_package.levels[0].num_rows} samples")
 
@@ -206,10 +196,7 @@ class ZipWriter:
                     concatenated = pa.concat_tables(aligned_tables)
 
                     # Extract offset and size columns from concatenated
-                    if (
-                        METADATA_OFFSET in concatenated.schema.names
-                        and METADATA_SIZE in concatenated.schema.names
-                    ):
+                    if METADATA_OFFSET in concatenated.schema.names and METADATA_SIZE in concatenated.schema.names:
                         offset_array = concatenated.column(METADATA_OFFSET)
                         offset_field = concatenated.schema.field(METADATA_OFFSET)
 
@@ -217,19 +204,14 @@ class ZipWriter:
                         size_field = concatenated.schema.field(METADATA_SIZE)
 
                         # Combine: original (with parent_id) + size + offset from VirtualZIP
-                        all_arrays = [
-                            original_level.column(i)
-                            for i in range(original_level.num_columns)
-                        ]
+                        all_arrays = [original_level.column(i) for i in range(original_level.num_columns)]
                         all_arrays.extend([size_array, offset_array])
 
                         all_fields = list(original_level.schema)
                         all_fields.extend([size_field, offset_field])
 
                         combined_schema = pa.schema(all_fields)
-                        enriched_level = pa.Table.from_arrays(
-                            all_arrays, schema=combined_schema
-                        )
+                        enriched_level = pa.Table.from_arrays(all_arrays, schema=combined_schema)
 
                         # Reorder to place internal:* columns at the end
                         enriched_level = reorder_internal_columns(enriched_level)
@@ -238,9 +220,7 @@ class ZipWriter:
                         if METADATA_PARENT_ID in enriched_level.schema.names:
                             import pyarrow.compute as pc
 
-                            sort_indices = pc.sort_indices(
-                                enriched_level.column(METADATA_PARENT_ID)
-                            )
+                            sort_indices = pc.sort_indices(enriched_level.column(METADATA_PARENT_ID))
                             enriched_level = enriched_level.take(sort_indices)
 
                         metadata_package.levels[depth] = enriched_level
@@ -280,9 +260,7 @@ class ZipWriter:
             with open(temp_json, "w", encoding="utf-8") as f:
                 json.dump(collection, f, indent=4, ensure_ascii=False)
             collection_size = temp_json.stat().st_size
-            virtual_zip.add_file(
-                str(temp_json), "COLLECTION.json", file_size=collection_size
-            )
+            virtual_zip.add_file(str(temp_json), "COLLECTION.json", file_size=collection_size)
             self._register_temp_file(temp_json)
 
             # Final offset calculation
@@ -340,9 +318,7 @@ class ZipWriter:
 
         except Exception as e:
             logger.exception("Failed to create ZIP")
-            raise TacoCreationError(
-                f"Failed to create ZIP at '{self.output_path}': {e}"
-            ) from e
+            raise TacoCreationError(f"Failed to create ZIP at '{self.output_path}': {e}") from e
         else:
             return self.output_path
         finally:
@@ -379,9 +355,7 @@ class ZipWriter:
 
         return by_depth
 
-    def _write_single_parquet(
-        self, table: pa.Table, folder_path: str, **parquet_kwargs: Any
-    ) -> pathlib.Path:
+    def _write_single_parquet(self, table: pa.Table, folder_path: str, **parquet_kwargs: Any) -> pathlib.Path:
         """Write a single __meta__ Parquet file to temp directory."""
         identifier = folder_path.replace("/", "_").strip("_")
         temp_path = self.temp_dir / f"{uuid.uuid4().hex}_{identifier}.parquet"
@@ -409,14 +383,11 @@ class ZipWriter:
         offsets = []
         sizes = []
 
-        with zipfile.ZipFile(self.output_path, "r") as zf, open(
-            self.output_path, "rb"
-        ) as f:
+        with zipfile.ZipFile(self.output_path, "r") as zf, open(self.output_path, "rb") as f:
             parquet_files = [
                 info
                 for info in zf.infolist()
-                if info.filename.startswith("METADATA/")
-                and info.filename.endswith(".parquet")
+                if info.filename.startswith("METADATA/") and info.filename.endswith(".parquet")
             ]
 
             parquet_files.sort(key=lambda x: x.filename)
@@ -438,9 +409,7 @@ class ZipWriter:
 
     def _get_collection_offset(self) -> tuple[int, int]:
         """Get offset and size for COLLECTION.json."""
-        with zipfile.ZipFile(self.output_path, "r") as zf, open(
-            self.output_path, "rb"
-        ) as f:
+        with zipfile.ZipFile(self.output_path, "r") as zf, open(self.output_path, "rb") as f:
             info = zf.getinfo("COLLECTION.json")
 
             f.seek(info.header_offset)
@@ -487,15 +456,9 @@ def _add_zip_offsets(
 
         # Build archive path: FOLDERs point to __meta__, FILEs to data
         if sample_type == "FOLDER":
-            arc_path = (
-                f"{folder_path}{sample_id}/__meta__"
-                if folder_path
-                else f"DATA/{sample_id}/__meta__"
-            )
+            arc_path = f"{folder_path}{sample_id}/__meta__" if folder_path else f"DATA/{sample_id}/__meta__"
         else:
-            arc_path = (
-                f"{folder_path}{sample_id}" if folder_path else f"DATA/{sample_id}"
-            )
+            arc_path = f"{folder_path}{sample_id}" if folder_path else f"DATA/{sample_id}"
 
         # Get offset and size from VirtualZIP
         if arc_path in offsets_map:
@@ -511,8 +474,7 @@ def _add_zip_offsets(
     # Fail fast if offsets are missing (indicates a bug in VirtualZIP calculation)
     if missing_offsets:
         raise TacoCreationError(
-            f"Offsets not found for {len(missing_offsets)} non-padding samples. "
-            f"First 5: {missing_offsets[:5]}"
+            f"Offsets not found for {len(missing_offsets)} non-padding samples. First 5: {missing_offsets[:5]}"
         )
 
     # Add size column

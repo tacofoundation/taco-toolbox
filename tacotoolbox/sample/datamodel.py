@@ -115,19 +115,13 @@ class Sample(pydantic.BaseModel):
 
     # Core attributes
     id: str  # Unique identifier following TACO naming conventions
-    path: (
-        pathlib.Path | Tortilla | bytes
-    )  # Location of data (file, container, or bytes)
-    type: Literal["FILE", "FOLDER", "auto"] = (
-        "auto"  # Type of geospatial data asset (auto-inferred by default)
-    )
+    path: pathlib.Path | Tortilla | bytes  # Location of data (file, container, or bytes)
+    type: Literal["FILE", "FOLDER", "auto"] = "auto"  # Type of geospatial data asset (auto-inferred by default)
 
     # Private attributes
     _size_bytes: int = pydantic.PrivateAttr(default=0)
     _temp_files: list[pathlib.Path] = pydantic.PrivateAttr(default_factory=list)
-    _extension_schemas: dict[str, pa.DataType] = pydantic.PrivateAttr(
-        default_factory=dict
-    )
+    _extension_schemas: dict[str, pa.DataType] = pydantic.PrivateAttr(default_factory=dict)
     _field_descriptions: dict[str, str] = pydantic.PrivateAttr(default_factory=dict)
 
     model_config = pydantic.ConfigDict(
@@ -139,11 +133,7 @@ class Sample(pydantic.BaseModel):
         """Initialize Sample with optional temp_dir for bytes conversion."""
         # Handle temp_dir for bytes conversion without storing it
         if "path" in data and isinstance(data["path"], bytes):
-            temp_dir = (
-                pathlib.Path(tempfile.gettempdir())
-                if temp_dir is None
-                else pathlib.Path(temp_dir)
-            )
+            temp_dir = pathlib.Path(tempfile.gettempdir()) if temp_dir is None else pathlib.Path(temp_dir)
 
             # Create temp directory if it doesn't exist
             temp_dir.mkdir(parents=True, exist_ok=True)
@@ -165,9 +155,7 @@ class Sample(pydantic.BaseModel):
             object.__setattr__(self, "_temp_files", [temp_path])
 
         # Extract extension fields (anything not a core field)
-        extension_fields = {
-            k: v for k, v in data.items() if k not in SHARED_CORE_FIELDS
-        }
+        extension_fields = {k: v for k, v in data.items() if k not in SHARED_CORE_FIELDS}
 
         # Initialize with all fields (Pydantic accepts them due to extra="allow")
         super().__init__(**data)
@@ -180,9 +168,7 @@ class Sample(pydantic.BaseModel):
             self.extend_with(extension_fields)
 
     @classmethod
-    def _create_padding(
-        cls, index: int, temp_dir: pathlib.Path | None = None
-    ) -> "Sample":
+    def _create_padding(cls, index: int, temp_dir: pathlib.Path | None = None) -> "Sample":
         """
         Internal factory for creating padding samples.
         Bypasses ID validation for __TACOPAD__ prefix.
@@ -191,11 +177,7 @@ class Sample(pydantic.BaseModel):
         This file can be copied to ZIP/FOLDER containers like any other file.
         """
         # Create temp directory
-        temp_dir = (
-            pathlib.Path(tempfile.gettempdir())
-            if temp_dir is None
-            else pathlib.Path(temp_dir)
-        )
+        temp_dir = pathlib.Path(tempfile.gettempdir()) if temp_dir is None else pathlib.Path(temp_dir)
         temp_dir.mkdir(parents=True, exist_ok=True)
 
         # Generate UUID-based filename for 0-byte file
@@ -207,9 +189,7 @@ class Sample(pydantic.BaseModel):
             f.write(b"")
 
         # Use model_construct to bypass validators
-        sample = cls.model_construct(
-            id=f"__TACOPAD__{index}", type="FILE", path=temp_path.absolute()
-        )
+        sample = cls.model_construct(id=f"__TACOPAD__{index}", type="FILE", path=temp_path.absolute())
 
         # Manually initialize private attributes (model_construct doesn't do this)
         object.__setattr__(sample, "_temp_files", [temp_path])
@@ -275,8 +255,7 @@ class Sample(pydantic.BaseModel):
         # Check for slashes
         if "/" in v or "\\" in v:
             raise ValueError(
-                f"Sample ID cannot contain slashes: '{v}'\n"
-                f"Slashes break file paths in ZIP and FOLDER containers."
+                f"Sample ID cannot contain slashes: '{v}'\nSlashes break file paths in ZIP and FOLDER containers."
             )
 
         # Check for colons
@@ -297,9 +276,7 @@ class Sample(pydantic.BaseModel):
 
     @pydantic.field_validator("path")
     @classmethod
-    def validate_path(
-        cls, v: pathlib.Path | Tortilla | bytes
-    ) -> pathlib.Path | Tortilla:
+    def validate_path(cls, v: pathlib.Path | Tortilla | bytes) -> pathlib.Path | Tortilla:
         """Validate and normalize the data path."""
         if isinstance(v, Tortilla):
             return v
@@ -309,9 +286,7 @@ class Sample(pydantic.BaseModel):
                 raise ValueError(f"Path {v} does not exist.")
             return v.absolute()
 
-        raise ValueError(
-            "Path must be pathlib.Path or Tortilla (bytes handled in __init__)"
-        )
+        raise ValueError("Path must be pathlib.Path or Tortilla (bytes handled in __init__)")
 
     @pydantic.model_validator(mode="after")
     def infer_and_validate_type(self) -> "Sample":
@@ -327,9 +302,7 @@ class Sample(pydantic.BaseModel):
         After this validator, self.type is ALWAYS "FILE" or "FOLDER" (never "auto").
         """
         # Infer type from path
-        inferred_type: AssetType = (
-            "FOLDER" if isinstance(self.path, Tortilla) else "FILE"
-        )
+        inferred_type: AssetType = "FOLDER" if isinstance(self.path, Tortilla) else "FILE"
 
         if self.type == "auto":
             # Auto mode - use inferred type
@@ -337,9 +310,7 @@ class Sample(pydantic.BaseModel):
         else:
             # Explicit mode - validate consistency
             if self.type != inferred_type:
-                path_type_str = (
-                    "Tortilla" if isinstance(self.path, Tortilla) else "Path/bytes"
-                )
+                path_type_str = "Tortilla" if isinstance(self.path, Tortilla) else "Path/bytes"
                 raise ValueError(
                     f"Type mismatch: specified type='{self.type}' but path type ({path_type_str}) "
                     f"implies type='{inferred_type}'"
@@ -355,9 +326,7 @@ class Sample(pydantic.BaseModel):
         """
         validator.validate(self)
 
-    def extend_with(
-        self, extension: pa.Table | dict[str, Any] | Any, name: str | None = None
-    ) -> None:
+    def extend_with(self, extension: pa.Table | dict[str, Any] | Any, name: str | None = None) -> None:
         """Add extension to sample by adding fields directly to the model."""
         if isinstance(extension, pa.Table):
             self._handle_arrow_table_extension(extension)
@@ -386,10 +355,7 @@ class Sample(pydantic.BaseModel):
         """
         # Validate field is not core
         if field in SHARED_CORE_FIELDS:
-            raise ValueError(
-                f"Cannot pop core field: '{field}'. "
-                f"Core fields are: {', '.join(SHARED_CORE_FIELDS)}"
-            )
+            raise ValueError(f"Cannot pop core field: '{field}'. Core fields are: {', '.join(SHARED_CORE_FIELDS)}")
 
         # Check field exists
         if not hasattr(self, field):
@@ -443,9 +409,7 @@ class Sample(pydantic.BaseModel):
         computed_metadata = extension(self)
 
         if not isinstance(computed_metadata, pa.Table):
-            raise TypeError(
-                f"SampleExtension must return pa.Table, got {type(computed_metadata)}"
-            )
+            raise TypeError(f"SampleExtension must return pa.Table, got {type(computed_metadata)}")
 
         # Convert single-row Table to dict
         if computed_metadata.num_rows != 1:
@@ -541,6 +505,4 @@ class Sample(pydantic.BaseModel):
         arrow_schema = pa.schema(arrow_fields)
 
         # Create Arrow Table
-        return pa.Table.from_pydict(
-            {k: [v] for k, v in data.items()}, schema=arrow_schema
-        )
+        return pa.Table.from_pydict({k: [v] for k, v in data.items()}, schema=arrow_schema)

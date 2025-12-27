@@ -59,9 +59,7 @@ class ISTAC(SampleExtension):
     - time_middle is auto-computed when both start and end times exist
     """
 
-    crs: str = Field(
-        description="Coordinate Reference System in WKT2, EPSG code, or PROJ string (e.g., 'EPSG:4326')."
-    )
+    crs: str = Field(description="Coordinate Reference System in WKT2, EPSG code, or PROJ string (e.g., 'EPSG:4326').")
     geometry: bytes = Field(
         description="Spatial footprint geometry in source CRS as WKB binary (Well-Known Binary format). Can be Point, LineString, Polygon, or MultiPolygon."
     )
@@ -95,8 +93,7 @@ class ISTAC(SampleExtension):
 
             if values.time_start > values.time_end:
                 raise ValueError(
-                    f"Invalid temporal interval: time_start ({values.time_start}) "
-                    f"> time_end ({values.time_end})"
+                    f"Invalid temporal interval: time_start ({values.time_start}) > time_end ({values.time_end})"
                 )
         return values
 
@@ -134,9 +131,7 @@ class ISTAC(SampleExtension):
 
             # Transform to EPSG:4326 if needed
             if values.crs.upper() != "EPSG:4326":
-                transformer = Transformer.from_crs(
-                    CRS.from_string(values.crs), CRS.from_epsg(4326), always_xy=True
-                )
+                transformer = Transformer.from_crs(CRS.from_string(values.crs), CRS.from_epsg(4326), always_xy=True)
                 x, y = transformer.transform(centroid_geom.x, centroid_geom.y)
                 centroid_geom = Point(x, y)
 
@@ -147,16 +142,14 @@ class ISTAC(SampleExtension):
 
     def get_schema(self) -> pa.Schema:
         """Return the expected Arrow schema for this extension."""
-        return pa.schema(
-            [
-                pa.field("istac:crs", pa.string()),
-                pa.field("istac:geometry", pa.binary()),
-                pa.field("istac:time_start", pa.timestamp("us", tz=None)),
-                pa.field("istac:time_end", pa.timestamp("us", tz=None)),
-                pa.field("istac:time_middle", pa.timestamp("us", tz=None)),
-                pa.field("istac:centroid", pa.binary()),
-            ]
-        )
+        return pa.schema([
+            pa.field("istac:crs", pa.string()),
+            pa.field("istac:geometry", pa.binary()),
+            pa.field("istac:time_start", pa.timestamp("us", tz=None)),
+            pa.field("istac:time_end", pa.timestamp("us", tz=None)),
+            pa.field("istac:time_middle", pa.timestamp("us", tz=None)),
+            pa.field("istac:centroid", pa.binary()),
+        ])
 
     def get_field_descriptions(self) -> dict[str, str]:
         """Return field descriptions for each field."""

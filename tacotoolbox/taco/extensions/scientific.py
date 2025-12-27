@@ -41,22 +41,18 @@ class Publications(TacoExtension):
     )
 
     def get_schema(self) -> pa.Schema:
-        return pa.schema(
-            [
-                pa.field(
-                    "publications:list",
-                    pa.list_(
-                        pa.struct(
-                            [
-                                pa.field("doi", pa.string()),
-                                pa.field("citation", pa.string()),
-                                pa.field("summary", pa.string()),
-                            ]
-                        )
-                    ),
-                )
-            ]
-        )
+        return pa.schema([
+            pa.field(
+                "publications:list",
+                pa.list_(
+                    pa.struct([
+                        pa.field("doi", pa.string()),
+                        pa.field("citation", pa.string()),
+                        pa.field("summary", pa.string()),
+                    ])
+                ),
+            )
+        ])
 
     def get_field_descriptions(self) -> dict[str, str]:
         return {
@@ -66,8 +62,6 @@ class Publications(TacoExtension):
     def _compute(self, taco) -> pa.Table:
         pubs_data = []
         for pub in self.publications:
-            pubs_data.append(
-                {"doi": pub.doi, "citation": pub.citation, "summary": pub.summary}
-            )
+            pubs_data.append({"doi": pub.doi, "citation": pub.citation, "summary": pub.summary})
 
         return pa.Table.from_pylist([{"publications:list": pubs_data}])

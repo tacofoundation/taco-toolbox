@@ -71,8 +71,7 @@ def _sanitize_sql_identifier(identifier: str) -> str:
     """
     if not re.match(r"^[a-zA-Z0-9_]+$", identifier):
         raise ValueError(
-            f"Invalid SQL identifier: '{identifier}'. "
-            f"Must contain only alphanumeric characters and underscores."
+            f"Invalid SQL identifier: '{identifier}'. Must contain only alphanumeric characters and underscores."
         )
     return identifier
 
@@ -145,9 +144,7 @@ class ExportWriter:
             raise
         except Exception as e:
             logger.exception("Failed to export FOLDER")
-            raise TacoCreationError(
-                f"Failed to export FOLDER to '{self.output}': {e}"
-            ) from e
+            raise TacoCreationError(f"Failed to export FOLDER to '{self.output}': {e}") from e
         else:
             return self.output
 
@@ -164,10 +161,7 @@ class ExportWriter:
             TacoValidationError: If validation fails
         """
         if self.dataset._has_level1_joins:
-            raise TacoValidationError(
-                "Cannot export dataset with level1+ joins. "
-                "Only level0 filters are supported."
-            )
+            raise TacoValidationError("Cannot export dataset with level1+ joins. Only level0 filters are supported.")
 
         count = self.dataset.data._data.num_rows
         if count == 0:
@@ -211,20 +205,14 @@ class ExportWriter:
             for row in files_table.to_pylist():
                 vsi_path = row["internal:gdal_vsi"]
 
-                relative_path = (
-                    row["internal:relative_path"]
-                    if row.get("internal:relative_path")
-                    else row["id"]
-                )
+                relative_path = row["internal:relative_path"] if row.get("internal:relative_path") else row["id"]
 
                 dest = self.data_dir / relative_path
 
                 task = self._copy_single_file(vsi_path, dest, semaphore)
                 tasks.append(task)
 
-            await progress_gather(
-                *tasks, desc="Copying FILEs", unit="file", colour="green"
-            )
+            await progress_gather(*tasks, desc="Copying FILEs", unit="file", colour="green")
 
         # Copy FOLDERs recursively with progress bar
         if folders_table.num_rows > 0:
@@ -235,13 +223,9 @@ class ExportWriter:
                 task = self._copy_folder_recursive(row, level=0, semaphore=semaphore)
                 tasks.append(task)
 
-            await progress_gather(
-                *tasks, desc="Copying FOLDERs", unit="folder", colour="blue"
-            )
+            await progress_gather(*tasks, desc="Copying FOLDERs", unit="folder", colour="blue")
 
-    async def _copy_single_file(
-        self, vsi_path: str, dest_path: pathlib.Path, semaphore: asyncio.Semaphore
-    ) -> None:
+    async def _copy_single_file(self, vsi_path: str, dest_path: pathlib.Path, semaphore: asyncio.Semaphore) -> None:
         """
         Copy bytes from vsi_path to dest_path.
 
@@ -267,9 +251,7 @@ class ExportWriter:
                         data = f.read(size)
                 else:
                     # Remote file: use tacotoolbox._remote_io.download_range
-                    data = await asyncio.to_thread(
-                        download_range, clean_url, offset, size
-                    )
+                    data = await asyncio.to_thread(download_range, clean_url, offset, size)
 
                 # Write to dest
                 with open(dest_path, "wb") as f:
@@ -296,9 +278,7 @@ class ExportWriter:
         3. Process all children concurrently (both FOLDERs and FILEs)
         4. Write local __meta__ file with children metadata (PARQUET format)
         """
-        relative_path = (
-            folder_row["id"] if level == 0 else folder_row["internal:relative_path"]
-        )
+        relative_path = folder_row["id"] if level == 0 else folder_row["internal:relative_path"]
 
         folder_path = self.data_dir / relative_path
         folder_path.mkdir(parents=True, exist_ok=True)
@@ -398,26 +378,14 @@ class ExportWriter:
                 parent_id_mapping = {old: new for new, old in enumerate(old_parent_ids)}
 
                 # Assign new sequential current_id values
-                new_current_ids = pa.array(
-                    range(filtered_table.num_rows), type=pa.int64()
-                )
-                current_id_idx = filtered_table.schema.get_field_index(
-                    METADATA_CURRENT_ID
-                )
-                filtered_table = filtered_table.set_column(
-                    current_id_idx, METADATA_CURRENT_ID, new_current_ids
-                )
+                new_current_ids = pa.array(range(filtered_table.num_rows), type=pa.int64())
+                current_id_idx = filtered_table.schema.get_field_index(METADATA_CURRENT_ID)
+                filtered_table = filtered_table.set_column(current_id_idx, METADATA_CURRENT_ID, new_current_ids)
 
                 # Assign new sequential parent_id values (same as current_id for level0)
-                new_parent_ids = pa.array(
-                    range(filtered_table.num_rows), type=pa.int64()
-                )
-                parent_id_idx = filtered_table.schema.get_field_index(
-                    METADATA_PARENT_ID
-                )
-                filtered_table = filtered_table.set_column(
-                    parent_id_idx, METADATA_PARENT_ID, new_parent_ids
-                )
+                new_parent_ids = pa.array(range(filtered_table.num_rows), type=pa.int64())
+                parent_id_idx = filtered_table.schema.get_field_index(METADATA_PARENT_ID)
+                filtered_table = filtered_table.set_column(parent_id_idx, METADATA_PARENT_ID, new_parent_ids)
 
                 filtered_table = filtered_table.combine_chunks()
                 filtered_table = reorder_internal_columns(filtered_table)
@@ -435,15 +403,9 @@ class ExportWriter:
                 filtered_table = table.filter(mask)
 
                 # Assign new sequential current_id values
-                new_current_ids = pa.array(
-                    range(filtered_table.num_rows), type=pa.int64()
-                )
-                current_id_idx = filtered_table.schema.get_field_index(
-                    METADATA_CURRENT_ID
-                )
-                filtered_table = filtered_table.set_column(
-                    current_id_idx, METADATA_CURRENT_ID, new_current_ids
-                )
+                new_current_ids = pa.array(range(filtered_table.num_rows), type=pa.int64())
+                current_id_idx = filtered_table.schema.get_field_index(METADATA_CURRENT_ID)
+                filtered_table = filtered_table.set_column(current_id_idx, METADATA_CURRENT_ID, new_current_ids)
 
                 # Remap parent_id values to new indices
                 old_pids = filtered_table.column(METADATA_PARENT_ID).to_pylist()
@@ -451,29 +413,21 @@ class ExportWriter:
                     [parent_id_mapping[old_pid] for old_pid in old_pids],
                     type=pa.int64(),
                 )
-                parent_id_idx = filtered_table.schema.get_field_index(
-                    METADATA_PARENT_ID
-                )
-                filtered_table = filtered_table.set_column(
-                    parent_id_idx, METADATA_PARENT_ID, new_parent_ids
-                )
+                parent_id_idx = filtered_table.schema.get_field_index(METADATA_PARENT_ID)
+                filtered_table = filtered_table.set_column(parent_id_idx, METADATA_PARENT_ID, new_parent_ids)
 
                 filtered_table = filtered_table.combine_chunks()
                 filtered_table = reorder_internal_columns(filtered_table)
 
             # Remove ZIP-specific columns (not used in FOLDER format)
             zip_specific_cols = ["internal:offset", "internal:size"]
-            cols_to_drop = [
-                col for col in zip_specific_cols if col in filtered_table.schema.names
-            ]
+            cols_to_drop = [col for col in zip_specific_cols if col in filtered_table.schema.names]
             if cols_to_drop:
                 filtered_table = filtered_table.drop(cols_to_drop)
 
             # Write consolidated metadata as PARQUET with CDC
             output_path = self.metadata_dir / f"{level_name}.parquet"
-            write_parquet_file_with_cdc(
-                filtered_table, output_path, **self.parquet_kwargs
-            )
+            write_parquet_file_with_cdc(filtered_table, output_path, **self.parquet_kwargs)
 
             logger.debug(f"{level_name}.parquet: {filtered_table.num_rows} samples")
 

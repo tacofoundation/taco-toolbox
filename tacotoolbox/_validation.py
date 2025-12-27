@@ -34,9 +34,7 @@ def is_padding_id(sample_id: str) -> bool:
     return sample_id.startswith(PADDING_PREFIX)
 
 
-def validate_output_path(
-    path: pathlib.Path, output_format: Literal["zip", "folder"]
-) -> None:
+def validate_output_path(path: pathlib.Path, output_format: Literal["zip", "folder"]) -> None:
     """
     Validate that output path is available for creation.
 
@@ -49,13 +47,11 @@ def validate_output_path(
     if path.exists():
         if output_format == "zip":
             raise TacoValidationError(
-                f"Output file already exists: {path}\n"
-                f"Remove it or choose a different output path."
+                f"Output file already exists: {path}\nRemove it or choose a different output path."
             )
         else:
             raise TacoValidationError(
-                f"Output directory already exists: {path}\n"
-                f"Remove it or choose a different output path."
+                f"Output directory already exists: {path}\nRemove it or choose a different output path."
             )
 
 
@@ -86,8 +82,7 @@ def validate_common_directory(
 
     if not all(parent == first_parent for parent in parent_dirs):
         raise TacoValidationError(
-            "Input files are in different directories. "
-            "Please specify output directory explicitly."
+            "Input files are in different directories. Please specify output directory explicitly."
         )
 
     return first_parent
@@ -120,9 +115,7 @@ def validate_split_size(size_str: str) -> int:
     return size_bytes
 
 
-def validate_format_and_split(
-    output_format: Literal["zip", "folder"], split_size: str | None
-) -> None:
+def validate_format_and_split(output_format: Literal["zip", "folder"], split_size: str | None) -> None:
     """
     Validate compatibility between format and split_size parameters.
 
@@ -134,8 +127,7 @@ def validate_format_and_split(
     """
     if output_format == "folder" and split_size is not None:
         raise TacoValidationError(
-            "split_size is not supported with format='folder'.\n"
-            "Splitting is only available for format='zip'."
+            "split_size is not supported with format='folder'.\nSplitting is only available for format='zip'."
         )
 
 
@@ -149,9 +141,7 @@ def validate_format_value(output_format: str) -> None:
         TacoValidationError: If format is not 'zip' or 'folder'
     """
     if output_format not in ("zip", "folder"):
-        raise TacoValidationError(
-            f"Invalid format: '{output_format}'. Must be 'zip' or 'folder'."
-        )
+        raise TacoValidationError(f"Invalid format: '{output_format}'. Must be 'zip' or 'folder'.")
 
 
 def parse_size(size_str: str) -> int:
@@ -179,10 +169,7 @@ def parse_size(size_str: str) -> int:
     match = re.match(r"^(\d+(?:\.\d+)?)\s*(GB?|MB?|KB?|B?)$", size_str)
 
     if not match:
-        raise ValueError(
-            f"Invalid size format: '{size_str}'. "
-            f"Use format like '4GB', '512MB', '1024KB', or '2048B'"
-        )
+        raise ValueError(f"Invalid size format: '{size_str}'. Use format like '4GB', '512MB', '1024KB', or '2048B'")
 
     value = float(match.group(1))
     unit = match.group(2)

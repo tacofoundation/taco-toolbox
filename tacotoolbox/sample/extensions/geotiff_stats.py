@@ -74,11 +74,9 @@ class GeotiffStats(SampleExtension):
 
     def get_schema(self) -> pa.Schema:
         """Return the expected Arrow schema for this extension."""
-        return pa.schema(
-            [
-                pa.field("geotiff:stats", pa.list_(pa.list_(pa.float32()))),
-            ]
-        )
+        return pa.schema([
+            pa.field("geotiff:stats", pa.list_(pa.list_(pa.float32()))),
+        ])
 
     def get_field_descriptions(self) -> dict[str, str]:
         """Return field descriptions for each field."""
@@ -89,9 +87,7 @@ class GeotiffStats(SampleExtension):
     def _compute(self, sample: "Sample") -> pa.Table:
         """Extract statistics and apply scaling if present."""
         if not HAS_GDAL:
-            raise ImportError(
-                "GDAL is required for GeoTIFF operations. Install: conda install gdal"
-            )
+            raise ImportError("GDAL is required for GeoTIFF operations. Install: conda install gdal")
 
         # Type narrowing: GeotiffStats only works with Path
         if not isinstance(sample.path, pathlib.Path):
@@ -133,9 +129,7 @@ class GeotiffStats(SampleExtension):
     def _extract_stats(self, filepath: pathlib.Path) -> list[list[float]] | None:
         """Extract statistics using GDAL stats and histograms."""
         if not HAS_GDAL:
-            raise ImportError(
-                "GDAL is required for GeoTIFF operations. Install: conda install gdal"
-            )
+            raise ImportError("GDAL is required for GeoTIFF operations. Install: conda install gdal")
 
         ds = gdal.Open(str(filepath))
         if ds is None:
@@ -153,8 +147,7 @@ class GeotiffStats(SampleExtension):
         except RuntimeError as e:
             if "no valid pixels" in str(e).lower():
                 warnings.warn(
-                    f"No valid pixels found in {filepath.name}. "
-                    f"All pixels are NoData. Returning None for stats.",
+                    f"No valid pixels found in {filepath.name}. All pixels are NoData. Returning None for stats.",
                     stacklevel=2,
                 )
                 return None

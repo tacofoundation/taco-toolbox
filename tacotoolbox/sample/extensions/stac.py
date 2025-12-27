@@ -60,9 +60,7 @@ def raster_centroid(
     centroid_y = origin_y + (rows / 2) * pixel_height
 
     # Transform centroid to EPSG:4326 using pyproj
-    transformer = Transformer.from_crs(
-        CRS.from_string(crs), CRS.from_epsg(4326), always_xy=True
-    )
+    transformer = Transformer.from_crs(CRS.from_string(crs), CRS.from_epsg(4326), always_xy=True)
 
     if not check_antimeridian:
         lon, lat = transformer.transform(centroid_x, centroid_y)
@@ -100,15 +98,13 @@ def raster_centroid(
 
     if crosses_antimeridian:
         # Build polygon and use antimeridian.centroid()
-        bbox_polygon = Polygon(
-            [
-                (corners_lon[0], corners_lat[0]),
-                (corners_lon[1], corners_lat[1]),
-                (corners_lon[2], corners_lat[2]),
-                (corners_lon[3], corners_lat[3]),
-                (corners_lon[0], corners_lat[0]),  # Close ring
-            ]
-        )
+        bbox_polygon = Polygon([
+            (corners_lon[0], corners_lat[0]),
+            (corners_lon[1], corners_lat[1]),
+            (corners_lon[2], corners_lat[2]),
+            (corners_lon[3], corners_lat[3]),
+            (corners_lon[0], corners_lat[0]),  # Close ring
+        ])
 
         centroid_point = antimeridian.centroid(bbox_polygon)
     else:
@@ -136,9 +132,7 @@ class STAC(SampleExtension):
     - Set check_antimeridian=True (requires: pip install antimeridian)
     """
 
-    crs: str = Field(
-        description="Coordinate Reference System in WKT2, EPSG code, or PROJ string (e.g., 'EPSG:4326')."
-    )
+    crs: str = Field(description="Coordinate Reference System in WKT2, EPSG code, or PROJ string (e.g., 'EPSG:4326').")
     tensor_shape: ShapeND = Field(
         description="Shape of the data tensor (e.g., (bands, height, width) or (height, width))"
     )
@@ -174,9 +168,7 @@ class STAC(SampleExtension):
             values.time_end = _to_utc_microseconds(values.time_end)
 
             if values.time_start > values.time_end:
-                raise ValueError(
-                    f"Invalid times: {values.time_start} > {values.time_end}"
-                )
+                raise ValueError(f"Invalid times: {values.time_start} > {values.time_end}")
 
         return values
 
@@ -200,9 +192,7 @@ class STAC(SampleExtension):
         """
         if values.centroid is None:
             if len(values.tensor_shape) < 2:
-                raise ValueError(
-                    f"tensor_shape must have at least 2 dimensions (got {values.tensor_shape})"
-                )
+                raise ValueError(f"tensor_shape must have at least 2 dimensions (got {values.tensor_shape})")
             # Extract (rows, cols) from the last two dims and compute centroid
             rows, cols = values.tensor_shape[-2], values.tensor_shape[-1]
             values.centroid = raster_centroid(
@@ -215,17 +205,15 @@ class STAC(SampleExtension):
 
     def get_schema(self) -> pa.Schema:
         """Return the expected Arrow schema for this extension."""
-        return pa.schema(
-            [
-                pa.field("stac:crs", pa.string()),
-                pa.field("stac:tensor_shape", pa.list_(pa.int64())),
-                pa.field("stac:geotransform", pa.list_(pa.float64())),
-                pa.field("stac:time_start", pa.timestamp("us", tz=None)),
-                pa.field("stac:centroid", pa.binary()),
-                pa.field("stac:time_end", pa.timestamp("us", tz=None)),
-                pa.field("stac:time_middle", pa.timestamp("us", tz=None)),
-            ]
-        )
+        return pa.schema([
+            pa.field("stac:crs", pa.string()),
+            pa.field("stac:tensor_shape", pa.list_(pa.int64())),
+            pa.field("stac:geotransform", pa.list_(pa.float64())),
+            pa.field("stac:time_start", pa.timestamp("us", tz=None)),
+            pa.field("stac:centroid", pa.binary()),
+            pa.field("stac:time_end", pa.timestamp("us", tz=None)),
+            pa.field("stac:time_middle", pa.timestamp("us", tz=None)),
+        ])
 
     def get_field_descriptions(self) -> dict[str, str]:
         """Return field descriptions for each field."""

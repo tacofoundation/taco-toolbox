@@ -22,9 +22,7 @@ from pydantic import Field
 
 from tacotoolbox.taco.datamodel import TacoExtension
 
-SplitStrategyType = Literal[
-    "random", "stratified", "manual", "other", "none", "unknown"
-]
+SplitStrategyType = Literal["random", "stratified", "manual", "other", "none", "unknown"]
 
 
 class SplitStrategy(TacoExtension):
@@ -38,9 +36,7 @@ class SplitStrategy(TacoExtension):
         return pa.schema([pa.field("split:strategy", pa.string())])
 
     def get_field_descriptions(self) -> dict[str, str]:
-        return {
-            "split:strategy": "Dataset partitioning method (random, stratified, manual, other, none, or unknown)"
-        }
+        return {"split:strategy": "Dataset partitioning method (random, stratified, manual, other, none, or unknown)"}
 
     def _compute(self, taco) -> pa.Table:
         return pa.Table.from_pylist([{"split:strategy": self.strategy}])

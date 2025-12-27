@@ -167,9 +167,7 @@ def _read_single_collection(tacozip_path: str | Path) -> dict[str, Any]:
     except TacoConsolidationError:
         raise
     except Exception as e:
-        raise TacoConsolidationError(
-            f"Failed to read collection from {path}: {e}"
-        ) from e
+        raise TacoConsolidationError(f"Failed to read collection from {path}: {e}") from e
 
 
 def _raise_empty_header_error(path: Path) -> None:
@@ -224,9 +222,7 @@ def _validate_pit_structure(collections: list[dict[str, Any]]) -> None:
     reference_hierarchy = reference_pit.get("hierarchy", {})
 
     for idx, collection in enumerate(collections[1:], start=1):
-        _validate_single_pit_structure(
-            collection, idx, reference_root_type, reference_hierarchy
-        )
+        _validate_single_pit_structure(collection, idx, reference_root_type, reference_hierarchy)
 
 
 def _validate_single_pit_structure(
@@ -244,9 +240,7 @@ def _validate_single_pit_structure(
     current_root_type = current_pit.get("root", {}).get("type")
     if current_root_type != reference_root_type:
         raise TacoSchemaError(
-            f"Collection {idx} has different root type:\n"
-            f"  Expected: {reference_root_type}\n"
-            f"  Got: {current_root_type}"
+            f"Collection {idx} has different root type:\n  Expected: {reference_root_type}\n  Got: {current_root_type}"
         )
 
     # Validate hierarchy structure
@@ -279,9 +273,7 @@ def _validate_hierarchy_patterns(
                 f"  Got: {len(curr_patterns)}"
             )
 
-        for pattern_idx, (ref_pattern, curr_pattern) in enumerate(
-            zip(ref_patterns, curr_patterns, strict=False)
-        ):
+        for pattern_idx, (ref_pattern, curr_pattern) in enumerate(zip(ref_patterns, curr_patterns, strict=False)):
             _validate_single_pattern(idx, level, pattern_idx, ref_pattern, curr_pattern)
 
 
@@ -368,14 +360,10 @@ def _sum_pit_schemas(collections: list[dict[str, Any]]) -> dict[str, Any]:
         raise TacoConsolidationError("First collection missing 'root' in pit_schema")
 
     # Sum root n
-    root_n_sum = sum(
-        c.get("taco:pit_schema", {}).get("root", {}).get("n", 0) for c in collections
-    )
+    root_n_sum = sum(c.get("taco:pit_schema", {}).get("root", {}).get("n", 0) for c in collections)
 
     if root_n_sum == 0:
-        raise TacoConsolidationError(
-            "Sum of root 'n' values is zero across all collections"
-        )
+        raise TacoConsolidationError("Sum of root 'n' values is zero across all collections")
 
     result["root"]["n"] = root_n_sum
 
@@ -384,10 +372,7 @@ def _sum_pit_schemas(collections: list[dict[str, Any]]) -> dict[str, Any]:
         for level, patterns in result["hierarchy"].items():
             for pattern_idx in range(len(patterns)):
                 n_sum = sum(
-                    c.get("taco:pit_schema", {})
-                    .get("hierarchy", {})
-                    .get(level, [{}])[pattern_idx]
-                    .get("n", 0)
+                    c.get("taco:pit_schema", {}).get("hierarchy", {}).get(level, [{}])[pattern_idx].get("n", 0)
                     for c in collections
                 )
                 result["hierarchy"][level][pattern_idx]["n"] = n_sum

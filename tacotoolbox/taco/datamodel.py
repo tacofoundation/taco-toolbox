@@ -123,14 +123,12 @@ class Contact(TacoExtension):
         return v
 
     def get_schema(self) -> pa.Schema:
-        return pa.schema(
-            [
-                pa.field("name", pa.string()),
-                pa.field("organization", pa.string()),
-                pa.field("email", pa.string()),
-                pa.field("role", pa.string()),
-            ]
-        )
+        return pa.schema([
+            pa.field("name", pa.string()),
+            pa.field("organization", pa.string()),
+            pa.field("email", pa.string()),
+            pa.field("role", pa.string()),
+        ])
 
     def get_field_descriptions(self) -> dict[str, str]:
         return {
@@ -162,9 +160,7 @@ class Extent(TacoExtension):
     @classmethod
     def validate_spatial(cls, v: list[float]) -> list[float]:
         if len(v) != 4:
-            raise ValueError(
-                "Spatial extent must have exactly 4 values: [min_lon, min_lat, max_lon, max_lat]"
-            )
+            raise ValueError("Spatial extent must have exactly 4 values: [min_lon, min_lat, max_lon, max_lat]")
 
         min_lon, min_lat, max_lon, max_lat = v
 
@@ -190,9 +186,7 @@ class Extent(TacoExtension):
             return v
 
         if len(v) != 2:
-            raise ValueError(
-                "Temporal extent must have exactly 2 values: [start_datetime, end_datetime]"
-            )
+            raise ValueError("Temporal extent must have exactly 2 values: [start_datetime, end_datetime]")
 
         start_str, end_str = v
 
@@ -209,9 +203,7 @@ class Extent(TacoExtension):
                 end_dt = datetime.fromisoformat(end_str)
 
         except ValueError as e:
-            raise ValueError(
-                f"Invalid datetime format. Use ISO 8601 format (e.g., '2023-01-01T00:00:00Z'): {e}"
-            ) from e
+            raise ValueError(f"Invalid datetime format. Use ISO 8601 format (e.g., '2023-01-01T00:00:00Z'): {e}") from e
 
         if start_dt > end_dt:
             raise ValueError("Start datetime must be before end datetime")
@@ -219,12 +211,10 @@ class Extent(TacoExtension):
         return v
 
     def get_schema(self) -> pa.Schema:
-        return pa.schema(
-            [
-                pa.field("spatial", pa.list_(pa.float64())),
-                pa.field("temporal", pa.list_(pa.string())),
-            ]
-        )
+        return pa.schema([
+            pa.field("spatial", pa.list_(pa.float64())),
+            pa.field("temporal", pa.list_(pa.string())),
+        ])
 
     def get_field_descriptions(self) -> dict[str, str]:
         return {
@@ -288,9 +278,7 @@ class Taco(pydantic.BaseModel):
             raise ValueError("Dataset ID must be lowercase")
 
         if not value.replace("_", "").replace("-", "").isalnum():
-            raise ValueError(
-                "Dataset ID must be alphanumeric (underscores and hyphens allowed)"
-            )
+            raise ValueError("Dataset ID must be alphanumeric (underscores and hyphens allowed)")
 
         return value
 
@@ -344,11 +332,7 @@ class Taco(pydantic.BaseModel):
         folder_children: list[tuple[str, list]] = []
         for folder in folder_samples:
             if hasattr(folder.path, "samples") and folder.path.samples:
-                real_children = [
-                    child
-                    for child in folder.path.samples
-                    if not child.id.startswith(PADDING_PREFIX)
-                ]
+                real_children = [child for child in folder.path.samples if not child.id.startswith(PADDING_PREFIX)]
                 folder_children.append((folder.id, real_children))
 
         if len(folder_children) <= 1:
@@ -358,10 +342,7 @@ class Taco(pydantic.BaseModel):
         child_counts = [len(children) for _, children in folder_children]
         if len(set(child_counts)) > 1:
             count_report = ", ".join(
-                f"'{folder_id}': {count}"
-                for (folder_id, _), count in zip(
-                    folder_children, child_counts, strict=False
-                )
+                f"'{folder_id}': {count}" for (folder_id, _), count in zip(folder_children, child_counts, strict=False)
             )
             raise ValueError(
                 f"PIT violation: All root samples must be isomorphic.\n"
@@ -403,13 +384,9 @@ class Taco(pydantic.BaseModel):
 
             if all(child.type == "FOLDER" for child in children_at_position):
                 try:
-                    child_tortillas = [
-                        cast(Tortilla, child.path) for child in children_at_position
-                    ]
+                    child_tortillas = [cast(Tortilla, child.path) for child in children_at_position]
                     for i, child_tortilla in enumerate(child_tortillas[1:], start=1):
-                        if len(child_tortilla.samples) != len(
-                            child_tortillas[0].samples
-                        ):
+                        if len(child_tortilla.samples) != len(child_tortillas[0].samples):
                             raise ValueError(
                                 f"PIT violation in nested structure at position {pos}:\n"
                                 f"Root[0].child[{pos}] ('{children_at_position[0].id}') has {len(child_tortillas[0].samples)} children\n"
@@ -438,14 +415,8 @@ class Taco(pydantic.BaseModel):
         for depth in range(max_depth + 1):
             table = self.tortilla.export_metadata(deep=depth)
 
-            has_stac = (
-                "stac:centroid" in table.schema.names
-                and "stac:time_start" in table.schema.names
-            )
-            has_istac = (
-                "istac:centroid" in table.schema.names
-                and "istac:time_start" in table.schema.names
-            )
+            has_stac = "stac:centroid" in table.schema.names and "stac:time_start" in table.schema.names
+            has_istac = "istac:centroid" in table.schema.names and "istac:time_start" in table.schema.names
 
             if has_stac or has_istac:
                 if has_stac:
@@ -453,32 +424,16 @@ class Taco(pydantic.BaseModel):
                     temporal = _calculate_temporal_extent(
                         table,
                         "stac:time_start",
-                        (
-                            "stac:time_end"
-                            if "stac:time_end" in table.schema.names
-                            else None
-                        ),
-                        (
-                            "stac:time_middle"
-                            if "stac:time_middle" in table.schema.names
-                            else None
-                        ),
+                        ("stac:time_end" if "stac:time_end" in table.schema.names else None),
+                        ("stac:time_middle" if "stac:time_middle" in table.schema.names else None),
                     )
                 else:
                     spatial = _calculate_spatial_extent(table, "istac:centroid")
                     temporal = _calculate_temporal_extent(
                         table,
                         "istac:time_start",
-                        (
-                            "istac:time_end"
-                            if "istac:time_end" in table.schema.names
-                            else None
-                        ),
-                        (
-                            "istac:time_middle"
-                            if "istac:time_middle" in table.schema.names
-                            else None
-                        ),
+                        ("istac:time_end" if "istac:time_end" in table.schema.names else None),
+                        ("istac:time_middle" if "istac:time_middle" in table.schema.names else None),
                     )
 
                 self.extent = Extent(spatial=spatial, temporal=temporal)
@@ -517,10 +472,7 @@ class Taco(pydantic.BaseModel):
 
         extension_data = extension_table.to_pydict()
         # Convert single-element lists to scalars
-        extension_data = {
-            k: v[0] if isinstance(v, list) and len(v) == 1 else v
-            for k, v in extension_data.items()
-        }
+        extension_data = {k: v[0] if isinstance(v, list) and len(v) == 1 else v for k, v in extension_data.items()}
         self._set_extension_attributes(extension_data)
 
     def _handle_table_extension(self, extension: pa.Table) -> None:
@@ -530,10 +482,7 @@ class Taco(pydantic.BaseModel):
 
         extension_data = extension.to_pydict()
         # Convert single-element lists to scalars
-        extension_data = {
-            k: v[0] if isinstance(v, list) and len(v) == 1 else v
-            for k, v in extension_data.items()
-        }
+        extension_data = {k: v[0] if isinstance(v, list) and len(v) == 1 else v for k, v in extension_data.items()}
         self._set_extension_attributes(extension_data)
 
     def _handle_dict_extension(self, extension: dict[str, Any]) -> None:
@@ -546,9 +495,7 @@ class Taco(pydantic.BaseModel):
             extension_data = extension.model_dump()
             self._set_extension_attributes(extension_data)
         else:
-            raise ValueError(
-                "Extension must be TacoExtension, Table, dict, or pydantic model"
-            )
+            raise ValueError("Extension must be TacoExtension, Table, dict, or pydantic model")
 
     def _set_extension_attributes(self, extension_data: dict[str, Any]) -> None:
         """Set extension fields as instance attributes."""
@@ -587,11 +534,7 @@ def _calculate_spatial_extent(table: pa.Table, centroid_col: str) -> list[float]
     Parses WKB binary centroids and computes [min_lon, min_lat, max_lon, max_lat].
     Skips None values (padding samples).
     """
-    centroids = [
-        cast(Point, wkb_loads(wkb))
-        for wkb in table.column(centroid_col).to_pylist()
-        if wkb is not None
-    ]
+    centroids = [cast(Point, wkb_loads(wkb)) for wkb in table.column(centroid_col).to_pylist() if wkb is not None]
 
     if not centroids:
         return [-180.0, -90.0, 180.0, 90.0]
@@ -631,9 +574,7 @@ def _calculate_temporal_extent(
 
     # Try each candidate until finding one with non-None values
     for time_col in candidate_cols:
-        time_values = [
-            dt for dt in table.column(time_col).to_pylist() if dt is not None
-        ]
+        time_values = [dt for dt in table.column(time_col).to_pylist() if dt is not None]
 
         if time_values:
             # Found valid values, compute extent

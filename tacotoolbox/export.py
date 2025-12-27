@@ -64,9 +64,7 @@ def export(
         ...        compression="zstd", compression_level=20)
         PosixPath('spain.tacozip')
     """
-    return asyncio.run(
-        _export_async(dataset, output, output_format, limit, temp_dir, **kwargs)
-    )
+    return asyncio.run(_export_async(dataset, output, output_format, limit, temp_dir, **kwargs))
 
 
 async def _export_async(
@@ -105,9 +103,7 @@ async def _export_async(
 
     elif output_format == "zip":
         temp_folder = (
-            output.parent / f".{output.stem}_temp"
-            if temp_dir is None
-            else Path(temp_dir) / f"{output.stem}_temp"
+            output.parent / f".{output.stem}_temp" if temp_dir is None else Path(temp_dir) / f"{output.stem}_temp"
         )
 
         try:

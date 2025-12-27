@@ -38,33 +38,27 @@ class LabelClass(pydantic.BaseModel):
 class Labels(TacoExtension):
     """Label definitions for classification datasets."""
 
-    label_classes: list[LabelClass] = Field(
-        description="Complete list of class definitions."
-    )
+    label_classes: list[LabelClass] = Field(description="Complete list of class definitions.")
     label_description: str | None = Field(
         default=None,
         description="Overall description of labeling scheme, methodology, or data source (optional).",
     )
 
     def get_schema(self) -> pa.Schema:
-        return pa.schema(
-            [
-                pa.field(
-                    "labels:classes",
-                    pa.list_(
-                        pa.struct(
-                            [
-                                pa.field("name", pa.string()),
-                                pa.field("category", pa.string()),
-                                pa.field("description", pa.string()),
-                            ]
-                        )
-                    ),
+        return pa.schema([
+            pa.field(
+                "labels:classes",
+                pa.list_(
+                    pa.struct([
+                        pa.field("name", pa.string()),
+                        pa.field("category", pa.string()),
+                        pa.field("description", pa.string()),
+                    ])
                 ),
-                pa.field("labels:description", pa.string()),
-                pa.field("labels:num_classes", pa.int32()),
-            ]
-        )
+            ),
+            pa.field("labels:description", pa.string()),
+            pa.field("labels:num_classes", pa.int32()),
+        ])
 
     def get_field_descriptions(self) -> dict[str, str]:
         return {
@@ -77,20 +71,16 @@ class Labels(TacoExtension):
         """Convert label classes to Table format."""
         classes_data = []
         for label_class in self.label_classes:
-            classes_data.append(
-                {
-                    "name": label_class.name,
-                    "category": str(label_class.category),
-                    "description": label_class.description,
-                }
-            )
+            classes_data.append({
+                "name": label_class.name,
+                "category": str(label_class.category),
+                "description": label_class.description,
+            })
 
-        return pa.Table.from_pylist(
-            [
-                {
-                    "labels:classes": classes_data,
-                    "labels:description": self.label_description,
-                    "labels:num_classes": len(self.label_classes),
-                }
-            ]
-        )
+        return pa.Table.from_pylist([
+            {
+                "labels:classes": classes_data,
+                "labels:description": self.label_description,
+                "labels:num_classes": len(self.label_classes),
+            }
+        ])

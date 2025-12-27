@@ -25,17 +25,13 @@ class Header(SampleExtension):
 
     def get_schema(self) -> pa.Schema:
         """Return the expected Arrow schema for this extension."""
-        return pa.schema(
-            [
-                pa.field("taco:header", pa.binary()),
-            ]
-        )
+        return pa.schema([
+            pa.field("taco:header", pa.binary()),
+        ])
 
     def get_field_descriptions(self) -> dict[str, str]:
         """Return field descriptions for each field."""
-        return {
-            "taco:header": "Binary TACOTIFF header (35 bytes + tile counts) for fast reading without IFD parsing"
-        }
+        return {"taco:header": "Binary TACOTIFF header (35 bytes + tile counts) for fast reading without IFD parsing"}
 
     def _compute(self, sample) -> pa.Table:
         """Actual computation logic - returns PyArrow Table."""

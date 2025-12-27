@@ -43,9 +43,7 @@ def _create_store(url: str):
 
     # Build error message with all supported protocols
     supported = sorted({PROTOCOL_MAPPINGS[p]["standard"] for p in PROTOCOL_MAPPINGS})
-    raise ValueError(
-        f"Unsupported URL scheme: {url}\n" f"Supported: {', '.join(supported)}"
-    )
+    raise ValueError(f"Unsupported URL scheme: {url}\nSupported: {', '.join(supported)}")
 
 
 def download_range(url: str, offset: int, size: int, subpath: str = "") -> bytes:
@@ -71,6 +69,4 @@ def download_range(url: str, offset: int, size: int, subpath: str = "") -> bytes
         result = obs.get_range(store, subpath, start=offset, length=size)
         return bytes(result)
     except Exception as e:
-        raise OSError(
-            f"Failed to download range [{offset}:{offset+size}] from {url}{subpath}: {e}"
-        ) from e
+        raise OSError(f"Failed to download range [{offset}:{offset + size}] from {url}{subpath}: {e}") from e

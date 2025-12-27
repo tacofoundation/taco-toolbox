@@ -63,9 +63,7 @@ class MajorTOM(TortillaExtension):
     )
 
     _lats: np.ndarray = PrivateAttr(default_factory=lambda: np.empty(0))
-    _row_labels: np.ndarray = PrivateAttr(
-        default_factory=lambda: np.empty(0, dtype=object)
-    )
+    _row_labels: np.ndarray = PrivateAttr(default_factory=lambda: np.empty(0, dtype=object))
     _zero_row_idx: int = PrivateAttr(default=0)
     _row_lons: list[np.ndarray] = PrivateAttr(default_factory=list)
     _row_col_labels: list[np.ndarray] = PrivateAttr(default_factory=list)
@@ -97,9 +95,7 @@ class MajorTOM(TortillaExtension):
         self._row_labels = rows_all[lat_mask]
 
         zero_in_filtered = np.searchsorted(self._lats, 0.0, side="left")
-        self._zero_row_idx = int(
-            np.clip(zero_in_filtered, 0, max(0, len(self._lats) - 1))
-        )
+        self._zero_row_idx = int(np.clip(zero_in_filtered, 0, max(0, len(self._lats) - 1)))
 
         lon_lo, lon_hi = self.longitude_range
         row_lons_filtered: list[np.ndarray] = []
@@ -114,21 +110,13 @@ class MajorTOM(TortillaExtension):
             lons_full = np.sort(lons_full)
 
             zero_hits = np.where(lons_full == 0.0)[0]
-            zero_col_full = (
-                int(zero_hits[0])
-                if zero_hits.size > 0
-                else int(np.argmin(np.abs(lons_full)))
-            )
+            zero_col_full = int(zero_hits[0]) if zero_hits.size > 0 else int(np.argmin(np.abs(lons_full)))
 
             cols_full = np.empty(lons_full.size, dtype=object)
 
             # Use %04d formatting for column labels
-            cols_full[zero_col_full:] = [
-                f"{i:04d}R" for i in range(lons_full.size - zero_col_full)
-            ]
-            cols_full[:zero_col_full] = [
-                f"{abs(i - zero_col_full):04d}L" for i in range(zero_col_full)
-            ]
+            cols_full[zero_col_full:] = [f"{i:04d}R" for i in range(lons_full.size - zero_col_full)]
+            cols_full[:zero_col_full] = [f"{abs(i - zero_col_full):04d}L" for i in range(zero_col_full)]
 
             if lon_lo > -180.0 or lon_hi < 180.0:
                 mask = (lons_full >= lon_lo) & (lons_full <= lon_hi)
@@ -169,9 +157,7 @@ class MajorTOM(TortillaExtension):
         rows, cols = self._get_label_arrays(row_idx, col_idx)
 
         if integer:
-            return self._convert_to_integer_format(
-                rows, cols, row_idx, col_idx, return_idx
-            )
+            return self._convert_to_integer_format(rows, cols, row_idx, col_idx, return_idx)
 
         return self._format_output(rows, cols, row_idx, col_idx, return_idx)
 
@@ -185,9 +171,7 @@ class MajorTOM(TortillaExtension):
             raise ValueError("lats and lons must have the same shape")
         return lats_arr, lons_arr
 
-    def _compute_grid_indices(
-        self, lats_arr: np.ndarray, lons_arr: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray]:
+    def _compute_grid_indices(self, lats_arr: np.ndarray, lons_arr: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Compute row and column indices for coordinates."""
         row_idx = np.searchsorted(self._lats, lats_arr, side="left") - 1
         row_idx = np.clip(row_idx, 0, len(self._lats) - 1).astype(np.int64)
@@ -202,16 +186,11 @@ class MajorTOM(TortillaExtension):
 
         return row_idx, col_idx
 
-    def _get_label_arrays(
-        self, row_idx: np.ndarray, col_idx: np.ndarray
-    ) -> tuple[np.ndarray, np.ndarray]:
+    def _get_label_arrays(self, row_idx: np.ndarray, col_idx: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Get row and column labels from indices."""
         rows = np.array([self._row_labels[int(ri)] for ri in row_idx], dtype=object)
         cols = np.array(
-            [
-                self._row_col_labels[int(ri)][int(ci)]
-                for ri, ci in zip(row_idx, col_idx, strict=True)
-            ],
+            [self._row_col_labels[int(ri)][int(ci)] for ri, ci in zip(row_idx, col_idx, strict=True)],
             dtype=object,
         )
         return rows, cols
@@ -286,11 +265,7 @@ class MajorTOM(TortillaExtension):
         """
         to_obj_array = lambda x: np.atleast_1d(
             np.array(
-                (
-                    list(x)
-                    if isinstance(x, Iterable) and not isinstance(x, str | bytes)
-                    else [x]
-                ),
+                (list(x) if isinstance(x, Iterable) and not isinstance(x, str | bytes) else [x]),
                 dtype=object,
             )
         )
@@ -322,17 +297,12 @@ class MajorTOM(TortillaExtension):
             row_cols = self._row_col_labels[int(ri)]
             hits = np.where(row_cols == clabel)[0]
             if hits.size == 0:
-                raise ValueError(
-                    f"Col label {clabel!r} not found in row {self._row_labels[int(ri)]}."
-                )
+                raise ValueError(f"Col label {clabel!r} not found in row {self._row_labels[int(ri)]}.")
             col_idx[i] = int(hits[0])
 
         lats = self._lats[row_idx]
         lons = np.array(
-            [
-                self._row_lons[int(ri)][int(ci)]
-                for ri, ci in zip(row_idx, col_idx, strict=True)
-            ],
+            [self._row_lons[int(ri)][int(ci)] for ri, ci in zip(row_idx, col_idx, strict=True)],
             dtype=float,
         )
 
@@ -359,9 +329,7 @@ class MajorTOM(TortillaExtension):
         """
 
         if not HAS_NUMPY:
-            raise ImportError(
-                "MajorTOM extension requires numpy.\n" "Install with: pip install numpy"
-            )
+            raise ImportError("MajorTOM extension requires numpy.\nInstall with: pip install numpy")
 
         table = tortilla._metadata_table
 

@@ -146,15 +146,10 @@ class SpatialGrouping(TortillaExtension):
             try:
                 self._target_size_bytes = parse_size(self.target_size)
             except ValueError as e:
-                raise ValueError(
-                    f"Invalid target_size format: {e}\n"
-                    f"Use format like '1GB', '512MB', '1024KB'"
-                ) from e
+                raise ValueError(f"Invalid target_size format: {e}\nUse format like '1GB', '512MB', '1024KB'") from e
 
             if self._target_size_bytes <= 0:
-                raise ValueError(
-                    f"target_size must be positive. Got: {self.target_size}"
-                )
+                raise ValueError(f"target_size must be positive. Got: {self.target_size}")
 
         return self
 
@@ -164,16 +159,12 @@ class SpatialGrouping(TortillaExtension):
 
     def get_field_descriptions(self) -> dict[str, str]:
         """Return field descriptions for each field."""
-        return {
-            "spatialgroup:code": "Spatial group identifier using Z-order curve for compact bounding boxes."
-        }
+        return {"spatialgroup:code": "Spatial group identifier using Z-order curve for compact bounding boxes."}
 
     def _compute(self, tortilla) -> pa.Table:  # noqa: C901
         """Process Tortilla and return Arrow Table with spatial group codes."""
         if not HAS_NUMPY:
-            raise ImportError(
-                "SpatialGrouping requires numpy.\n" "Install with: pip install numpy"
-            )
+            raise ImportError("SpatialGrouping requires numpy.\nInstall with: pip install numpy")
 
         table = tortilla._metadata_table
 
@@ -204,9 +195,7 @@ class SpatialGrouping(TortillaExtension):
                     coords.append((lon, lat))
                     valid_indices.append(i)
                 else:
-                    logger.debug(
-                        f"Sample {i}: Expected Point geometry, got {type(geom).__name__}"
-                    )
+                    logger.debug(f"Sample {i}: Expected Point geometry, got {type(geom).__name__}")
             except Exception as e:
                 logger.debug(f"Sample {i}: Failed to parse centroid: {e}")
                 continue
@@ -242,10 +231,7 @@ class SpatialGrouping(TortillaExtension):
                     start_new_group = True
 
                 # Check target_size limit (using parsed bytes)
-                if (
-                    self._target_size_bytes
-                    and (current_group_size + sample_size) > self._target_size_bytes
-                ):
+                if self._target_size_bytes and (current_group_size + sample_size) > self._target_size_bytes:
                     start_new_group = True
 
             if start_new_group:
@@ -259,6 +245,4 @@ class SpatialGrouping(TortillaExtension):
             current_group_count += 1
             current_group_size += sample_size
 
-        return pa.Table.from_pydict(
-            {"spatialgroup:code": group_codes}, schema=self.get_schema()
-        )
+        return pa.Table.from_pydict({"spatialgroup:code": group_codes}, schema=self.get_schema())

@@ -201,8 +201,7 @@ PRODUCT_CONFIGS = [
 
 # Auto-generated schema from PRODUCT_CONFIGS
 PRODUCT_SCHEMA: dict[str, pa.DataType] = {
-    name: dtype
-    for name, _path, _reducer, _band, _coll_type, _unmask, dtype in PRODUCT_CONFIGS
+    name: dtype for name, _path, _reducer, _band, _coll_type, _unmask, dtype in PRODUCT_CONFIGS
 }
 
 
@@ -259,9 +258,7 @@ def get_geoenrich_products() -> list[dict[str, Any]]:
         # Rename to product name
         image = image.rename(name)
 
-        products.append(
-            {"name": name, "image": image, "reducer": reducer_map[reducer_type]}
-        )
+        products.append({"name": name, "image": image, "reducer": reducer_map[reducer_type]})
 
     return products
 
@@ -437,16 +434,13 @@ class GeoEnrich(TortillaExtension):
             invalid = set(self.variables) - set(PRODUCT_SCHEMA.keys())
             if invalid:
                 raise ValueError(
-                    f"Invalid variables: {sorted(invalid)}\n"
-                    f"Valid options: {sorted(PRODUCT_SCHEMA.keys())}"
+                    f"Invalid variables: {sorted(invalid)}\nValid options: {sorted(PRODUCT_SCHEMA.keys())}"
                 )
 
     def get_schema(self) -> pa.Schema:
         """Return the expected schema for this extension."""
         active_vars = self.variables or list(PRODUCT_SCHEMA.keys())
-        fields = [
-            pa.field(f"geoenrich:{var}", PRODUCT_SCHEMA[var]) for var in active_vars
-        ]
+        fields = [pa.field(f"geoenrich:{var}", PRODUCT_SCHEMA[var]) for var in active_vars]
         return pa.schema(fields)
 
     def get_field_descriptions(self) -> dict[str, str]:
@@ -471,11 +465,7 @@ class GeoEnrich(TortillaExtension):
 
         # Return only active variables
         active_vars = self.variables or list(PRODUCT_SCHEMA.keys())
-        return {
-            key: all_descriptions[key]
-            for key in all_descriptions
-            if key.replace("geoenrich:", "") in active_vars
-        }
+        return {key: all_descriptions[key] for key in all_descriptions if key.replace("geoenrich:", "") in active_vars}
 
     def _get_active_products(self) -> list[dict]:
         """Get product configurations to process based on user selection."""
@@ -547,12 +537,7 @@ class GeoEnrich(TortillaExtension):
         We detect missing columns and add them with None values.
         """
         # Create Earth Engine FeatureCollection
-        fc = ee.FeatureCollection(
-            [
-                ee.Feature(ee.Geometry.Point(lon, lat), {"idx": idx})
-                for idx, lon, lat in chunk
-            ]
-        )
+        fc = ee.FeatureCollection([ee.Feature(ee.Geometry.Point(lon, lat), {"idx": idx}) for idx, lon, lat in chunk])
 
         # Process each reducer type separately
         all_tables = []
@@ -591,9 +576,7 @@ class GeoEnrich(TortillaExtension):
                     target_type = PRODUCT_SCHEMA[col_name]
 
                     # Create array with None values of correct type
-                    null_array = pa.array(
-                        [None] * chunk_table.num_rows, type=target_type
-                    )
+                    null_array = pa.array([None] * chunk_table.num_rows, type=target_type)
                     chunk_table = chunk_table.append_column(col_name, null_array)
 
             all_tables.append(chunk_table)
@@ -605,9 +588,7 @@ class GeoEnrich(TortillaExtension):
 
         return result
 
-    def _process_batches(
-        self, points: list[tuple[int, float, float]], products: list[dict]
-    ) -> pa.Table:
+    def _process_batches(self, points: list[tuple[int, float, float]], products: list[dict]) -> pa.Table:
         """Process all point batches in parallel and return consolidated Table."""
         ee = _import_earth_engine()
         reducer_groups = self._group_products_by_reducer(products)
@@ -618,10 +599,7 @@ class GeoEnrich(TortillaExtension):
         expected_schema_dict = {name: PRODUCT_SCHEMA[name] for name in product_names}
 
         with ThreadPoolExecutor(max_workers=self.max_concurrency) as executor:
-            futures = [
-                executor.submit(self._reduce_chunk, chunk, reducer_groups, ee)
-                for chunk in chunks
-            ]
+            futures = [executor.submit(self._reduce_chunk, chunk, reducer_groups, ee) for chunk in chunks]
 
             results = []
             with tqdm(
@@ -644,9 +622,7 @@ class GeoEnrich(TortillaExtension):
                         casted_fields.append(pa.field(name, target_type))
 
                     casted_schema = pa.schema(casted_fields)
-                    casted_table = pa.Table.from_arrays(
-                        casted_arrays, schema=casted_schema
-                    )
+                    casted_table = pa.Table.from_arrays(casted_arrays, schema=casted_schema)
 
                     results.append(casted_table)
                     pbar.update(1)
@@ -688,9 +664,7 @@ class GeoEnrich(TortillaExtension):
 
         # Resolve admin names if any admin variables
         admin_vars = [
-            p["name"]
-            for p in active_products
-            if p["name"] in ["admin_countries", "admin_states", "admin_districts"]
+            p["name"] for p in active_products if p["name"] in ["admin_countries", "admin_states", "admin_districts"]
         ]
         if admin_vars:
             raw_results = resolve_admin_names(raw_results, admin_vars)

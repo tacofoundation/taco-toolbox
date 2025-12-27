@@ -40,8 +40,7 @@ def _check_dependencies() -> None:
     """Verify required dependencies are installed."""
     if not DOCS_AVAILABLE:
         raise ImportError(
-            "Documentation generation requires jinja2 and markdown.\n"
-            "Install with: pip install jinja2 markdown"
+            "Documentation generation requires jinja2 and markdown.\nInstall with: pip install jinja2 markdown"
         )
 
 
@@ -68,27 +67,13 @@ def _load_vendor_files(templates_dir: Path) -> dict:
 
     try:
         vendor_files["d3"] = (vendor_dir / "d3.min.js").read_text(encoding="utf-8")
-        vendor_files["leaflet_js"] = (vendor_dir / "leaflet.min.js").read_text(
-            encoding="utf-8"
-        )
-        vendor_files["leaflet_css"] = (vendor_dir / "leaflet.min.css").read_text(
-            encoding="utf-8"
-        )
-        vendor_files["highlight"] = (vendor_dir / "highlight.min.js").read_text(
-            encoding="utf-8"
-        )
-        vendor_files["highlight_css"] = (
-            vendor_dir / "atom-one-dark.min.css"
-        ).read_text(encoding="utf-8")
-        vendor_files["highlight_python"] = (
-            vendor_dir / "languages" / "python.min.js"
-        ).read_text(encoding="utf-8")
-        vendor_files["highlight_r"] = (vendor_dir / "languages" / "r.min.js").read_text(
-            encoding="utf-8"
-        )
-        vendor_files["highlight_julia"] = (
-            vendor_dir / "languages" / "julia.min.js"
-        ).read_text(encoding="utf-8")
+        vendor_files["leaflet_js"] = (vendor_dir / "leaflet.min.js").read_text(encoding="utf-8")
+        vendor_files["leaflet_css"] = (vendor_dir / "leaflet.min.css").read_text(encoding="utf-8")
+        vendor_files["highlight"] = (vendor_dir / "highlight.min.js").read_text(encoding="utf-8")
+        vendor_files["highlight_css"] = (vendor_dir / "atom-one-dark.min.css").read_text(encoding="utf-8")
+        vendor_files["highlight_python"] = (vendor_dir / "languages" / "python.min.js").read_text(encoding="utf-8")
+        vendor_files["highlight_r"] = (vendor_dir / "languages" / "r.min.js").read_text(encoding="utf-8")
+        vendor_files["highlight_julia"] = (vendor_dir / "languages" / "julia.min.js").read_text(encoding="utf-8")
 
         logger.debug(f"Loaded {len(vendor_files)} vendor files")
 
@@ -271,9 +256,7 @@ def _description_to_html(description: str) -> str:
     description = description.strip()
 
     try:
-        return markdown.markdown(
-            description, extensions=["extra"], output_format="html5"
-        )
+        return markdown.markdown(description, extensions=["extra"], output_format="html5")
     except Exception as e:
         logger.warning(f"Markdown rendering failed, using fallback: {e}")
         return _simple_markdown_to_html(description)
@@ -289,9 +272,7 @@ def _simple_markdown_to_html(description: str) -> str:
     def flush_paragraph() -> None:
         if paragraph_buffer:
             text = " ".join(paragraph_buffer)
-            html_parts.append(
-                f'<p class="description-paragraph">{html.escape(text)}</p>'
-            )
+            html_parts.append(f'<p class="description-paragraph">{html.escape(text)}</p>')
             paragraph_buffer.clear()
 
     def close_list() -> None:

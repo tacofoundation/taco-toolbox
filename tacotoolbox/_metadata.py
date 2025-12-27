@@ -248,9 +248,7 @@ class MetadataGenerator:
 
         return self._clean_table(table)
 
-    def _generate_nested_folders(
-        self, parent_sample: "Sample", parent_path: str
-    ) -> dict[str, pa.Table]:
+    def _generate_nested_folders(self, parent_sample: "Sample", parent_path: str) -> dict[str, pa.Table]:
         """Recursively generate local metadata for nested folders."""
         result = {}
 
@@ -271,9 +269,7 @@ class MetadataGenerator:
         """Clean Table by removing unnecessary columns."""
         # Remove path column (filesystem-specific, not container-relevant)
         container_irrelevant_cols = ["path"]
-        cols_to_drop = [
-            col for col in container_irrelevant_cols if col in table.schema.names
-        ]
+        cols_to_drop = [col for col in container_irrelevant_cols if col in table.schema.names]
 
         if cols_to_drop:
             table = table.drop(cols_to_drop)
@@ -287,8 +283,7 @@ class MetadataGenerator:
 
         if table.num_columns == 0:
             raise ValueError(
-                "Table cleaning resulted in no columns. "
-                "This should never happen as core fields are preserved."
+                "Table cleaning resulted in no columns. This should never happen as core fields are preserved."
             )
 
         return table
@@ -388,18 +383,11 @@ def _process_level1(
     # Compute mask once for entire level (vectorized)
     is_real_mask = _compute_real_mask(table.column("id"))
 
-    best_ids, best_types, best_idx = _find_best_group(
-        table, is_real_mask, children_per_parent, parent_table.num_rows
-    )
+    best_ids, best_types, best_idx = _find_best_group(table, is_real_mask, children_per_parent, parent_table.num_rows)
 
     parent_id = parent_table.column("id")[best_idx].as_py()
-    real_count = _count_real_in_slice(
-        is_real_mask, best_idx * children_per_parent, children_per_parent
-    )
-    logger.debug(
-        f"Level 1 canonical folder '{parent_id}' "
-        f"with {real_count}/{children_per_parent} samples"
-    )
+    real_count = _count_real_in_slice(is_real_mask, best_idx * children_per_parent, children_per_parent)
+    logger.debug(f"Level 1 canonical folder '{parent_id}' with {real_count}/{children_per_parent} samples")
 
     return {"n": table.num_rows, "type": best_types, "id": best_ids}
 
@@ -452,22 +440,17 @@ def _process_level_n(
         # Compute mask for filtered children
         is_real_mask = _compute_real_mask(children.column("id"))
 
-        best_ids, best_types, best_idx = _find_best_group(
-            children, is_real_mask, samples_per_group, num_groups
-        )
+        best_ids, best_types, best_idx = _find_best_group(children, is_real_mask, samples_per_group, num_groups)
 
         logger.debug(
-            f"Level {depth} position {pos_idx}: "
-            f"canonical at group {best_idx} with {samples_per_group} samples"
+            f"Level {depth} position {pos_idx}: canonical at group {best_idx} with {samples_per_group} samples"
         )
 
-        all_patterns.append(
-            {
-                "n": num_groups * len(best_types),
-                "type": best_types,
-                "id": best_ids,
-            }
-        )
+        all_patterns.append({
+            "n": num_groups * len(best_types),
+            "type": best_types,
+            "id": best_ids,
+        })
 
     return all_patterns
 

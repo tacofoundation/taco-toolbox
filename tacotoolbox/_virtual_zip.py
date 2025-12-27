@@ -53,7 +53,8 @@ class VirtualFile(pydantic.BaseModel):
     needs_zip64: bool = False
 
     model_config = pydantic.ConfigDict(
-        arbitrary_types_allowed=True, slots=True  # type: ignore[typeddict-unknown-key]
+        arbitrary_types_allowed=True,
+        slots=True,  # type: ignore[typeddict-unknown-key]
     )
 
 
@@ -223,9 +224,7 @@ class VirtualTACOZIP:
         if not self._calculated:
             raise ValueError("Call calculate_offsets() first")
 
-        return {
-            vfile.arc_path: (vfile.data_offset, vfile.file_size) for vfile in self.files
-        }
+        return {vfile.arc_path: (vfile.data_offset, vfile.file_size) for vfile in self.files}
 
     def needs_zip64(self) -> bool:
         """
