@@ -80,10 +80,14 @@ def create(  # noqa: C901
         taco: Taco object to write
         output: Output path (file for ZIP, directory for FOLDER)
         output_format: Container format ("zip", "folder", or "auto")
-        split_size: Max size per ZIP file (e.g., "4GB"), None disables splitting
-        group_by: Column(s) to group by (creates one ZIP per unique value)
-        consolidate: Auto-create .tacocat/ when multiple ZIPs generated (default: True)
-        temp_dir: Directory for temporary files (default: system temp)
+        split_size: Max size per ZIP file (e.g., "4GB"), None disables splitting.
+                    Ignored for folder format.
+        group_by: Column(s) to group by (creates one ZIP per unique value).
+                  Ignored for folder format.
+        consolidate: Auto-create .tacocat/ when multiple ZIPs generated (default: True).
+                     Ignored for folder format.
+        temp_dir: Directory for temporary files (default: system temp).
+                  Ignored for folder format.
         **kwargs: Additional Parquet writer parameters
 
     Returns:
@@ -110,28 +114,32 @@ def create(  # noqa: C901
             final_format = "folder"
             logger.debug("Auto-detected format='folder' (no .zip/.tacozip extension)")
     else:
-        # Explicit cast because we validated the literal in signature,
-        # but mypy doesn't know "auto" is handled above for the variable assignment
         final_format = cast(Literal["zip", "folder"], output_format)
-
-    _validate_all_inputs(
-        taco, output_path, final_format, split_size, group_by, consolidate
-    )
 
     # Adjust output path for folder format
     if final_format == "folder" and output_path.suffix.lower() in (".zip", ".tacozip"):
         output_path = output_path.with_suffix("")
         logger.debug(f"Adjusted output path for folder format: {output_path}")
 
-    # Force folder-specific constraints
+    # Force folder-specific constraints BEFORE validation
+    # These parameters are silently ignored for folder format
     if final_format == "folder":
+        if split_size is not None:
+            logger.debug("Folder format: split_size ignored")
+        if group_by is not None:
+            logger.debug("Folder format: group_by ignored")
+        if temp_dir is not None:
+            logger.debug("Folder format: temp_dir ignored")
+        if consolidate:
+            logger.debug("Folder format: consolidate ignored")
         split_size = None
         group_by = None
         temp_dir = None
         consolidate = False
-        logger.debug(
-            "Folder format: split_size, group_by, temp_dir, and consolidate ignored"
-        )
+
+    _validate_all_inputs(
+        taco, output_path, final_format, split_size, group_by, consolidate
+    )
 
     # Convert temp_dir to Path if provided
     temp_path_dir = pathlib.Path(temp_dir) if temp_dir else None
@@ -239,19 +247,9 @@ def _validate_all_inputs(
                 f"Please choose a different output name."
             )
 
+    # Validate ZIP-only parameters (only when format is zip)
     if split_size is not None:
-        if output_format == "folder":
-            raise TacoValidationError(
-                "split_size is not supported with format='folder'. "
-                "Splitting is only available for format='zip'."
-            )
         validate_split_size(split_size)
-
-    if group_by is not None and output_format == "folder":
-        raise TacoValidationError(
-            "group_by is not supported with format='folder'. "
-            "Grouping is only available for format='zip'."
-        )
 
     if not taco.tortilla.samples:
         raise TacoValidationError("Cannot create container from empty tortilla")
@@ -483,7 +481,6 @@ def _group_samples_by_size(samples: list["Sample"], max_size: int) -> list[list]
     Individual samples larger than max_size will be placed alone in their chunk.
     """
     chunks = []
-    # Annotate list to avoid mypy error
     current_chunk: list[Sample] = []
     current_size = 0
 
@@ -526,7 +523,6 @@ def _create_zip(
     logger.debug(f"Extracted {len(extracted['src_files'])} data files")
 
     logger.debug(f"Creating ZIP: {output_path}")
-    # Progress bars controlled by logging level
     writer = ZipWriter(output_path=output_path, temp_dir=temp_dir)
     return writer.create_complete_zip(
         src_files=extracted["src_files"],
@@ -648,7 +644,5 @@ def _cleanup_tortilla_temp_files(tortilla: Tortilla) -> None:
         if sample.type == "FILE":
             sample.cleanup()
         elif sample.type == "FOLDER":
-            # Cast to Tortilla to avoid mypy error: "Path | Tortilla | bytes" has no attribute "samples"
-            # Since type is FOLDER, we know path is Tortilla
             child_tortilla = cast(Tortilla, sample.path)
             _cleanup_tortilla_temp_files(child_tortilla)
