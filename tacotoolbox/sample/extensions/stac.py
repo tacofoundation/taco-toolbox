@@ -160,28 +160,28 @@ class STAC(SampleExtension):
     )
 
     @pydantic.model_validator(mode="after")
-    def check_times(cls, values):
+    def check_times(self):
         """Validate that time_start <= time_end and convert to microseconds."""
-        values.time_start = _to_utc_microseconds(values.time_start)
+        self.time_start = _to_utc_microseconds(self.time_start)
 
-        if values.time_end is not None:
-            values.time_end = _to_utc_microseconds(values.time_end)
+        if self.time_end is not None:
+            self.time_end = _to_utc_microseconds(self.time_end)
 
-            if values.time_start > values.time_end:
-                raise ValueError(f"Invalid times: {values.time_start} > {values.time_end}")
+            if self.time_start > self.time_end:
+                raise ValueError(f"Invalid times: {self.time_start} > {self.time_end}")
 
-        return values
+        return self
 
     @pydantic.model_validator(mode="after")
-    def populate_time_middle(cls, values):
+    def populate_time_middle(self):
         """Auto-populate time_middle when both time_start and time_end exist."""
-        if values.time_end is not None and values.time_middle is None:
-            values.time_middle = (values.time_start + values.time_end) // 2
+        if self.time_end is not None and self.time_middle is None:
+            self.time_middle = (self.time_start + self.time_end) // 2
 
-        return values
+        return self
 
     @pydantic.model_validator(mode="after")
-    def populate_centroid(cls, values):
+    def populate_centroid(self):
         """
         Auto-populate centroid if not provided.
 
@@ -190,18 +190,18 @@ class STAC(SampleExtension):
         If check_antimeridian=True, requires 'antimeridian' package for
         correct handling of rasters crossing ±180° longitude.
         """
-        if values.centroid is None:
-            if len(values.tensor_shape) < 2:
-                raise ValueError(f"tensor_shape must have at least 2 dimensions (got {values.tensor_shape})")
+        if self.centroid is None:
+            if len(self.tensor_shape) < 2:
+                raise ValueError(f"tensor_shape must have at least 2 dimensions (got {self.tensor_shape})")
             # Extract (rows, cols) from the last two dims and compute centroid
-            rows, cols = values.tensor_shape[-2], values.tensor_shape[-1]
-            values.centroid = raster_centroid(
-                crs=values.crs,
-                geotransform=values.geotransform,
+            rows, cols = self.tensor_shape[-2], self.tensor_shape[-1]
+            self.centroid = raster_centroid(
+                crs=self.crs,
+                geotransform=self.geotransform,
                 raster_shape=(rows, cols),
-                check_antimeridian=values.check_antimeridian,
+                check_antimeridian=self.check_antimeridian,
             )
-        return values
+        return self
 
     def get_schema(self) -> pa.Schema:
         """Return the expected Arrow schema for this extension."""

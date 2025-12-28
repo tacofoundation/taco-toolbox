@@ -84,41 +84,41 @@ class ISTAC(SampleExtension):
     )
 
     @pydantic.model_validator(mode="after")
-    def check_times(cls, values):
+    def check_times(self):
         """Validate that time_start <= time_end if time_end is provided and convert to microseconds."""
-        values.time_start = _to_utc_microseconds(values.time_start)
+        self.time_start = _to_utc_microseconds(self.time_start)
 
-        if values.time_end is not None:
-            values.time_end = _to_utc_microseconds(values.time_end)
+        if self.time_end is not None:
+            self.time_end = _to_utc_microseconds(self.time_end)
 
-            if values.time_start > values.time_end:
+            if self.time_start > self.time_end:
                 raise ValueError(
-                    f"Invalid temporal interval: time_start ({values.time_start}) > time_end ({values.time_end})"
+                    f"Invalid temporal interval: time_start ({self.time_start}) > time_end ({self.time_end})"
                 )
-        return values
+        return self
 
     @pydantic.model_validator(mode="after")
-    def populate_time_middle(cls, values):
+    def populate_time_middle(self):
         """Auto-populate time_middle when both time_start and time_end exist."""
-        if values.time_end is not None and values.time_middle is None:
-            values.time_middle = (values.time_start + values.time_end) // 2
+        if self.time_end is not None and self.time_middle is None:
+            self.time_middle = (self.time_start + self.time_end) // 2
 
-        return values
+        return self
 
     @pydantic.model_validator(mode="after")
-    def populate_centroid(cls, values):
+    def populate_centroid(self):
         """
         Auto-compute centroid in EPSG:4326 if not provided.
 
         If check_antimeridian=True, uses 'antimeridian' package to correctly
         handle geometries crossing ±180° longitude (e.g., Pacific swaths).
         """
-        if values.centroid is None:
+        if self.centroid is None:
             # Load geometry from WKB
-            geom = wkb_loads(values.geometry)
+            geom = wkb_loads(self.geometry)
 
             # Compute centroid with optional antimeridian handling
-            if values.check_antimeridian:
+            if self.check_antimeridian:
                 if not HAS_ANTIMERIDIAN:
                     raise ImportError(
                         "check_antimeridian=True requires the 'antimeridian' package.\n"
@@ -130,15 +130,15 @@ class ISTAC(SampleExtension):
                 centroid_geom = geom.centroid
 
             # Transform to EPSG:4326 if needed
-            if values.crs.upper() != "EPSG:4326":
-                transformer = Transformer.from_crs(CRS.from_string(values.crs), CRS.from_epsg(4326), always_xy=True)
+            if self.crs.upper() != "EPSG:4326":
+                transformer = Transformer.from_crs(CRS.from_string(self.crs), CRS.from_epsg(4326), always_xy=True)
                 x, y = transformer.transform(centroid_geom.x, centroid_geom.y)
                 centroid_geom = Point(x, y)
 
             # Store as WKB
-            values.centroid = wkb_dumps(centroid_geom)
+            self.centroid = wkb_dumps(centroid_geom)
 
-        return values
+        return self
 
     def get_schema(self) -> pa.Schema:
         """Return the expected Arrow schema for this extension."""
