@@ -105,7 +105,8 @@ println("Samples: ", size(ds.data, 1))
 ## Data Providers
 
 {% for provider in collection["providers"] %}
-- **{{ provider.get("name", "Unknown") }}**{% if provider.get("organization") %} ({{ provider["organization"] }}){% endif %}{% if provider.get("role") %} - *{{ provider["role"] }}*{% endif %}
+**{{ provider.get("name", "Unknown") }}** — *{% if provider.get("roles") %}{{ provider["roles"]|join(", ") }}{% elif provider.get("role") %}{{ provider["role"] }}{% else %}provider{% endif %}*
+{% if provider.get("url") %}`{{ provider["url"] }}`{% endif %}
 
 {% endfor %}
 {% endif %}
@@ -113,9 +114,10 @@ println("Samples: ", size(ds.data, 1))
 {% if collection.get("curators") %}
 ## Dataset Curators
 
+| Name | Organization | Email |
+|------|--------------|-------|
 {% for curator in collection["curators"] %}
-- **{{ curator.get("name", "Unknown") }}**{% if curator.get("organization") %} ({{ curator["organization"] }}){% endif %}{% if curator.get("email") %} - {{ curator["email"] }}{% endif %}
-
+| {{ curator.get("name", "Unknown") }} | {{ curator.get("organization", "—") }} | {% if curator.get("email") %}{{ curator["email"] }}{% else %}—{% endif %} |
 {% endfor %}
 {% endif %}
 
@@ -170,4 +172,4 @@ If you use this dataset in your research, please cite:
 
 ---
 
-Generated with [TacoToolbox](https://github.com/tacotoolbox/tacotoolbox)
+Generated with ❤️ using [TacoToolbox](https://github.com/tacotoolbox/tacotoolbox) v{{ tacotoolbox_version }}

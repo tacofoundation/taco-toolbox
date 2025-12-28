@@ -5,7 +5,7 @@ Documents academic publications, technical reports, or preprints
 associated with the dataset.
 
 Dataset-level metadata:
-- publications:list: List[Struct] with fields:
+- publications: List[Struct] with fields:
   - doi: String (Digital Object Identifier)
   - citation: String (formatted citation)
   - summary: String (optional description)
@@ -43,7 +43,7 @@ class Publications(TacoExtension):
     def get_schema(self) -> pa.Schema:
         return pa.schema([
             pa.field(
-                "publications:list",
+                "publications",
                 pa.list_(
                     pa.struct([
                         pa.field("doi", pa.string()),
@@ -56,12 +56,11 @@ class Publications(TacoExtension):
 
     def get_field_descriptions(self) -> dict[str, str]:
         return {
-            "publications:list": "List of academic publications with DOI, citation, and optional summary describing dataset methodology or applications"
+            "publications": "List of academic publications with DOI, citation, and optional summary describing dataset methodology or applications"
         }
 
     def _compute(self, taco) -> pa.Table:
         pubs_data = []
         for pub in self.publications:
             pubs_data.append({"doi": pub.doi, "citation": pub.citation, "summary": pub.summary})
-
-        return pa.Table.from_pylist([{"publications:list": pubs_data}])
+        return pa.Table.from_pylist([{"publications": pubs_data}])

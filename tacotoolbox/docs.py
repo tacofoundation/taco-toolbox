@@ -154,6 +154,8 @@ def generate_markdown(
         FileNotFoundError: If input file does not exist
         TacoDocumentationError: If documentation generation fails
     """
+    from tacotoolbox import __version__ as tacotoolbox_version
+
     _check_dependencies()
 
     input = Path(input)
@@ -186,6 +188,7 @@ def generate_markdown(
             description=collection.get("description", ""),
             keywords=collection.get("keywords", []),
             dataset_example_path=dataset_example_path,
+            tacotoolbox_version=tacotoolbox_version,
         )
 
     except Exception as e:
@@ -222,6 +225,8 @@ def generate_html(
         FileNotFoundError: If input file does not exist
         TacoDocumentationError: If documentation generation fails
     """
+    from tacotoolbox import __version__ as tacotoolbox_version
+
     _check_dependencies()
 
     input = Path(input)
@@ -306,6 +311,7 @@ def generate_html(
             download_base_url=download_base_url,
             colors=colors,
             dataset_example_path=dataset_example_path,
+            tacotoolbox_version=tacotoolbox_version,
         )
 
     except Exception as e:

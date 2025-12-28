@@ -511,47 +511,99 @@ pre:hover .copy-button {
     height: 14px;
 }
 
-/* Providers & Curators */
-.provider-card, .curator-card {
+/* =============================================================================
+   PROVIDERS & CURATORS
+   ============================================================================= */
+
+/* Provider Cards - Compact style */
+.provider-card {
     background: var(--gray-50);
     border: 1px solid var(--gray-200);
     border-radius: 8px;
-    padding: 16px 20px;
-    margin-bottom: 16px;
+    padding: 14px 20px;
+    margin-bottom: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
 }
 
-.provider-name, .curator-name {
-    font-size: 1.2em;
+.provider-name {
+    font-size: 1.1em;
     font-weight: 600;
     color: var(--gray-900);
-    margin-bottom: 8px;
 }
 
-.provider-roles, .curator-roles {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 10px;
-    flex-wrap: wrap;
+.provider-name a {
+    color: var(--taco-green-dark);
+    text-decoration: none;
 }
 
-.role-badge {
-    background: var(--blue);
-    color: white;
-    padding: 4px 10px;
-    border-radius: 4px;
-    font-size: 0.8em;
-    font-weight: 600;
+.provider-name a:hover {
+    text-decoration: underline;
 }
 
-.curator-email {
+.provider-role {
+    font-style: italic;
     color: var(--gray-600);
     font-size: 0.95em;
 }
 
-.curator-org {
+.provider-url {
+    display: block;
+    font-size: 0.85em;
+    color: var(--gray-500);
+    font-family: 'Monaco', 'Courier New', monospace;
+    margin-top: 4px;
+}
+
+/* Curators Table */
+.curators-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 12px;
+}
+
+.curators-table th,
+.curators-table td {
+    padding: 12px 16px;
+    text-align: left;
+    border-bottom: 1px solid var(--gray-200);
+}
+
+.curators-table th {
+    background: var(--gray-100);
+    font-weight: 600;
+    font-size: 0.85em;
+    color: var(--gray-700);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.curators-table tbody tr:hover {
+    background: var(--gray-50);
+}
+
+.curators-table td:first-child {
+    font-weight: 600;
+    color: var(--gray-900);
+}
+
+.curators-table td:nth-child(2) {
     color: var(--gray-700);
     font-style: italic;
-    margin-top: 5px;
+}
+
+.curators-table td:nth-child(3) a {
+    color: var(--blue);
+    text-decoration: none;
+}
+
+.curators-table td:nth-child(3) a:hover {
+    text-decoration: underline;
+}
+
+.curators-table em {
+    color: var(--gray-500);
 }
 
 /* Citations */
@@ -592,7 +644,7 @@ pre:hover .copy-button {
     text-align: center;
     padding: 30px 20px;
     color: var(--gray-600);
-    font-size: 0.9em;
+    font-size: 0.95em;
     margin-top: 50px;
     border-top: 1px solid var(--gray-200);
 }
@@ -600,6 +652,7 @@ pre:hover .copy-button {
 .footer a {
     color: var(--taco-green);
     text-decoration: none;
+    font-weight: 600;
 }
 
 .footer a:hover {
@@ -777,15 +830,22 @@ pre:hover .copy-button {
     }
 
     .hierarchy-table,
-    .field-table {
+    .field-table,
+    .curators-table {
         font-size: 0.85em;
     }
 
     .hierarchy-table th,
     .hierarchy-table td,
     .field-table th,
-    .field-table td {
+    .field-table td,
+    .curators-table th,
+    .curators-table td {
         padding: 8px;
+    }
+    
+    .provider-card {
+        padding: 12px 16px;
     }
     
     .overview-summary {

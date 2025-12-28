@@ -8,7 +8,8 @@ and a flexible extension system for domain-specific enrichment.
 Main components:
 - Taco: Dataset metadata container
 - TacoExtension: Base for computed metadata extensions
-- Contact: Contributor information
+- Provider: Data provider information (STAC-compatible)
+- Curator: Dataset curator/maintainer information
 - Extent: Spatial/temporal boundaries
 - TaskType: ML task categories
 
@@ -96,12 +97,44 @@ TaskType = Literal[
 ]
 
 
-class Contact(TacoExtension):
+class Provider(pydantic.BaseModel):
     """
-    Dataset contributor contact information.
+    Data provider information (STAC-compatible).
 
-    At least one of 'name' or 'organization' required.
-    Role examples: "principal-investigator", "data-curator", "maintainer"
+    Describes organizations or entities that provide, process, or host the data.
+
+    Attributes:
+        name: Provider name (required)
+        roles: List of roles (e.g., "producer", "licensor", "processor", "host")
+        url: Provider website URL
+        links: STAC-style links for additional resources
+    """
+
+    name: str
+    roles: list[str] | None = None
+    url: str | None = None
+    links: list[dict[str, str]] | None = None
+
+    @pydantic.field_validator("url")
+    @classmethod
+    def validate_url(cls, v: str | None) -> str | None:
+        if v and not (v.startswith("http://") or v.startswith("https://")):
+            raise ValueError("URL must start with http:// or https://")
+        return v
+
+
+class Curator(pydantic.BaseModel):
+    """
+    Dataset curator/maintainer information.
+
+    Describes individuals responsible for creating and maintaining the dataset.
+    At least one of 'name' or 'organization' is required.
+
+    Attributes:
+        name: Curator's name
+        organization: Affiliated organization or institution
+        email: Contact email address
+        role: Curator's role (e.g., "curator", "maintainer", "principal-investigator")
     """
 
     name: str | None = None
@@ -110,7 +143,7 @@ class Contact(TacoExtension):
     role: str | None = None
 
     @pydantic.model_validator(mode="after")
-    def check_name_or_organization(self) -> "Contact":
+    def check_name_or_organization(self) -> "Curator":
         if not self.name and not self.organization:
             raise ValueError("Either 'name' or 'organization' must be provided")
         return self
@@ -121,25 +154,6 @@ class Contact(TacoExtension):
         if v and "@" not in v:
             raise ValueError("Invalid email format - must contain '@' symbol")
         return v
-
-    def get_schema(self) -> pa.Schema:
-        return pa.schema([
-            pa.field("name", pa.string()),
-            pa.field("organization", pa.string()),
-            pa.field("email", pa.string()),
-            pa.field("role", pa.string()),
-        ])
-
-    def get_field_descriptions(self) -> dict[str, str]:
-        return {
-            "name": "Contributor name",
-            "organization": "Contributor organization or institution",
-            "email": "Contact email address",
-            "role": "Contributor role (e.g., principal-investigator, data-curator, maintainer)",
-        }
-
-    def _compute(self, taco: "Taco") -> pa.Table:
-        return pa.Table.from_pylist([self.model_dump()])
 
 
 class Extent(TacoExtension):
@@ -241,13 +255,13 @@ class Taco(pydantic.BaseModel):
         dataset_version: Version string (e.g., "1.0.0")
         description: Dataset description
         licenses: License identifiers (e.g., ["CC-BY-4.0"])
-        providers: Dataset creators (Contact list)
+        providers: Data providers (Provider list)
         tasks: ML task types
 
     Optional fields:
         taco_version: TACO format version (default: "0.5.0")
         title: Human-friendly title (max 250 chars)
-        curators: Dataset curators (Contact list)
+        curators: Dataset curators (Curator list)
         keywords: Searchable tags
         extent: Spatial/temporal boundaries (auto-calculated from STAC/ISTAC)
     """
@@ -258,13 +272,13 @@ class Taco(pydantic.BaseModel):
     dataset_version: str
     description: str
     licenses: list[str]
-    providers: list[Contact]
+    providers: list[Provider]
     tasks: list[TaskType]
 
     # Optional core fields
     taco_version: str = "0.5.0"
     title: str | None = None
-    curators: list[Contact] | None = None
+    curators: list[Curator] | None = None
     keywords: list[str] | None = None
     extent: Extent | None = None
 
@@ -506,7 +520,7 @@ class Taco(pydantic.BaseModel):
         """
         Export complete metadata as single-row Table.
 
-        Preserves nested structures (Contact, Extent) without flattening.
+        Preserves nested structures (Provider, Curator, Extent) without flattening.
         Includes core fields, Tortilla reference, and all extensions.
         """
         metadata: dict[str, Any] = {}
@@ -515,11 +529,11 @@ class Taco(pydantic.BaseModel):
             if key.startswith("_"):
                 continue
 
-            if isinstance(value, Contact | Extent):
+            if isinstance(value, Provider | Curator | Extent):
                 metadata[key] = value.model_dump()
 
-            elif isinstance(value, list) and value and isinstance(value[0], Contact):
-                metadata[key] = [contact.model_dump() for contact in value]
+            elif isinstance(value, list) and value and isinstance(value[0], Provider | Curator):
+                metadata[key] = [item.model_dump() for item in value]
 
             else:
                 metadata[key] = value

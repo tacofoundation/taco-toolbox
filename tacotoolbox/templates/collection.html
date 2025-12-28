@@ -248,7 +248,7 @@ println("Samples: ", size(ds.data, 1))</code></pre>
             </div>
         </section>
 
-        <!-- Providers -->
+        <!-- Providers & Curators -->
         {% if collection.get("providers") or collection.get("curators") %}
         <section id="providers" class="section">
             <h2>Providers & Curators</h2>
@@ -257,34 +257,33 @@ println("Samples: ", size(ds.data, 1))</code></pre>
             <h3>Data Providers</h3>
             {% for provider in collection["providers"] %}
             <div class="provider-card">
-                <div class="provider-name">{{ provider.get("name", "Unknown") }}</div>
-                {% if provider.get("roles") %}
-                <div class="provider-roles">
-                    {% for role in provider["roles"] %}
-                    <span class="role-badge">{{ role }}</span>
-                    {% endfor %}
-                </div>
-                {% endif %}
+                <span class="provider-name">{{ provider.get("name", "Unknown") }}</span>
+                {% if provider.get("roles") %}<span class="provider-role">{{ provider["roles"]|join(", ") }}</span>{% elif provider.get("role") %}<span class="provider-role">{{ provider["role"] }}</span>{% endif %}
+                {% if provider.get("url") %}<span class="provider-url">{{ provider["url"] }}</span>{% endif %}
             </div>
             {% endfor %}
             {% endif %}
 
             {% if collection.get("curators") %}
             <h3>Dataset Curators</h3>
-            {% for curator in collection["curators"] %}
-            <div class="curator-card">
-                <div class="curator-name">{{ curator.get("name", "Unknown") }}</div>
-                {% if curator.get("roles") %}
-                <div class="curator-roles">
-                    {% for role in curator["roles"] %}
-                    <span class="role-badge">{{ role }}</span>
-                    {% endfor %}
-                </div>
-                {% endif %}
-                {% if curator.get("organization") %}<div class="curator-org">{{ curator["organization"] }}</div>{% endif %}
-                {% if curator.get("email") %}<div class="curator-email">{{ curator["email"] }}</div>{% endif %}
-            </div>
-            {% endfor %}
+            <table class="curators-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Organization</th>
+                        <th>Email</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for curator in collection["curators"] %}
+                    <tr>
+                        <td>{{ curator.get("name", "Unknown") }}</td>
+                        <td>{% if curator.get("organization") %}{{ curator["organization"] }}{% else %}<em>—</em>{% endif %}</td>
+                        <td>{% if curator.get("email") %}<a href="mailto:{{ curator['email'] }}">{{ curator["email"] }}</a>{% else %}<em>—</em>{% endif %}</td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
             {% endif %}
         </section>
         {% endif %}
@@ -344,13 +343,7 @@ println("Samples: ", size(ds.data, 1))</code></pre>
 
         <!-- Footer -->
         <footer class="footer">
-            <p>Generated with <a href="https://github.com/tacotoolbox/tacotoolbox" target="_blank">TacoToolbox</a></p>
-            <p>TACO Specification v2.6 | License: {{ collection.get("licenses", ["Unknown"])|join(", ") }}</p>
-            {% if inline_deps %}
-            <p style="font-size: 0.85em; color: #999;">Offline-ready: All libraries embedded</p>
-            {% else %}
-            <p style="font-size: 0.85em; color: #999;">CDN mode: Requires internet connection</p>
-            {% endif %}
+            <p>Generated with ❤️ using <a href="https://github.com/tacotoolbox/tacotoolbox" target="_blank">TacoToolbox</a> v{{ tacotoolbox_version }}</p>
         </footer>
     </div>
 
