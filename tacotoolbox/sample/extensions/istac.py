@@ -23,7 +23,6 @@ from shapely.geometry import Point
 from shapely.wkb import dumps as wkb_dumps
 from shapely.wkb import loads as wkb_loads
 
-from tacotoolbox._timestamps import TimestampLike, _to_utc_microseconds
 from tacotoolbox.sample.datamodel import SampleExtension
 
 # Soft dependency - only imported when check_antimeridian=True
@@ -51,8 +50,8 @@ class ISTAC(SampleExtension):
     Notes
     -----
     - Timestamps stored as Parquet TIMESTAMP with microsecond precision
-    - datetime.datetime inputs are automatically converted to microseconds (int64)
-    - int/float inputs in seconds are converted to microseconds
+    - All timestamp inputs must be int64 microseconds since Unix epoch (UTC)
+    - Example: int(datetime.timestamp() * 1_000_000)
     - Centroid is always in EPSG:4326 regardless of source geometry CRS
     - For regular raster grids, use the STAC extension instead
     - WKB binary format for efficient storage and GeoParquet compatibility
@@ -63,16 +62,16 @@ class ISTAC(SampleExtension):
     geometry: bytes = Field(
         description="Spatial footprint geometry in source CRS as WKB binary (Well-Known Binary format). Can be Point, LineString, Polygon, or MultiPolygon."
     )
-    time_start: TimestampLike = Field(
-        description="Acquisition start timestamp as Datetime[μs] (microseconds since Unix epoch, timezone-naive UTC)."
+    time_start: int = Field(
+        description="Acquisition start timestamp (microseconds since Unix epoch, UTC)."
     )
-    time_end: TimestampLike | None = Field(
+    time_end: int | None = Field(
         default=None,
-        description="Acquisition end timestamp as Datetime[μs] (microseconds since Unix epoch, timezone-naive UTC). Must be ≥ time_start.",
+        description="Acquisition end timestamp (microseconds since Unix epoch, UTC). Must be ≥ time_start.",
     )
     time_middle: int | None = Field(
         default=None,
-        description="Middle timestamp as Datetime[μs] (microseconds since Unix epoch, timezone-naive UTC). Auto-computed as (time_start + time_end) // 2.",
+        description="Middle timestamp (microseconds since Unix epoch, UTC). Auto-computed as (time_start + time_end) // 2.",
     )
     centroid: bytes | None = Field(
         default=None,
@@ -85,16 +84,11 @@ class ISTAC(SampleExtension):
 
     @pydantic.model_validator(mode="after")
     def check_times(self):
-        """Validate that time_start <= time_end if time_end is provided and convert to microseconds."""
-        self.time_start = _to_utc_microseconds(self.time_start)
-
-        if self.time_end is not None:
-            self.time_end = _to_utc_microseconds(self.time_end)
-
-            if self.time_start > self.time_end:
-                raise ValueError(
-                    f"Invalid temporal interval: time_start ({self.time_start}) > time_end ({self.time_end})"
-                )
+        """Validate that time_start <= time_end if time_end is provided."""
+        if self.time_end is not None and self.time_start > self.time_end:
+            raise ValueError(
+                f"Invalid temporal interval: time_start ({self.time_start}) > time_end ({self.time_end})"
+            )
         return self
 
     @pydantic.model_validator(mode="after")

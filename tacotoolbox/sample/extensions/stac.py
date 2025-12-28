@@ -23,7 +23,6 @@ from pyproj import CRS, Transformer
 from shapely.geometry import Point, Polygon
 from shapely.wkb import dumps as wkb_dumps
 
-from tacotoolbox._timestamps import TimestampLike, _to_utc_microseconds
 from tacotoolbox.sample.datamodel import SampleExtension
 
 # Soft dependency - only imported when check_antimeridian=True
@@ -126,8 +125,8 @@ class STAC(SampleExtension):
     -----
 
     - Timestamps stored as Parquet TIMESTAMP with microsecond precision
-    - datetime.datetime inputs are automatically converted to microseconds (int64)
-    - int/float inputs in seconds are converted to microseconds
+    - All timestamp inputs must be int64 microseconds since Unix epoch (UTC)
+    - Example: int(datetime.timestamp() * 1_000_000)
     - time_middle is auto-computed when both start and end times exist
     - Set check_antimeridian=True (requires: pip install antimeridian)
     """
@@ -139,20 +138,20 @@ class STAC(SampleExtension):
     geotransform: GeoTransform6 = Field(
         description="GDAL geotransform tuple (origin_x, pixel_width, rotation_x, origin_y, rotation_y, pixel_height)"
     )
-    time_start: TimestampLike = Field(
-        description="Acquisition start timestamp as Datetime[μs] (microseconds since Unix epoch, timezone-naive UTC)."
+    time_start: int = Field(
+        description="Acquisition start timestamp (microseconds since Unix epoch, UTC)."
     )
     centroid: bytes | None = Field(
         default=None,
         description="Raster centroid in EPSG:4326 as WKB binary (Well-Known Binary geometry format).",
     )
-    time_end: TimestampLike | None = Field(
+    time_end: int | None = Field(
         default=None,
-        description="Acquisition end timestamp as Datetime[μs] (microseconds since Unix epoch, timezone-naive UTC). Must be ≥ time_start.",
+        description="Acquisition end timestamp (microseconds since Unix epoch, UTC). Must be ≥ time_start.",
     )
     time_middle: int | None = Field(
         default=None,
-        description="Middle timestamp as Datetime[μs] (microseconds since Unix epoch, timezone-naive UTC).",
+        description="Middle timestamp (microseconds since Unix epoch, UTC).",
     )
     check_antimeridian: bool = Field(
         default=False,
@@ -161,14 +160,9 @@ class STAC(SampleExtension):
 
     @pydantic.model_validator(mode="after")
     def check_times(self):
-        """Validate that time_start <= time_end and convert to microseconds."""
-        self.time_start = _to_utc_microseconds(self.time_start)
-
-        if self.time_end is not None:
-            self.time_end = _to_utc_microseconds(self.time_end)
-
-            if self.time_start > self.time_end:
-                raise ValueError(f"Invalid times: {self.time_start} > {self.time_end}")
+        """Validate that time_start <= time_end."""
+        if self.time_end is not None and self.time_start > self.time_end:
+            raise ValueError(f"Invalid times: {self.time_start} > {self.time_end}")
 
         return self
 
