@@ -156,40 +156,40 @@ class Curator(pydantic.BaseModel):
         return v
 
 
-class Extent(TacoExtension):
+class Extent(pydantic.BaseModel):
     """
     Spatial and temporal boundaries.
 
-    Spatial: [min_lon, min_lat, max_lon, max_lat] in WGS84 decimal degrees
+    Spatial: [west, south, east, north] in WGS84 decimal degrees.
+    When west > east, indicates antimeridian crossing (STAC convention).
+
     Temporal: [start_iso, end_iso] in ISO 8601 format (optional)
 
-    Note: Allows point extents where min == max for datasets with samples
+    Note: Allows point extents where west == east for datasets with samples
     at a single location (e.g., time series at fixed coordinates).
     """
 
-    spatial: list[float]  # [min_lon, min_lat, max_lon, max_lat]
+    spatial: list[float]  # [west, south, east, north]
     temporal: list[str] | None = None  # [start_iso, end_iso]
 
     @pydantic.field_validator("spatial")
     @classmethod
     def validate_spatial(cls, v: list[float]) -> list[float]:
         if len(v) != 4:
-            raise ValueError("Spatial extent must have exactly 4 values: [min_lon, min_lat, max_lon, max_lat]")
+            raise ValueError("Spatial extent must have exactly 4 values: [west, south, east, north]")
 
-        min_lon, min_lat, max_lon, max_lat = v
+        west, south, east, north = v
 
-        if not (-180 <= min_lon <= 180) or not (-180 <= max_lon <= 180):
+        if not (-180 <= west <= 180) or not (-180 <= east <= 180):
             raise ValueError("Longitude values must be between -180 and 180 degrees")
 
-        if not (-90 <= min_lat <= 90) or not (-90 <= max_lat <= 90):
+        if not (-90 <= south <= 90) or not (-90 <= north <= 90):
             raise ValueError("Latitude values must be between -90 and 90 degrees")
 
-        # Allow min == max for point extents (single location datasets)
-        if min_lon > max_lon:
-            raise ValueError("min_longitude cannot be greater than max_longitude")
-
-        if min_lat > max_lat:
-            raise ValueError("min_latitude cannot be greater than max_latitude")
+        # Note: west > east is valid (antimeridian crossing)
+        # Only validate latitude ordering
+        if south > north:
+            raise ValueError("south cannot be greater than north")
 
         return v
 
@@ -223,21 +223,6 @@ class Extent(TacoExtension):
             raise ValueError("Start datetime must be before end datetime")
 
         return v
-
-    def get_schema(self) -> pa.Schema:
-        return pa.schema([
-            pa.field("spatial", pa.list_(pa.float64())),
-            pa.field("temporal", pa.list_(pa.string())),
-        ])
-
-    def get_field_descriptions(self) -> dict[str, str]:
-        return {
-            "spatial": "Spatial bounding box [min_lon, min_lat, max_lon, max_lat] in WGS84 decimal degrees",
-            "temporal": "Temporal interval [start_datetime, end_datetime] in ISO 8601 format",
-        }
-
-    def _compute(self, taco: "Taco") -> pa.Table:
-        return pa.Table.from_pylist([self.model_dump()])
 
 
 class Taco(pydantic.BaseModel):
@@ -545,8 +530,18 @@ def _calculate_spatial_extent(table: pa.Table, centroid_col: str) -> list[float]
     """
     Calculate spatial bounding box from centroid geometries.
 
-    Parses WKB binary centroids and computes [min_lon, min_lat, max_lon, max_lat].
-    Skips None values (padding samples).
+    Handles antimeridian crossing using "largest area" heuristic:
+    - Split points into positive (0° to 180°) and negative (-180° to 0°) groups
+    - The group with larger longitudinal span is the "anchor"
+    - If anchor is positive and negative points exist: bbox crosses antimeridian (west > east)
+    - Otherwise: normal bbox (west < east)
+
+    Args:
+        table: PyArrow table with centroid column
+        centroid_col: Name of WKB binary centroid column
+
+    Returns:
+        [west, south, east, north] where west > east indicates antimeridian crossing
     """
     centroids = [cast(Point, wkb_loads(wkb)) for wkb in table.column(centroid_col).to_pylist() if wkb is not None]
 
@@ -556,7 +551,32 @@ def _calculate_spatial_extent(table: pa.Table, centroid_col: str) -> list[float]
     lons = [point.x for point in centroids]
     lats = [point.y for point in centroids]
 
-    return [min(lons), min(lats), max(lons), max(lats)]
+    min_lat, max_lat = min(lats), max(lats)
+
+    # Split into positive and negative longitude groups
+    positive_lons = [lon for lon in lons if lon >= 0]
+    negative_lons = [lon for lon in lons if lon < 0]
+
+    # Calculate span for each group
+    positive_span = (max(positive_lons) - min(positive_lons)) if positive_lons else 0
+    negative_span = (max(negative_lons) - min(negative_lons)) if negative_lons else 0
+
+    # If only one group has points, simple bbox
+    if not positive_lons:
+        return [min(negative_lons), min_lat, max(negative_lons), max_lat]
+    if not negative_lons:
+        return [min(positive_lons), min_lat, max(positive_lons), max_lat]
+
+    # Both groups have points - use largest area heuristic
+    if positive_span >= negative_span:
+        # Positive side is anchor (larger area)
+        # Bbox: from min positive, crosses antimeridian, to max negative
+        # STAC convention: west > east means crossing
+        return [min(positive_lons), min_lat, max(negative_lons), max_lat]
+    else:
+        # Negative side is anchor (larger area)
+        # Normal bbox without crossing
+        return [min(negative_lons), min_lat, max(positive_lons), max_lat]
 
 
 def _calculate_temporal_extent(
