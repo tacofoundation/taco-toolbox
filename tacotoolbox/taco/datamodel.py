@@ -530,18 +530,15 @@ def _calculate_spatial_extent(table: pa.Table, centroid_col: str) -> list[float]
     """
     Calculate spatial bounding box from centroid geometries.
 
-    Handles antimeridian crossing using "largest area" heuristic:
-    - Split points into positive (0° to 180°) and negative (-180° to 0°) groups
-    - The group with larger longitudinal span is the "anchor"
-    - If anchor is positive and negative points exist: bbox crosses antimeridian (west > east)
-    - Otherwise: normal bbox (west < east)
+    Handles antimeridian by splitting points into two groups (positive/negative
+    longitude) and keeping only the group with larger longitudinal span.
 
     Args:
         table: PyArrow table with centroid column
         centroid_col: Name of WKB binary centroid column
 
     Returns:
-        [west, south, east, north] where west > east indicates antimeridian crossing
+        [west, south, east, north] standard bbox (west < east always)
     """
     centroids = [cast(Point, wkb_loads(wkb)) for wkb in table.column(centroid_col).to_pylist() if wkb is not None]
 
@@ -553,30 +550,24 @@ def _calculate_spatial_extent(table: pa.Table, centroid_col: str) -> list[float]
 
     min_lat, max_lat = min(lats), max(lats)
 
-    # Split into positive and negative longitude groups
+    # Split into positive [0, 180] and negative [-180, 0) groups
     positive_lons = [lon for lon in lons if lon >= 0]
     negative_lons = [lon for lon in lons if lon < 0]
 
-    # Calculate span for each group
-    positive_span = (max(positive_lons) - min(positive_lons)) if positive_lons else 0
-    negative_span = (max(negative_lons) - min(negative_lons)) if negative_lons else 0
-
-    # If only one group has points, simple bbox
+    # If all points on one side, simple bbox
     if not positive_lons:
         return [min(negative_lons), min_lat, max(negative_lons), max_lat]
     if not negative_lons:
         return [min(positive_lons), min_lat, max(positive_lons), max_lat]
 
-    # Both groups have points - use largest area heuristic
+    # Both sides have points - keep the larger group
+    positive_span = max(positive_lons) - min(positive_lons)
+    negative_span = max(negative_lons) - min(negative_lons)
+
     if positive_span >= negative_span:
-        # Positive side is anchor (larger area)
-        # Bbox: from min positive, crosses antimeridian, to max negative
-        # STAC convention: west > east means crossing
-        return [min(positive_lons), min_lat, max(negative_lons), max_lat]
+        return [min(positive_lons), min_lat, max(positive_lons), max_lat]
     else:
-        # Negative side is anchor (larger area)
-        # Normal bbox without crossing
-        return [min(negative_lons), min_lat, max(positive_lons), max_lat]
+        return [min(negative_lons), min_lat, max(negative_lons), max_lat]
 
 
 def _calculate_temporal_extent(

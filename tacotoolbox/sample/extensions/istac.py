@@ -30,12 +30,13 @@ from tacotoolbox.sample.datamodel import SampleExtension
 
 try:
     import antimeridian
+
     HAS_ANTIMERIDIAN = True
 except ImportError:
     HAS_ANTIMERIDIAN = False
 
 
-def geometry_centroid(
+def geometry_centroid( #noqa: C901
     crs: str,
     geometry: bytes,
     check_antimeridian: bool = False,
@@ -63,8 +64,7 @@ def geometry_centroid(
     if src_crs.is_geographic and check_antimeridian:
         if not HAS_ANTIMERIDIAN:
             raise ImportError(
-                f"{id_str}check_antimeridian=True requires 'antimeridian' package. "
-                "pip install antimeridian"
+                f"{id_str}check_antimeridian=True requires 'antimeridian' package. pip install antimeridian"
             )
         centroid_geom = antimeridian.centroid(geom)
     else:
