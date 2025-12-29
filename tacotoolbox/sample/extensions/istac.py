@@ -4,7 +4,7 @@ ISTAC extension for irregular spatiotemporal geometries.
 Provides Irregular SpatioTemporal Asset Catalog (ISTAC) metadata for
 non-regular geospatial data without affine geotransform.
 
-Use cases: satellite swaths, flight paths, vector data, irregular sensor networks.
+For regular raster data, use STAC instead.
 
 Exports to DataFrame:
 - istac:crs: String (WKT2/EPSG/PROJ)
@@ -15,127 +15,132 @@ Exports to DataFrame:
 - istac:centroid: Binary (WKB, EPSG:4326)
 """
 
+import math
+
 import pyarrow as pa
 import pydantic
 from pydantic import Field
 from pyproj import CRS, Transformer
+from pyproj.exceptions import CRSError
 from shapely.geometry import Point
 from shapely.wkb import dumps as wkb_dumps
 from shapely.wkb import loads as wkb_loads
 
 from tacotoolbox.sample.datamodel import SampleExtension
 
-# Soft dependency - only imported when check_antimeridian=True
 try:
     import antimeridian
-
     HAS_ANTIMERIDIAN = True
 except ImportError:
     HAS_ANTIMERIDIAN = False
+
+
+def geometry_centroid(
+    crs: str,
+    geometry: bytes,
+    check_antimeridian: bool = False,
+    sample_id: str | None = None,
+) -> bytes:
+    """Calculate geometry centroid in EPSG:4326, return as WKB."""
+    id_str = f"[{sample_id}] " if sample_id else ""
+
+    # Load geometry
+    try:
+        geom = wkb_loads(geometry)
+    except Exception as e:
+        raise ValueError(f"{id_str}Invalid WKB geometry") from e
+
+    if geom.is_empty:
+        raise ValueError(f"{id_str}Geometry is empty")
+
+    # Parse CRS
+    try:
+        src_crs = CRS.from_string(crs)
+    except CRSError as e:
+        raise ValueError(f"{id_str}Invalid CRS: {crs}") from e
+
+    # Compute centroid
+    if src_crs.is_geographic and check_antimeridian:
+        if not HAS_ANTIMERIDIAN:
+            raise ImportError(
+                f"{id_str}check_antimeridian=True requires 'antimeridian' package. "
+                "pip install antimeridian"
+            )
+        centroid_geom = antimeridian.centroid(geom)
+    else:
+        centroid_geom = geom.centroid
+
+    # Transform to WGS84 if needed
+    if src_crs.is_geographic:
+        lon, lat = centroid_geom.x, centroid_geom.y
+    else:
+        transformer = Transformer.from_crs(src_crs, CRS.from_epsg(4326), always_xy=True)
+        lon, lat = transformer.transform(centroid_geom.x, centroid_geom.y)
+
+    # Validate
+    if math.isnan(lon) or math.isnan(lat):
+        raise ValueError(f"{id_str}Centroid is NaN")
+
+    if math.isinf(lon) or math.isinf(lat):
+        raise ValueError(f"{id_str}Centroid is Inf")
+
+    if not (-180 <= lon <= 180):
+        raise ValueError(f"{id_str}Longitude {lon} out of bounds [-180, 180]")
+
+    if not (-90 <= lat <= 90):
+        raise ValueError(f"{id_str}Latitude {lat} out of bounds [-90, 90]")
+
+    return wkb_dumps(Point(lon, lat))
 
 
 class ISTAC(SampleExtension):
     """
     Irregular SpatioTemporal Asset Catalog (ISTAC) metadata for non-regular geometries.
 
-    For geospatial data that cannot be represented with an affine geotransform:
-    - Satellite swaths: CloudSat, CALIPSO, GPM orbital tracks
-    - Flight paths: Aircraft or drone trajectories
-    - Vector data: Polygons, lines, or points without underlying raster
-    - Irregular samplings: Weather stations, buoy arrays, sensor networks
-
-    Unlike STAC (designed for regular rasters with geotransform), ISTAC stores
-    the complete geometry directly as WKB binary for arbitrary spatial footprints.
-
-    Notes
-    -----
-    - Timestamps stored as Parquet TIMESTAMP with microsecond precision
-    - All timestamp inputs must be int64 microseconds since Unix epoch (UTC)
-    - Example: int(datetime.timestamp() * 1_000_000)
-    - Centroid is always in EPSG:4326 regardless of source geometry CRS
-    - For regular raster grids, use the STAC extension instead
-    - WKB binary format for efficient storage and GeoParquet compatibility
-    - time_middle is auto-computed when both start and end times exist
+    Requirements:
+    - Timestamps: int64 microseconds since Unix epoch (UTC)
+    - Geometry: WKB binary in source CRS
+    - Centroid: auto-computed from geometry if not provided
+    - time_middle: auto-computed as (time_start + time_end) // 2
+    - check_antimeridian: only relevant for geographic CRS (EPSG:4326)
     """
 
-    crs: str = Field(description="Coordinate Reference System in WKT2, EPSG code, or PROJ string (e.g., 'EPSG:4326').")
-    geometry: bytes = Field(
-        description="Spatial footprint geometry in source CRS as WKB binary (Well-Known Binary format). Can be Point, LineString, Polygon, or MultiPolygon."
-    )
-    time_start: int = Field(
-        description="Acquisition start timestamp (microseconds since Unix epoch, UTC)."
-    )
-    time_end: int | None = Field(
-        default=None,
-        description="Acquisition end timestamp (microseconds since Unix epoch, UTC). Must be ≥ time_start.",
-    )
-    time_middle: int | None = Field(
-        default=None,
-        description="Middle timestamp (microseconds since Unix epoch, UTC). Auto-computed as (time_start + time_end) // 2.",
-    )
-    centroid: bytes | None = Field(
-        default=None,
-        description="Geometry centroid in EPSG:4326 as WKB binary. Auto-computed from geometry if not provided.",
-    )
-    check_antimeridian: bool = Field(
-        default=False,
-        description="Enable antimeridian (±180° longitude) crossing detection. Required for geometries spanning the dateline. Requires 'antimeridian' package.",
-    )
+    sample_id: str | None = Field(default=None, description="Sample ID for error messages.")
+    crs: str = Field(description="Coordinate Reference System (WKT2, EPSG, or PROJ).")
+    geometry: bytes = Field(description="Spatial footprint in source CRS as WKB.")
+    time_start: int = Field(description="Start timestamp (μs since Unix epoch, UTC).")
+    time_end: int | None = Field(default=None, description="End timestamp (μs since Unix epoch, UTC).")
+    time_middle: int | None = Field(default=None, description="Middle timestamp (μs since Unix epoch, UTC).")
+    centroid: bytes | None = Field(default=None, description="Centroid in EPSG:4326 as WKB.")
+    check_antimeridian: bool = Field(default=False, description="Handle antimeridian crossing (geographic CRS only).")
+
+    def _id_str(self) -> str:
+        return f"[{self.sample_id}] " if self.sample_id else ""
 
     @pydantic.model_validator(mode="after")
     def check_times(self):
-        """Validate that time_start <= time_end if time_end is provided."""
         if self.time_end is not None and self.time_start > self.time_end:
-            raise ValueError(
-                f"Invalid temporal interval: time_start ({self.time_start}) > time_end ({self.time_end})"
-            )
+            raise ValueError(f"{self._id_str()}time_start ({self.time_start}) > time_end ({self.time_end})")
         return self
 
     @pydantic.model_validator(mode="after")
     def populate_time_middle(self):
-        """Auto-populate time_middle when both time_start and time_end exist."""
         if self.time_end is not None and self.time_middle is None:
             self.time_middle = (self.time_start + self.time_end) // 2
-
         return self
 
     @pydantic.model_validator(mode="after")
     def populate_centroid(self):
-        """
-        Auto-compute centroid in EPSG:4326 if not provided.
-
-        If check_antimeridian=True, uses 'antimeridian' package to correctly
-        handle geometries crossing ±180° longitude (e.g., Pacific swaths).
-        """
         if self.centroid is None:
-            # Load geometry from WKB
-            geom = wkb_loads(self.geometry)
-
-            # Compute centroid with optional antimeridian handling
-            if self.check_antimeridian:
-                if not HAS_ANTIMERIDIAN:
-                    raise ImportError(
-                        "check_antimeridian=True requires the 'antimeridian' package.\n"
-                        "Install with: pip install antimeridian\n"
-                    )
-                # Use antimeridian-aware centroid calculation
-                centroid_geom = antimeridian.centroid(geom)
-            else:
-                centroid_geom = geom.centroid
-
-            # Transform to EPSG:4326 if needed
-            if self.crs.upper() != "EPSG:4326":
-                transformer = Transformer.from_crs(CRS.from_string(self.crs), CRS.from_epsg(4326), always_xy=True)
-                x, y = transformer.transform(centroid_geom.x, centroid_geom.y)
-                centroid_geom = Point(x, y)
-
-            # Store as WKB
-            self.centroid = wkb_dumps(centroid_geom)
-
+            self.centroid = geometry_centroid(
+                crs=self.crs,
+                geometry=self.geometry,
+                check_antimeridian=self.check_antimeridian,
+                sample_id=self.sample_id,
+            )
         return self
 
     def get_schema(self) -> pa.Schema:
-        """Return the expected Arrow schema for this extension."""
         return pa.schema([
             pa.field("istac:crs", pa.string()),
             pa.field("istac:geometry", pa.binary()),
@@ -146,25 +151,24 @@ class ISTAC(SampleExtension):
         ])
 
     def get_field_descriptions(self) -> dict[str, str]:
-        """Return field descriptions for each field."""
         return {
-            "istac:crs": "Coordinate reference system (WKT2, EPSG, or PROJ string)",
-            "istac:geometry": "Spatial footprint geometry in source CRS (WKB binary format)",
-            "istac:time_start": "Acquisition start timestamp (microseconds since Unix epoch, UTC)",
-            "istac:time_end": "Acquisition end timestamp (microseconds since Unix epoch, UTC)",
-            "istac:time_middle": "Midpoint between start and end timestamps (microseconds since Unix epoch, UTC)",
-            "istac:centroid": "Geometry center point in EPSG:4326 (WKB binary format)",
+            "istac:crs": "Coordinate reference system (WKT2, EPSG, or PROJ)",
+            "istac:geometry": "Spatial footprint in source CRS (WKB)",
+            "istac:time_start": "Start timestamp (μs since Unix epoch, UTC)",
+            "istac:time_end": "End timestamp (μs since Unix epoch, UTC)",
+            "istac:time_middle": "Middle timestamp (μs since Unix epoch, UTC)",
+            "istac:centroid": "Center point in EPSG:4326 (WKB)",
         }
 
     def _compute(self, sample) -> pa.Table:
-        """Actual computation logic - returns PyArrow Table."""
-        data = {
-            "istac:crs": [self.crs],
-            "istac:geometry": [self.geometry],
-            "istac:time_start": [self.time_start],
-            "istac:time_end": [self.time_end],
-            "istac:time_middle": [self.time_middle],
-            "istac:centroid": [self.centroid],
-        }
-
-        return pa.Table.from_pydict(data, schema=self.get_schema())
+        return pa.Table.from_pydict(
+            {
+                "istac:crs": [self.crs],
+                "istac:geometry": [self.geometry],
+                "istac:time_start": [self.time_start],
+                "istac:time_end": [self.time_end],
+                "istac:time_middle": [self.time_middle],
+                "istac:centroid": [self.centroid],
+            },
+            schema=self.get_schema(),
+        )
