@@ -131,6 +131,10 @@ class Sample(pydantic.BaseModel):
 
     def __init__(self, temp_dir: pathlib.Path | None = None, **data: Any) -> None:
         """Initialize Sample with optional temp_dir for bytes conversion."""
+        # Track temp file for setting AFTER super().__init__()
+        # Pydantic v2 reinitializes PrivateAttr, so we must set after
+        temp_path_to_track: pathlib.Path | None = None
+
         # Handle temp_dir for bytes conversion without storing it
         if "path" in data and isinstance(data["path"], bytes):
             temp_dir = pathlib.Path(tempfile.gettempdir()) if temp_dir is None else pathlib.Path(temp_dir)
@@ -150,9 +154,8 @@ class Sample(pydantic.BaseModel):
             # Replace bytes with path
             data["path"] = temp_path.absolute()
 
-            # Initialize _temp_files BEFORE super().__init__
-            # This ensures it's available when pydantic validates
-            object.__setattr__(self, "_temp_files", [temp_path])
+            # Save for tracking after super().__init__()
+            temp_path_to_track = temp_path
 
         # Extract extension fields (anything not a core field)
         extension_fields = {k: v for k, v in data.items() if k not in SHARED_CORE_FIELDS}
@@ -160,8 +163,12 @@ class Sample(pydantic.BaseModel):
         # Initialize with all fields (Pydantic accepts them due to extra="allow")
         super().__init__(**data)
 
+        # Set _temp_files AFTER super().__init__() to avoid Pydantic overwriting it
+        if temp_path_to_track is not None:
+            self._temp_files = [temp_path_to_track]
+
         # Calculate size AFTER validation (when type is FILE/FOLDER, not "auto")
-        object.__setattr__(self, "_size_bytes", self._calculate_size())
+        self._size_bytes = self._calculate_size()
 
         # Auto-extend with extension fields to track their schemas
         if extension_fields:
@@ -192,10 +199,10 @@ class Sample(pydantic.BaseModel):
         sample = cls.model_construct(id=f"__TACOPAD__{index}", type="FILE", path=temp_path.absolute())
 
         # Manually initialize private attributes (model_construct doesn't do this)
-        object.__setattr__(sample, "_temp_files", [temp_path])
-        object.__setattr__(sample, "_extension_schemas", {})
-        object.__setattr__(sample, "_field_descriptions", {})
-        object.__setattr__(sample, "_size_bytes", 0)  # 0-byte file
+        sample._temp_files = [temp_path]
+        sample._extension_schemas = {}
+        sample._field_descriptions = {}
+        sample._size_bytes = 0  # 0-byte file
 
         return sample
 

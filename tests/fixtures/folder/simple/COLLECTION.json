@@ -1,0 +1,63 @@
+{
+    "id": "test-fixtures",
+    "dataset_version": "1.0.0",
+    "description": "Test fixtures for tacotoolbox",
+    "licenses": [
+        "CC-BY-4.0"
+    ],
+    "providers": [
+        {
+            "name": "Test",
+            "organization": null,
+            "email": null,
+            "role": null
+        }
+    ],
+    "tasks": [
+        "classification"
+    ],
+    "taco_version": "0.5.0",
+    "title": null,
+    "curators": null,
+    "keywords": null,
+    "extent": {
+        "spatial": [
+            -180.0,
+            -90.0,
+            180.0,
+            90.0
+        ],
+        "temporal": null
+    },
+    "taco:pit_schema": {
+        "root": {
+            "n": 4,
+            "type": "FILE"
+        },
+        "hierarchy": {}
+    },
+    "taco:field_schema": {
+        "level0": [
+            [
+                "id",
+                "string",
+                "Unique sample identifier within parent scope. Must be unique among siblings."
+            ],
+            [
+                "type",
+                "string",
+                "Sample type discriminator (FILE or FOLDER)."
+            ],
+            [
+                "internal:current_id",
+                "int64",
+                "Current sample position at this level (0-indexed). Enables O(1) random access and relational JOINs (ZIP, FOLDER, TACOCAT)."
+            ],
+            [
+                "internal:parent_id",
+                "int64",
+                "Foreign key referencing parent sample position in previous level (ZIP, FOLDER, TACOCAT)."
+            ]
+        ]
+    }
+}

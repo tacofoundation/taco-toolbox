@@ -36,7 +36,7 @@ except ImportError:
     HAS_ANTIMERIDIAN = False
 
 
-def geometry_centroid( #noqa: C901
+def geometry_centroid(  # noqa: C901
     crs: str,
     geometry: bytes,
     check_antimeridian: bool = False,
