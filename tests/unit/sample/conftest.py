@@ -1,47 +1,18 @@
 """
-Fixtures for Sample datamodel tests.
-
-Provides factories for creating Sample instances and related test data.
-Uses real TACOTIFF fixtures when available, falls back to simple temp files.
+Fixtures for Sample tests (datamodel + extensions).
 """
 
 import pathlib
+from datetime import datetime, timezone
 from typing import Any
 
+import numpy as np
 import pyarrow as pa
 import pytest
-
-FIXTURES_DIR = pathlib.Path(__file__).parent.parent.parent / "fixtures"
-GEOTIFFS_DIR = FIXTURES_DIR / "geotiffs"
+from osgeo import gdal
 
 
-@pytest.fixture
-def fixtures_available() -> bool:
-    """Check if pre-generated fixtures exist."""
-    return GEOTIFFS_DIR.exists() and any(GEOTIFFS_DIR.glob("*.tif"))
-
-
-@pytest.fixture
-def real_geotiff() -> pathlib.Path | None:
-    """
-    Return path to a real TACOTIFF fixture if available.
-    
-    Use for integration-style tests that need valid GeoTIFF metadata.
-    Returns None if fixtures haven't been generated.
-    """
-    if not GEOTIFFS_DIR.exists():
-        return None
-    tifs = list(GEOTIFFS_DIR.glob("*.tif"))
-    return tifs[0] if tifs else None
-
-
-@pytest.fixture
-def all_geotiffs() -> list[pathlib.Path]:
-    """Return all available TACOTIFF fixtures."""
-    if not GEOTIFFS_DIR.exists():
-        return []
-    return sorted(GEOTIFFS_DIR.glob("*.tif"))
-
+# Base fixtures
 
 @pytest.fixture
 def tmp_file(tmp_path: pathlib.Path) -> pathlib.Path:
@@ -53,14 +24,7 @@ def tmp_file(tmp_path: pathlib.Path) -> pathlib.Path:
 
 @pytest.fixture
 def make_file(tmp_path: pathlib.Path):
-    """
-    Factory for creating temp files.
-    
-    Usage:
-        f = make_file()                    # default content
-        f = make_file(b"custom")           # custom bytes
-        f = make_file(suffix=".tif")       # custom extension
-    """
+    """Factory for creating temp files."""
     counter = 0
 
     def _make(content: bytes = b"x", suffix: str = ".bin") -> pathlib.Path:
@@ -75,15 +39,7 @@ def make_file(tmp_path: pathlib.Path):
 
 @pytest.fixture
 def make_sample(make_file):
-    """
-    Factory for creating Sample instances.
-    
-    Usage:
-        s = make_sample()                      # auto id + temp file
-        s = make_sample(id="custom")           # custom id
-        s = make_sample(path=existing_path)    # existing path
-        s = make_sample(path=b"bytes")         # bytes path
-    """
+    """Factory for creating Sample instances."""
     from tacotoolbox.sample.datamodel import Sample
 
     counter = 0
@@ -102,11 +58,7 @@ def make_sample(make_file):
 
 @pytest.fixture
 def make_tortilla(make_sample):
-    """
-    Factory for creating minimal Tortilla instances.
-    
-    For testing Sample with type=FOLDER.
-    """
+    """Factory for creating minimal Tortilla instances."""
     from tacotoolbox.tortilla.datamodel import Tortilla
 
     def _make(n_samples: int = 2, **kwargs) -> Tortilla:
@@ -136,21 +88,14 @@ def single_row_arrow_table() -> pa.Table:
 @pytest.fixture
 def multi_row_arrow_table() -> pa.Table:
     """Invalid multi-row Arrow Table (should be rejected)."""
-    return pa.Table.from_pydict({
-        "field": [1, 2, 3],
-    })
+    return pa.Table.from_pydict({"field": [1, 2, 3]})
 
 
 class MockSampleExtension:
-    """
-    Mock SampleExtension for testing extend_with.
+    """Mock SampleExtension for testing extend_with."""
     
-    Mimics the interface without requiring actual computation.
-    """
-    
-    def __init__(self, schema_only: bool = False, raise_error: bool = False):
+    def __init__(self, schema_only: bool = False):
         self.schema_only = schema_only
-        self.raise_error = raise_error
         self._called = False
     
     def get_schema(self) -> pa.Schema:
@@ -160,27 +105,18 @@ class MockSampleExtension:
         ])
     
     def get_field_descriptions(self) -> dict[str, str]:
-        return {
-            "mock:value": "A mock integer value",
-            "mock:name": "A mock string name",
-        }
+        return {"mock:value": "A mock integer", "mock:name": "A mock string"}
     
     def model_dump(self):
-        """Pydantic-like interface for testing."""
         return {"value": 42, "name": "test"}
     
     def __call__(self, sample) -> pa.Table:
         self._called = True
-        
-        if self.raise_error:
-            raise ValueError("Mock extension error")
-        
         if self.schema_only:
             return pa.Table.from_pydict(
                 {"mock:value": [None], "mock:name": [None]},
                 schema=self.get_schema(),
             )
-        
         return pa.Table.from_pydict(
             {"mock:value": [42], "mock:name": ["test"]},
             schema=self.get_schema(),
@@ -189,11 +125,127 @@ class MockSampleExtension:
 
 @pytest.fixture
 def mock_extension() -> MockSampleExtension:
-    """Mock SampleExtension instance."""
     return MockSampleExtension()
 
 
+# Timestamps (microseconds since Unix epoch, UTC)
+
 @pytest.fixture
-def mock_extension_schema_only() -> MockSampleExtension:
-    """Mock SampleExtension with schema_only=True."""
-    return MockSampleExtension(schema_only=True)
+def timestamp_2024() -> int:
+    dt = datetime(2024, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
+    return int(dt.timestamp() * 1_000_000)
+
+
+@pytest.fixture
+def timestamp_2024_end() -> int:
+    dt = datetime(2024, 1, 15, 18, 0, 0, tzinfo=timezone.utc)
+    return int(dt.timestamp() * 1_000_000)
+
+
+# STAC fixtures
+
+@pytest.fixture
+def utm_crs() -> str:
+    return "EPSG:32630"
+
+
+@pytest.fixture
+def wgs84_crs() -> str:
+    return "EPSG:4326"
+
+
+@pytest.fixture
+def utm_geotransform() -> tuple[float, ...]:
+    return (600000.0, 10.0, 0.0, 4500000.0, 0.0, -10.0)
+
+
+@pytest.fixture
+def tensor_shape_3band() -> tuple[int, ...]:
+    return (3, 256, 256)
+
+
+@pytest.fixture
+def tensor_shape_1d() -> tuple[int, ...]:
+    return (256,)
+
+
+# ISTAC fixtures
+
+@pytest.fixture
+def wkb_polygon_utm() -> bytes:
+    from shapely.geometry import box
+    from shapely.wkb import dumps
+    return dumps(box(600000, 4499000, 601000, 4500000))
+
+
+@pytest.fixture
+def wkb_point_wgs84() -> bytes:
+    from shapely.geometry import Point
+    from shapely.wkb import dumps
+    return dumps(Point(-0.5, 39.5))
+
+
+@pytest.fixture
+def wkb_empty_polygon() -> bytes:
+    from shapely.geometry import Polygon
+    from shapely.wkb import dumps
+    return dumps(Polygon())
+
+
+# GeoTIFF fixtures
+
+@pytest.fixture
+def simple_geotiff(tmp_path) -> pathlib.Path:
+    path = tmp_path / "simple.tif"
+    driver = gdal.GetDriverByName("GTiff")
+    ds = driver.Create(str(path), 64, 64, 1, gdal.GDT_Float32)
+    ds.SetGeoTransform((0, 1, 0, 64, 0, -1))
+    data = np.random.rand(64, 64).astype(np.float32) * 100
+    band = ds.GetRasterBand(1)
+    band.WriteArray(data)
+    band.ComputeStatistics(False)
+    ds = None
+    return path
+
+
+@pytest.fixture
+def multiband_geotiff(tmp_path) -> pathlib.Path:
+    path = tmp_path / "multiband.tif"
+    driver = gdal.GetDriverByName("GTiff")
+    ds = driver.Create(str(path), 64, 64, 3, gdal.GDT_Float32)
+    ds.SetGeoTransform((0, 1, 0, 64, 0, -1))
+    for i in range(1, 4):
+        data = np.random.rand(64, 64).astype(np.float32) * (i * 50)
+        band = ds.GetRasterBand(i)
+        band.WriteArray(data)
+        band.ComputeStatistics(False)
+    ds = None
+    return path
+
+
+@pytest.fixture
+def categorical_geotiff(tmp_path) -> pathlib.Path:
+    path = tmp_path / "categorical.tif"
+    driver = gdal.GetDriverByName("GTiff")
+    ds = driver.Create(str(path), 64, 64, 1, gdal.GDT_Byte)
+    ds.SetGeoTransform((0, 1, 0, 64, 0, -1))
+    data = np.random.choice([0, 1, 2], size=(64, 64)).astype(np.uint8)
+    band = ds.GetRasterBand(1)
+    band.WriteArray(data)
+    band.ComputeStatistics(False)
+    ds = None
+    return path
+
+
+@pytest.fixture
+def uniform_geotiff(tmp_path) -> pathlib.Path:
+    path = tmp_path / "uniform.tif"
+    driver = gdal.GetDriverByName("GTiff")
+    ds = driver.Create(str(path), 64, 64, 1, gdal.GDT_Float32)
+    ds.SetGeoTransform((0, 1, 0, 64, 0, -1))
+    data = np.full((64, 64), 42.0, dtype=np.float32)
+    band = ds.GetRasterBand(1)
+    band.WriteArray(data)
+    band.ComputeStatistics(False)
+    ds = None
+    return path
