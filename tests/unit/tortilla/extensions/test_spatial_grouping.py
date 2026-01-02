@@ -175,7 +175,9 @@ class TestGroupingBySize:
         samples = []
         for i in range(5):
             # Each sample ~500 bytes
-            s = make_sample_with_stac(f"s{i}", lon=float(i), lat=float(i), content=b"x" * 500)
+            s = make_sample_with_stac(
+                f"s{i}", lon=float(i), lat=float(i), content=b"x" * 500
+            )
             samples.append(s)
 
         t = Tortilla(samples=samples)
@@ -195,7 +197,9 @@ class TestHybridGrouping:
 
         # Small samples, low count limit
         samples = [
-            make_sample_with_stac(f"s{i}", lon=float(i), lat=float(i), content=b"x" * 10)
+            make_sample_with_stac(
+                f"s{i}", lon=float(i), lat=float(i), content=b"x" * 10
+            )
             for i in range(10)
         ]
         t = Tortilla(samples=samples)

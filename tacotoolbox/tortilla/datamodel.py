@@ -1,5 +1,4 @@
-"""
-Tortilla datamodel for TACO framework.
+"""Tortilla datamodel for TACO framework.
 
 Tortilla is a container for Sample collections with hierarchical metadata export.
 Supports nested sample structures with position tracking.
@@ -70,8 +69,7 @@ class TortillaExtension(ABC, pydantic.BaseModel):
 
 
 class Tortilla:
-    """
-    Container for Sample collections with hierarchical metadata export.
+    """Container for Sample collections with hierarchical metadata export.
 
     Supports nested sample structures with position tracking (max depth from constants).
 
@@ -93,15 +91,14 @@ class Tortilla:
     - _field_descriptions: Field descriptions from extensions
     """
 
-    def __init__(  # noqa: C901
+    def __init__(
         self,
         samples: list["Sample"],
         pad_to: int | None = None,
         strict_schema: bool = True,
         _metadata_table: pa.Table | None = None,
     ) -> None:
-        """
-        Create Tortilla with Arrow Table construction and schema validation.
+        """Create Tortilla with Arrow Table construction and schema validation.
 
         Args:
             samples: List of Sample objects
@@ -180,8 +177,7 @@ class Tortilla:
 
     @staticmethod
     def _validate_depth(depth: int, context: str = "operation") -> None:
-        """
-        Validate that depth is within allowed range.
+        """Validate that depth is within allowed range.
 
         Args:
             depth: Depth value to validate
@@ -237,8 +233,7 @@ class Tortilla:
         raise ValueError(error_msg)
 
     def _validate_unique_ids(self) -> None:
-        """
-        Ensure all sample IDs are unique at this level.
+        """Ensure all sample IDs are unique at this level.
 
         Duplicate IDs cause silent failures in ZIP offset calculation because
         offsets are stored in a dictionary keyed by archive path. When duplicate
@@ -260,8 +255,7 @@ class Tortilla:
 
     @staticmethod
     def _create_padded_samples(samples: list, pad_to: int) -> list:
-        """
-        Create padding samples to make total length divisible by pad_to.
+        """Create padding samples to make total length divisible by pad_to.
 
         Padding samples use empty bytes (b"") which creates 0-byte temporary files.
         These files can be copied to ZIP/FOLDER containers and are automatically
@@ -346,8 +340,7 @@ class Tortilla:
         return len(self.samples)
 
     def extend_with(self, extension: TortillaExtension) -> "Tortilla":
-        """
-        Add extension data via Arrow Table processing.
+        """Add extension data via Arrow Table processing.
 
         Returns:
             Self for method chaining
@@ -381,8 +374,7 @@ class Tortilla:
         return self
 
     def pop(self, field: str) -> pa.Table:
-        """
-        Remove and return a Tortilla extension field.
+        """Remove and return a Tortilla extension field.
 
         Only works for fields added via tortilla.extend_with(TortillaExtension).
         For Sample extension fields, use sample.pop() on individual samples.
@@ -431,8 +423,7 @@ class Tortilla:
         return popped_table
 
     def export_metadata(self, deep: int = 0) -> pa.Table:
-        """
-        Export metadata with optional hierarchical expansion.
+        """Export metadata with optional hierarchical expansion.
 
         Args:
             deep: Expansion level (0-max depth)
@@ -453,8 +444,7 @@ class Tortilla:
         return self._expand_hierarchical(deep)
 
     def _expand_hierarchical(self, target_deep: int) -> pa.Table:
-        """
-        Build expanded Arrow Table for hierarchical samples.
+        """Build expanded Arrow Table for hierarchical samples.
 
         Adds internal:current_id (position at this level) and internal:parent_id
         (link to parent's position) columns to enable relational queries.

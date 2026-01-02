@@ -2,7 +2,11 @@
 
 import pytest
 
-from tacotoolbox.taco.extensions.opticaldata import OpticalData, SpectralBand, SUPPORTED_SENSORS
+from tacotoolbox.taco.extensions.opticaldata import (
+    OpticalData,
+    SpectralBand,
+    SUPPORTED_SENSORS,
+)
 
 
 class TestOpticalDataValidation:
@@ -52,7 +56,7 @@ class TestOpticalDataCompute:
     def test_schema_fields(self):
         opt = OpticalData(sensor="sentinel2msi[B04]")
         table = opt._compute(None)
-        
+
         assert "optical:sensor" in table.schema.names
         assert "optical:bands" in table.schema.names
         assert "optical:num_bands" in table.schema.names
@@ -61,7 +65,7 @@ class TestOpticalDataCompute:
     def test_band_metadata_preserved(self):
         opt = OpticalData(sensor="sentinel2msi[B04]")
         b04 = opt.bands[0]
-        
+
         assert b04.common_name == "red"
         assert b04.center_wavelength == 664.5
         assert b04.full_width_half_max == 29.0

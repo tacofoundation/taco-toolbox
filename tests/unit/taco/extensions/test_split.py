@@ -6,7 +6,9 @@ from tacotoolbox.taco.extensions.split import SplitStrategy
 
 
 class TestSplitStrategy:
-    @pytest.mark.parametrize("strategy", ["random", "stratified", "manual", "other", "none", "unknown"])
+    @pytest.mark.parametrize(
+        "strategy", ["random", "stratified", "manual", "other", "none", "unknown"]
+    )
     def test_valid_strategies(self, strategy):
         split = SplitStrategy(strategy=strategy)
         table = split._compute(None)

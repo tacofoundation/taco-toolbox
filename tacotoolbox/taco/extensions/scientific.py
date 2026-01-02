@@ -1,5 +1,4 @@
-"""
-Publications extension for Taco datasets.
+"""Publications extension for Taco datasets.
 
 Documents academic publications, technical reports, or preprints
 associated with the dataset.
@@ -41,18 +40,22 @@ class Publications(TacoExtension):
     )
 
     def get_schema(self) -> pa.Schema:
-        return pa.schema([
-            pa.field(
-                "publications",
-                pa.list_(
-                    pa.struct([
-                        pa.field("doi", pa.string()),
-                        pa.field("citation", pa.string()),
-                        pa.field("summary", pa.string()),
-                    ])
-                ),
-            )
-        ])
+        return pa.schema(
+            [
+                pa.field(
+                    "publications",
+                    pa.list_(
+                        pa.struct(
+                            [
+                                pa.field("doi", pa.string()),
+                                pa.field("citation", pa.string()),
+                                pa.field("summary", pa.string()),
+                            ]
+                        )
+                    ),
+                )
+            ]
+        )
 
     def get_field_descriptions(self) -> dict[str, str]:
         return {

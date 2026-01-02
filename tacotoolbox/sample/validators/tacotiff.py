@@ -9,8 +9,7 @@ if TYPE_CHECKING:
 
 
 def requires_gdal(min_version="3.11"):
-    """
-    Decorator to ensure GDAL is available with minimum version.
+    """Decorator to ensure GDAL is available with minimum version.
 
     Caches the GDAL module check to make subsequent calls fast.
     """
@@ -30,7 +29,7 @@ def requires_gdal(min_version="3.11"):
 
             if not _gdal_checked:
                 try:
-                    from osgeo import gdal  # type: ignore[import-untyped]
+                    from osgeo import gdal  # [import-untyped]
 
                     _gdal_module = gdal
 
@@ -59,8 +58,7 @@ def requires_gdal(min_version="3.11"):
 
 
 class TacotiffValidator(SampleValidator):
-    """
-    Validator for TACOTIFF format using GDAL to enforce strict requirements.
+    """Validator for TACOTIFF format using GDAL to enforce strict requirements.
 
     TACOTIFF format requirements:
     - Driver: GDAL generated COG (Cloud Optimized GeoTIFF)
@@ -78,8 +76,6 @@ class TacotiffValidator(SampleValidator):
     @requires_gdal(min_version="3.11")
     def validate(self, sample: "Sample") -> None:
         """Validate sample as TACOTIFF format."""
-        from osgeo import gdal
-
         # Check sample type is FILE
         if sample.type != "FILE":
             raise ValidationError(f"TACOTIFF requires type='FILE', got type='{sample.type}'")

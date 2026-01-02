@@ -1,5 +1,4 @@
-"""
-STAC extension for spatiotemporal raster metadata.
+"""STAC extension for spatiotemporal raster metadata.
 
 Provides SpatioTemporal Asset Catalog (STAC)-style metadata fields
 for samples with regular raster data (affine geotransform).
@@ -72,8 +71,7 @@ def raster_centroid(
 
 
 class STAC(SampleExtension):
-    """
-    SpatioTemporal Asset Catalog (STAC) metadata for regular raster data.
+    """SpatioTemporal Asset Catalog (STAC) metadata for regular raster data.
 
     Requirements:
     - Timestamps: int64 microseconds since Unix epoch (UTC)
@@ -120,15 +118,17 @@ class STAC(SampleExtension):
         return self
 
     def get_schema(self) -> pa.Schema:
-        return pa.schema([
-            pa.field("stac:crs", pa.string()),
-            pa.field("stac:tensor_shape", pa.list_(pa.int64())),
-            pa.field("stac:geotransform", pa.list_(pa.float64())),
-            pa.field("stac:time_start", pa.timestamp("us", tz=None)),
-            pa.field("stac:centroid", pa.binary()),
-            pa.field("stac:time_end", pa.timestamp("us", tz=None)),
-            pa.field("stac:time_middle", pa.timestamp("us", tz=None)),
-        ])
+        return pa.schema(
+            [
+                pa.field("stac:crs", pa.string()),
+                pa.field("stac:tensor_shape", pa.list_(pa.int64())),
+                pa.field("stac:geotransform", pa.list_(pa.float64())),
+                pa.field("stac:time_start", pa.timestamp("us", tz=None)),
+                pa.field("stac:centroid", pa.binary()),
+                pa.field("stac:time_end", pa.timestamp("us", tz=None)),
+                pa.field("stac:time_middle", pa.timestamp("us", tz=None)),
+            ]
+        )
 
     def get_field_descriptions(self) -> dict[str, str]:
         return {

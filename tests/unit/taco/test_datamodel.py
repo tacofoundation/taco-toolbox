@@ -63,7 +63,10 @@ class TestExtent:
 
     def test_temporal_order(self):
         with pytest.raises(ValueError, match="before"):
-            Extent(spatial=[0, 0, 1, 1], temporal=["2024-01-01T00:00:00Z", "2023-01-01T00:00:00Z"])
+            Extent(
+                spatial=[0, 0, 1, 1],
+                temporal=["2024-01-01T00:00:00Z", "2023-01-01T00:00:00Z"],
+            )
 
     def test_temporal_invalid_format(self):
         with pytest.raises(ValueError, match="ISO 8601"):
@@ -98,38 +101,44 @@ class TestRSUTValidation:
     """
     RSUT (Root-Sibling Uniform Tree) validation.
     Code uses _validate_pit_compliance internally (legacy naming).
-    
+
     Invariant 2: Type uniformity at root level
     Invariant 3: Structural homogeneity among level-1 siblings (does NOT propagate deeper)
     """
 
-    def test_mixed_types_at_root_rejected(self, minimal_taco_kwargs, make_sample, make_folder_sample):
+    def test_mixed_types_at_root_rejected(
+        self, minimal_taco_kwargs, make_sample, make_folder_sample
+    ):
         """Invariant 2: root cannot mix FILE and FOLDER."""
         file_sample = make_sample("file_0")
         folder_sample = make_folder_sample("folder_0", ["child_a", "child_b"])
-        
+
         minimal_taco_kwargs["tortilla"] = Tortilla(samples=[file_sample, folder_sample])
-        
+
         with pytest.raises(ValueError, match="same type"):
             Taco(**minimal_taco_kwargs)
 
-    def test_different_child_counts_rejected(self, minimal_taco_kwargs, make_folder_sample):
+    def test_different_child_counts_rejected(
+        self, minimal_taco_kwargs, make_folder_sample
+    ):
         """Invariant 3: siblings must have same child count."""
         folder_a = make_folder_sample("date_0", ["glorys", "l4", "l3"])
         folder_b = make_folder_sample("date_1", ["glorys", "l4"])
-        
+
         minimal_taco_kwargs["tortilla"] = Tortilla(samples=[folder_a, folder_b])
-        
+
         with pytest.raises(ValueError, match="isomorphic"):
             Taco(**minimal_taco_kwargs)
 
-    def test_different_child_ids_at_position_rejected(self, minimal_taco_kwargs, make_folder_sample):
+    def test_different_child_ids_at_position_rejected(
+        self, minimal_taco_kwargs, make_folder_sample
+    ):
         """Invariant 3: children at same position must have same ID."""
         folder_a = make_folder_sample("date_0", ["glorys", "l4", "l3"])
         folder_b = make_folder_sample("date_1", ["glorys", "l3", "l4"])  # swapped
-        
+
         minimal_taco_kwargs["tortilla"] = Tortilla(samples=[folder_a, folder_b])
-        
+
         with pytest.raises(ValueError, match="position"):
             Taco(**minimal_taco_kwargs)
 
@@ -137,23 +146,25 @@ class TestRSUTValidation:
         folder_a = make_folder_sample("date_0", ["glorys", "l4", "l3"])
         folder_b = make_folder_sample("date_1", ["glorys", "l4", "l3"])
         folder_c = make_folder_sample("date_2", ["glorys", "l4", "l3"])
-        
-        minimal_taco_kwargs["tortilla"] = Tortilla(samples=[folder_a, folder_b, folder_c])
-        
+
+        minimal_taco_kwargs["tortilla"] = Tortilla(
+            samples=[folder_a, folder_b, folder_c]
+        )
+
         taco = Taco(**minimal_taco_kwargs)
         assert len(taco.tortilla.samples) == 3
 
     def test_single_folder_always_valid(self, minimal_taco_kwargs, make_folder_sample):
         folder = make_folder_sample("only_one", ["a", "b", "c"])
         minimal_taco_kwargs["tortilla"] = Tortilla(samples=[folder])
-        
+
         taco = Taco(**minimal_taco_kwargs)
         assert taco.tortilla.samples[0].id == "only_one"
 
     def test_all_files_skips_structural_check(self, minimal_taco_kwargs, make_sample):
         samples = [make_sample(f"file_{i}") for i in range(5)]
         minimal_taco_kwargs["tortilla"] = Tortilla(samples=samples)
-        
+
         taco = Taco(**minimal_taco_kwargs)
         assert len(taco.tortilla.samples) == 5
 
@@ -171,9 +182,9 @@ class TestAutoExtent:
             (2, -10, datetime(2023, 12, 31, tzinfo=timezone.utc)),
         ]
         minimal_taco_kwargs["tortilla"] = make_tortilla_with_stac(coords_times)
-        
+
         taco = Taco(**minimal_taco_kwargs)
-        
+
         assert taco.extent.spatial == [2, -10, 10, 20]
         assert "2023-01-01" in taco.extent.temporal[0]
         assert "2023-12-31" in taco.extent.temporal[1]
@@ -219,9 +230,9 @@ class TestTemporalExtentCalculation:
             datetime(2023, 12, 31, tzinfo=timezone.utc),
         ]
         table = pa.table({"time": times})
-        
+
         result = _calculate_temporal_extent(table, "time", None, None)
-        
+
         assert result[0] == "2023-01-01T00:00:00Z"
         assert result[1] == "2023-12-31T00:00:00Z"
 
@@ -232,16 +243,18 @@ class TestTemporalExtentCalculation:
             datetime(2023, 12, 31, tzinfo=timezone.utc),
         ]
         table = pa.table({"time": pa.array(times, type=pa.timestamp("us", tz="UTC"))})
-        
+
         result = _calculate_temporal_extent(table, "time", None, None)
         assert result is not None
 
     def test_time_middle_priority(self):
-        table = pa.table({
-            "start": [datetime(2020, 1, 1, tzinfo=timezone.utc)],
-            "middle": [datetime(2023, 6, 15, tzinfo=timezone.utc)],
-        })
-        
+        table = pa.table(
+            {
+                "start": [datetime(2020, 1, 1, tzinfo=timezone.utc)],
+                "middle": [datetime(2023, 6, 15, tzinfo=timezone.utc)],
+            }
+        )
+
         result = _calculate_temporal_extent(table, "start", None, "middle")
         assert "2023-06-15" in result[0]
 
@@ -250,20 +263,20 @@ class TestExtendWith:
     def test_dict(self, minimal_taco_kwargs):
         taco = Taco(**minimal_taco_kwargs)
         taco.extend_with({"custom_field": "value", "custom_count": 42})
-        
+
         assert getattr(taco, "custom_field") == "value"
         assert getattr(taco, "custom_count") == 42
 
     def test_table(self, minimal_taco_kwargs):
         taco = Taco(**minimal_taco_kwargs)
         taco.extend_with(pa.table({"ext_name": ["test"], "ext_value": [123]}))
-        
+
         assert getattr(taco, "ext_name") == "test"
         assert getattr(taco, "ext_value") == 123
 
     def test_table_rejects_multi_row(self, minimal_taco_kwargs):
         taco = Taco(**minimal_taco_kwargs)
-        
+
         with pytest.raises(ValueError, match="one row"):
             taco.extend_with(pa.table({"ext_x": [1, 2, 3]}))
 
@@ -271,14 +284,14 @@ class TestExtendWith:
         class DummyExtension(TacoExtension):
             def get_schema(self):
                 return pa.schema([pa.field("dummy_value", pa.int32())])
-            
+
             def get_field_descriptions(self):
                 return {"dummy_value": "Test"}
-            
+
             def _compute(self, taco):
                 return pa.table({"dummy_value": [999]})
-        
+
         taco = Taco(**minimal_taco_kwargs)
         taco.extend_with(DummyExtension())
-        
+
         assert getattr(taco, "dummy_value") == 999

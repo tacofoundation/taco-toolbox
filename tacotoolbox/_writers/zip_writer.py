@@ -1,5 +1,4 @@
-"""
-ZIP container writer for TACO format.
+"""ZIP container writer for TACO format.
 
 This module handles the creation of .tacozip files with optimized structure:
 - TACO_HEADER: Fixed 157-byte entry with offset table
@@ -51,8 +50,7 @@ logger = get_logger(__name__)
 
 
 class ZipWriter:
-    """
-    Handle creation of .tacozip container files with precalculated offsets.
+    """Handle creation of .tacozip container files with precalculated offsets.
 
     The ZipWriter uses a sophisticated bottom-up approach to ensure all
     metadata files (__meta__) have correct offsets pointing to data files.
@@ -66,8 +64,7 @@ class ZipWriter:
         output_path: pathlib.Path,
         temp_dir: pathlib.Path | None = None,
     ) -> None:
-        """
-        Initialize ZIP writer.
+        """Initialize ZIP writer.
 
         Args:
             output_path: Path for output .tacozip file
@@ -94,8 +91,7 @@ class ZipWriter:
         metadata_package: MetadataPackage,
         **parquet_kwargs: Any,
     ) -> pathlib.Path:
-        """
-        Create complete .tacozip file with all metadata and data.
+        """Create complete .tacozip file with all metadata and data.
 
         This is the main entry point that orchestrates the entire ZIP creation
         process using the bottom-up approach.
@@ -383,7 +379,10 @@ class ZipWriter:
         offsets = []
         sizes = []
 
-        with zipfile.ZipFile(self.output_path, "r") as zf, open(self.output_path, "rb") as f:
+        with (
+            zipfile.ZipFile(self.output_path, "r") as zf,
+            open(self.output_path, "rb") as f,
+        ):
             parquet_files = [
                 info
                 for info in zf.infolist()
@@ -409,7 +408,10 @@ class ZipWriter:
 
     def _get_collection_offset(self) -> tuple[int, int]:
         """Get offset and size for COLLECTION.json."""
-        with zipfile.ZipFile(self.output_path, "r") as zf, open(self.output_path, "rb") as f:
+        with (
+            zipfile.ZipFile(self.output_path, "r") as zf,
+            open(self.output_path, "rb") as f,
+        ):
             info = zf.getinfo("COLLECTION.json")
 
             f.seek(info.header_offset)
@@ -434,8 +436,7 @@ def _add_zip_offsets(
     offsets_map: dict[str, tuple[int, int]],
     folder_path: str = "",
 ) -> pa.Table:
-    """
-    Add internal:offset and internal:size columns for ZIP containers.
+    """Add internal:offset and internal:size columns for ZIP containers.
 
     Both values come from VirtualZIP. For FOLDER samples, points to __meta__ file.
     For FILE samples, points to actual data file.

@@ -1,5 +1,4 @@
-"""
-GeoEnrich extension for Tortilla using Earth Engine.
+"""GeoEnrich extension for Tortilla using Earth Engine.
 
 Enriches samples with geospatial data from Google Earth Engine:
 - Physical: elevation, topographic complexity
@@ -221,8 +220,7 @@ def _import_earth_engine() -> Any:
 
 
 def get_geoenrich_products() -> list[dict[str, Any]]:
-    """
-    Get all available Earth Engine products for geospatial enrichment.
+    """Get all available Earth Engine products for geospatial enrichment.
 
     Automatically generated from PRODUCT_CONFIGS.
     """
@@ -267,8 +265,7 @@ def get_geoenrich_products() -> list[dict[str, Any]]:
 
 
 def morton_key(lon: float, lat: float, bits: int = 24) -> int:
-    """
-    Generate Morton (Z-order) key for spatial coordinates.
+    """Generate Morton (Z-order) key for spatial coordinates.
 
     Interleaves longitude and latitude bits to create a single integer key
     that preserves spatial locality. Points close in 2D space have similar
@@ -316,8 +313,7 @@ def _load_admin_layer(level: int) -> pa.Table:
 
 
 def resolve_admin_names(table: pa.Table, admin_vars: list[str]) -> pa.Table:
-    """
-    Replace admin code columns with human-readable names using PyArrow joins.
+    """Replace admin code columns with human-readable names using PyArrow joins.
 
     Uses PyArrow native join (available since 8.0.0) for efficient lookups.
 
@@ -384,8 +380,7 @@ def resolve_admin_names(table: pa.Table, admin_vars: list[str]) -> pa.Table:
 
 
 class GeoEnrich(TortillaExtension):
-    """
-    Geographic enrichment extension for Tortilla.
+    """Geographic enrichment extension for Tortilla.
 
     Fetches geospatial, climatic, socioeconomic, and administrative data
     from Earth Engine for sample centroids.
@@ -491,8 +486,7 @@ class GeoEnrich(TortillaExtension):
         return points
 
     def _group_products_by_reducer(self, products: list[dict]) -> dict[Any, list[dict]]:
-        """
-        Group products by their Earth Engine reducer type.
+        """Group products by their Earth Engine reducer type.
 
         Allows processing all products with the same reducer in a single EE call.
         """
@@ -502,8 +496,7 @@ class GeoEnrich(TortillaExtension):
         return dict(groups)
 
     def _fix_mode_columns(self, table: pa.Table, products: list[dict]) -> pa.Table:
-        """
-        Fix Earth Engine mode() reducer column naming issue.
+        """Fix Earth Engine mode() reducer column naming issue.
 
         When using mode() reducer with multiple bands, Earth Engine returns
         columns named "mode", "mode_1", "mode_2" instead of the band names.
@@ -529,8 +522,7 @@ class GeoEnrich(TortillaExtension):
         reducer_groups: dict[Any, list[dict]],
         ee: Any,
     ) -> pa.Table:
-        """
-        Process a chunk of coordinate points with Earth Engine.
+        """Process a chunk of coordinate points with Earth Engine.
 
         BUG FIX: Earth Engine may not return some columns if there's no data at that location.
         When EE has no data, it simply omits the field from the Feature properties.

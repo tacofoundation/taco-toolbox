@@ -1,5 +1,4 @@
-"""
-Folder Writer - Create TACO datasets in FOLDER format.
+"""Folder Writer - Create TACO datasets in FOLDER format.
 
 This module handles the creation of FOLDER-format TACO containers with
 dual metadata system:
@@ -36,14 +35,10 @@ logger = get_logger(__name__)
 
 
 class FolderWriter:
-    """
-    Handle creation of folder container structures with dual metadata.
-
-    """
+    """Handle creation of folder container structures with dual metadata."""
 
     def __init__(self, output_dir: pathlib.Path) -> None:
-        """
-        Initialize folder writer.
+        """Initialize folder writer.
 
         Args:
             output_dir: Output directory path
@@ -60,8 +55,7 @@ class FolderWriter:
         metadata_package: MetadataPackage,
         **kwargs: Any,
     ) -> pathlib.Path:
-        """
-        Create complete FOLDER TACO container.
+        """Create complete FOLDER TACO container.
 
         Args:
             samples: List of Sample objects
@@ -145,8 +139,7 @@ class FolderWriter:
         metadata_package: MetadataPackage,
         **kwargs: Any,
     ) -> None:
-        """
-        Write local __meta__ files for each folder in PARQUET format.
+        """Write local __meta__ files for each folder in PARQUET format.
 
         These files do NOT contain internal:parent_id (navigation is implicit
         via folder structure), but they preserve all other metadata fields.
@@ -187,8 +180,7 @@ class FolderWriter:
         metadata_package: MetadataPackage,
         **kwargs: Any,
     ) -> None:
-        """
-        Write consolidated METADATA/levelX.parquet files with CDC.
+        """Write consolidated METADATA/levelX.parquet files with CDC.
 
         These files preserve ALL columns including internal:parent_id
         for hierarchical navigation via JOINs.

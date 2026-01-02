@@ -1,5 +1,4 @@
-"""
-TACO Documentation Generator
+"""TACO Documentation Generator.
 
 Generate clean HTML and Markdown documentation from TACOLLECTION.json files.
 
@@ -86,8 +85,7 @@ def _load_vendor_files(templates_dir: Path) -> dict:
 
 
 def _get_color_variants(hex_color: str) -> dict[str, str]:
-    """
-    Generate color variants from a base hex color without external dependencies.
+    """Generate color variants from a base hex color without external dependencies.
 
     Args:
         hex_color: Base color in hex format (with or without #)
@@ -140,8 +138,7 @@ def generate_markdown(
     output: str | Path = "README.md",
     dataset_example_path: str | None = None,
 ) -> None:
-    """
-    Generate Markdown documentation from TACOLLECTION.json.
+    """Generate Markdown documentation from TACOLLECTION.json.
 
     Args:
         input: Path to TACOLLECTION.json file
@@ -207,8 +204,7 @@ def generate_html(
     theme_color: str = "#4CAF50",
     dataset_example_path: str | None = None,
 ) -> None:
-    """
-    Generate interactive HTML documentation from TACOLLECTION.json.
+    """Generate interactive HTML documentation from TACOLLECTION.json.
 
     Args:
         input: Path to TACOLLECTION.json file

@@ -1,5 +1,4 @@
-"""
-Sample datamodel for TACO framework.
+"""Sample datamodel for TACO framework.
 
 The Sample is the fundamental data unit, combining raw data with structured metadata
 for training, validation, and testing workflows.
@@ -59,8 +58,7 @@ class SampleExtension(ABC, pydantic.BaseModel):
 
     @abstractmethod
     def _compute(self, sample: "Sample") -> pa.Table:
-        """
-        Actual computation logic.
+        """Actual computation logic.
 
         Returns:
             PyArrow Table with single row containing computed metadata.
@@ -78,8 +76,7 @@ class SampleExtension(ABC, pydantic.BaseModel):
 
 
 class Sample(pydantic.BaseModel):
-    """
-    The fundamental data unit in the TACO framework, combining raw data with
+    """The fundamental data unit in the TACO framework, combining raw data with
     structured metadata for training, validation, and testing.
 
     Supported data asset types:
@@ -176,8 +173,7 @@ class Sample(pydantic.BaseModel):
 
     @classmethod
     def _create_padding(cls, index: int, temp_dir: pathlib.Path | None = None) -> "Sample":
-        """
-        Internal factory for creating padding samples.
+        """Internal factory for creating padding samples.
         Bypasses ID validation for __TACOPAD__ prefix.
 
         Padding samples use empty bytes (b"") which creates a 0-byte temporary file.
@@ -207,8 +203,7 @@ class Sample(pydantic.BaseModel):
         return sample
 
     def _calculate_size(self) -> int:
-        """
-        Calculate total size in bytes.
+        """Calculate total size in bytes.
 
         For FILE: returns file size from filesystem or bytes length
         For FOLDER: reads _size_bytes from Tortilla (already calculated)
@@ -228,8 +223,7 @@ class Sample(pydantic.BaseModel):
         return 0
 
     def cleanup(self) -> None:
-        """
-        Clean up temporary files created from bytes.
+        """Clean up temporary files created from bytes.
 
         Call explicitly to clean up immediately instead of waiting for garbage collection.
         """
@@ -251,8 +245,7 @@ class Sample(pydantic.BaseModel):
     @pydantic.field_validator("id")
     @classmethod
     def validate_id(cls, v: str) -> str:
-        r"""
-        Validate sample ID format.
+        r"""Validate sample ID format.
 
         Rules:
         - NO slashes (/, \) - breaks file paths in ZIP and FOLDER containers
@@ -297,8 +290,7 @@ class Sample(pydantic.BaseModel):
 
     @pydantic.model_validator(mode="after")
     def infer_and_validate_type(self) -> "Sample":
-        """
-        Infer type from path or validate explicit type.
+        """Infer type from path or validate explicit type.
 
         If type="auto" (default), infers type from path:
         - Path or bytes → FILE
@@ -326,8 +318,7 @@ class Sample(pydantic.BaseModel):
         return self
 
     def validate_with(self, validator: "SampleValidator") -> None:
-        """
-        Validate sample using provided validator.
+        """Validate sample using provided validator.
 
         Validators enforce format-specific requirements (e.g., TACOTIFF, TACOZARR).
         """
@@ -347,8 +338,7 @@ class Sample(pydantic.BaseModel):
         return None
 
     def pop(self, field: str) -> pa.Table:
-        """
-        Remove and return a metadata field as a single-row Arrow Table.
+        """Remove and return a metadata field as a single-row Arrow Table.
 
         Args:
             field: Name of the extension field to pop (e.g., "split", "stac:crs")
@@ -480,8 +470,7 @@ class Sample(pydantic.BaseModel):
             )
 
     def export_metadata(self) -> pa.Table:
-        """
-        Export complete Sample metadata as single-row Arrow Table.
+        """Export complete Sample metadata as single-row Arrow Table.
 
         Core fields (id, type, path) always use String type for schema consistency,
         even when path is None (FOLDER samples). This ensures all samples have

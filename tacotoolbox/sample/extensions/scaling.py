@@ -1,5 +1,4 @@
-"""
-Scaling extension.
+"""Scaling extension.
 
 Defines scaling transformations for packing/unpacking data.
 
@@ -19,15 +18,14 @@ from tacotoolbox.sample.datamodel import SampleExtension
 
 
 class Scaling(SampleExtension):
-    """
-    Data scaling and padding metadata for precision control.
+    """Data scaling and padding metadata for precision control.
 
     Defines transformations for scaling/unscaling data following CF conventions.
     All fields are optional - None indicates no transformation applied.
 
     Transformation: unpacked = packed * scale_factor + scale_offset
 
-    Notes
+    Notes:
     -----
     - When None, no transformation is applied
     - scale_factor and scale_offset must match unpacked data type
@@ -81,17 +79,21 @@ class Scaling(SampleExtension):
         has_list = isinstance(self.scale_factor, list) or isinstance(self.scale_offset, list)
 
         if has_list:
-            return pa.schema([
-                pa.field("scaling:scale_factor", pa.list_(pa.float32())),
-                pa.field("scaling:scale_offset", pa.list_(pa.float32())),
-                pa.field("scaling:padding", pa.list_(pa.int32())),
-            ])
+            return pa.schema(
+                [
+                    pa.field("scaling:scale_factor", pa.list_(pa.float32())),
+                    pa.field("scaling:scale_offset", pa.list_(pa.float32())),
+                    pa.field("scaling:padding", pa.list_(pa.int32())),
+                ]
+            )
         else:
-            return pa.schema([
-                pa.field("scaling:scale_factor", pa.float32()),
-                pa.field("scaling:scale_offset", pa.float32()),
-                pa.field("scaling:padding", pa.list_(pa.int32())),
-            ])
+            return pa.schema(
+                [
+                    pa.field("scaling:scale_factor", pa.float32()),
+                    pa.field("scaling:scale_offset", pa.float32()),
+                    pa.field("scaling:padding", pa.list_(pa.int32())),
+                ]
+            )
 
     def get_field_descriptions(self) -> dict[str, str]:
         """Return field descriptions for each field."""

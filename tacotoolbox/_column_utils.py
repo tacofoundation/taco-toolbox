@@ -1,5 +1,4 @@
-"""
-Column manipulation utilities for tacotoolbox.
+"""Column manipulation utilities for tacotoolbox.
 
 Key functions:
 - align_arrow_schemas: Align schemas before vertical concatenation
@@ -32,8 +31,7 @@ def align_arrow_schemas(
     tables: list[pa.Table],
     core_fields: list[str] | None = None,
 ) -> list[pa.Table]:
-    """
-    Align schemas before vertical concatenation.
+    """Align schemas before vertical concatenation.
 
     CRITICAL for concatenating Tables from samples with different extensions.
     Without alignment, pa.concat_tables(tables) fails with schema mismatch.
@@ -113,8 +111,7 @@ def align_arrow_schemas(
 
 
 def reorder_internal_columns(table: pa.Table) -> pa.Table:
-    """
-    Place internal:* columns at end.
+    """Place internal:* columns at end.
 
     Order: regular columns → internal:parent_id → internal:offset →
            internal:size → other internal:* columns
@@ -174,8 +171,7 @@ def remove_empty_columns(
 
 
 def validate_schema_consistency(tables: list[pa.Table], context: str = "Table list") -> None:
-    """
-    Validate all Tables have consistent schemas for safe vertical concatenation.
+    """Validate all Tables have consistent schemas for safe vertical concatenation.
 
     Checks same columns with same types.
     """
@@ -243,8 +239,7 @@ def read_metadata_file(file_path: Path | str) -> pa.Table:
 
 
 def write_parquet_file(table: pa.Table, output_path: Path | str, **kwargs: Any) -> None:
-    """
-    Write Table to Parquet (for local __meta__ files).
+    """Write Table to Parquet (for local __meta__ files).
 
     Used for local metadata in FOLDER containers.
     Parquet natively supports colons in column names.
@@ -255,8 +250,7 @@ def write_parquet_file(table: pa.Table, output_path: Path | str, **kwargs: Any) 
 
 
 def write_parquet_file_with_cdc(table: pa.Table, output_path: Path | str, **kwargs: Any) -> None:
-    """
-    Write Parquet with Content-Defined Chunking (for consolidated metadata).
+    """Write Parquet with Content-Defined Chunking (for consolidated metadata).
 
     CDC ensures consistent data page boundaries for efficient deduplication
     on content-addressable storage systems.

@@ -1,5 +1,4 @@
-"""
-Global constants for tacotoolbox.
+"""Global constants for tacotoolbox.
 
 Organized by: Metadata Columns, Core Fields, Hierarchy Limits, Padding,
 Parquet Configuration, ZIP Format, FOLDER Format, TacoCat Format,

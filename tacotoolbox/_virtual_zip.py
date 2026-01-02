@@ -1,5 +1,4 @@
-"""
-Virtual ZIP structure simulation for offset precalculation.
+"""Virtual ZIP structure simulation for offset precalculation.
 
 This module provides VirtualTACOZIP, which simulates the complete structure
 of a ZIP file without writing any data to disk. It calculates exact byte
@@ -36,8 +35,7 @@ logger = get_logger(__name__)
 
 
 class VirtualFile(pydantic.BaseModel):
-    """
-    Represents a virtual file in the simulated ZIP archive.
+    """Represents a virtual file in the simulated ZIP archive.
 
     Stores all information needed to calculate ZIP structure without
     writing actual data. After calculate_offsets() is called, all
@@ -59,8 +57,7 @@ class VirtualFile(pydantic.BaseModel):
 
 
 class VirtualTACOZIP:
-    """
-    Simulates complete TACO ZIP structure for precise offset calculation.
+    """Simulates complete TACO ZIP structure for precise offset calculation.
 
     This class follows exact ZIP format rules to calculate where each file
     will be located in the final ZIP archive. Used by ZipWriter to generate
@@ -97,8 +94,7 @@ class VirtualTACOZIP:
         self._calculated: bool = False
 
     def add_header(self) -> int:
-        """
-        Add TACO_HEADER entry to virtual ZIP structure.
+        """Add TACO_HEADER entry to virtual ZIP structure.
 
         TACO_HEADER is always the first entry in TACO ZIP files and has
         a fixed size of 157 bytes (41 byte LFH + 116 byte data payload).
@@ -119,8 +115,7 @@ class VirtualTACOZIP:
         arc_path: str,
         file_size: int | None = None,
     ) -> VirtualFile:
-        """
-        Add a file to the virtual ZIP structure.
+        """Add a file to the virtual ZIP structure.
 
         Files must be added in the exact order they'll appear in the
         actual ZIP file. The method supports three modes:
@@ -153,8 +148,7 @@ class VirtualTACOZIP:
         return vfile
 
     def calculate_offsets(self) -> None:
-        """
-        Calculate exact byte offsets for all files in the virtual ZIP.
+        """Calculate exact byte offsets for all files in the virtual ZIP.
 
         Simulates ZIP file structure following these rules:
         1. Each file has: LFH (30+ bytes) + data (file_size bytes)
@@ -199,8 +193,7 @@ class VirtualTACOZIP:
         self._calculated = True
 
     def get_offset(self, arc_path: str) -> tuple[int, int]:
-        """
-        Get offset and size for a specific file by archive path.
+        """Get offset and size for a specific file by archive path.
 
         Returns the exact byte position and size of the file data
         (not including the LFH). Used to populate TACO_HEADER entries.
@@ -215,8 +208,7 @@ class VirtualTACOZIP:
         raise KeyError(f"File not found in virtual ZIP: {arc_path}")
 
     def get_all_offsets(self) -> dict[str, tuple[int, int]]:
-        """
-        Get offsets for all files as a dictionary.
+        """Get offsets for all files as a dictionary.
 
         Returns mapping of archive path to (offset, size) for every
         file in the virtual ZIP. Useful for bulk offset retrieval.
@@ -227,8 +219,7 @@ class VirtualTACOZIP:
         return {vfile.arc_path: (vfile.data_offset, vfile.file_size) for vfile in self.files}
 
     def needs_zip64(self) -> bool:
-        """
-        Check if ZIP64 format is required for this archive.
+        """Check if ZIP64 format is required for this archive.
 
         ZIP64 is needed when any of these conditions are met:
         1. More than 65,535 files (ZIP32 limit)

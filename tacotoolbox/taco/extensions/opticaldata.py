@@ -1,5 +1,4 @@
-"""
-Optical data extension for remote sensing datasets.
+"""Optical data extension for remote sensing datasets.
 
 Defines spectral band characteristics for multispectral/hyperspectral imagery.
 Supports automatic band lookup for common sensors or manual band definitions.
@@ -53,8 +52,7 @@ class SpectralBand(pydantic.BaseModel):
 
 
 class OpticalData(TacoExtension):
-    """
-    Optical/spectral band information for remote sensing datasets.
+    """Optical/spectral band information for remote sensing datasets.
 
     Provides spectral band definitions either explicitly or automatically
     from supported sensor types. Supports band subset selection.
@@ -116,24 +114,28 @@ class OpticalData(TacoExtension):
         return self
 
     def get_schema(self) -> pa.Schema:
-        return pa.schema([
-            pa.field("optical:sensor", pa.string()),
-            pa.field(
-                "optical:bands",
-                pa.list_(
-                    pa.struct([
-                        pa.field("name", pa.string()),
-                        pa.field("index", pa.int32()),
-                        pa.field("common_name", pa.string()),
-                        pa.field("description", pa.string()),
-                        pa.field("unit", pa.string()),
-                        pa.field("center_wavelength", pa.float64()),
-                        pa.field("full_width_half_max", pa.float64()),
-                    ])
+        return pa.schema(
+            [
+                pa.field("optical:sensor", pa.string()),
+                pa.field(
+                    "optical:bands",
+                    pa.list_(
+                        pa.struct(
+                            [
+                                pa.field("name", pa.string()),
+                                pa.field("index", pa.int32()),
+                                pa.field("common_name", pa.string()),
+                                pa.field("description", pa.string()),
+                                pa.field("unit", pa.string()),
+                                pa.field("center_wavelength", pa.float64()),
+                                pa.field("full_width_half_max", pa.float64()),
+                            ]
+                        )
+                    ),
                 ),
-            ),
-            pa.field("optical:num_bands", pa.int32()),
-        ])
+                pa.field("optical:num_bands", pa.int32()),
+            ]
+        )
 
     def get_field_descriptions(self) -> dict[str, str]:
         return {
@@ -148,20 +150,24 @@ class OpticalData(TacoExtension):
         bands_data = []
         if self.bands:
             for band in self.bands:
-                bands_data.append({
-                    "name": band.name,
-                    "index": band.index,
-                    "common_name": band.common_name,
-                    "description": band.description,
-                    "unit": band.unit,
-                    "center_wavelength": band.center_wavelength,
-                    "full_width_half_max": band.full_width_half_max,
-                })
+                bands_data.append(
+                    {
+                        "name": band.name,
+                        "index": band.index,
+                        "common_name": band.common_name,
+                        "description": band.description,
+                        "unit": band.unit,
+                        "center_wavelength": band.center_wavelength,
+                        "full_width_half_max": band.full_width_half_max,
+                    }
+                )
 
-        return pa.Table.from_pylist([
-            {
-                "optical:sensor": self.sensor,
-                "optical:bands": bands_data,
-                "optical:num_bands": len(bands_data) if bands_data else 0,
-            }
-        ])
+        return pa.Table.from_pylist(
+            [
+                {
+                    "optical:sensor": self.sensor,
+                    "optical:bands": bands_data,
+                    "optical:num_bands": len(bands_data) if bands_data else 0,
+                }
+            ]
+        )

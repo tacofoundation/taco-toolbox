@@ -1,5 +1,4 @@
-"""
-MajorTOM spherical grid extension.
+"""MajorTOM spherical grid extension.
 
 Assigns samples to a hierarchical spherical grid with configurable spacing.
 Uses latitude and longitude subdivisions to create grid cells with
@@ -37,8 +36,7 @@ except ImportError:
 
 
 class MajorTOM(TortillaExtension):
-    """
-    MajorTOM-like spherical grid with ~`dist_km` spacing.
+    """MajorTOM-like spherical grid with ~`dist_km` spacing.
 
     ID Format: [DIST]km_[ROWID]_[COLID]
         Example: 0100km_0003U_0005R
@@ -79,7 +77,7 @@ class MajorTOM(TortillaExtension):
         num_divisions_in_hemisphere = math.ceil(arc_pole_to_pole_km / self.dist_km)
 
         lats_all = np.linspace(-90, 90, num_divisions_in_hemisphere + 1)[:-1]
-        lats_all = np.mod(lats_all, 180) - 90  # type: ignore[assignment]
+        lats_all = np.mod(lats_all, 180) - 90  # [assignment]
         lats_all = np.sort(lats_all)
 
         zero_row = int(np.searchsorted(lats_all, 0.0, side="left"))
@@ -106,7 +104,7 @@ class MajorTOM(TortillaExtension):
             n_cols = max(1, math.ceil(circ_km / self.dist_km))
 
             lons_full = np.linspace(-180.0, 180.0, n_cols + 1)[:-1]
-            lons_full = np.mod(lons_full, 360) - 180  # type: ignore[assignment]
+            lons_full = np.mod(lons_full, 360) - 180  # [assignment]
             lons_full = np.sort(lons_full)
 
             zero_hits = np.where(lons_full == 0.0)[0]
@@ -145,8 +143,7 @@ class MajorTOM(TortillaExtension):
         return_idx: bool = False,
         integer: bool = False,
     ):
-        """
-        Convert latitude/longitude to (row_label, col_label) of the bottom-left grid anchor.
+        """Convert latitude/longitude to (row_label, col_label) of the bottom-left grid anchor.
 
         integer=True mimics legacy mapping with updated format:
           - rows:  "0003U" -> +3,  "0002D" -> -2
@@ -258,8 +255,7 @@ class MajorTOM(TortillaExtension):
         rows: Iterable[str | int] | str | int,
         cols: Iterable[str | int] | str | int,
     ):
-        """
-        Convert (row_label/row_int, col_label/col_int) -> (lat, lon) of the bottom-left grid anchor.
+        """Convert (row_label/row_int, col_label/col_int) -> (lat, lon) of the bottom-left grid anchor.
 
         Supports both new format ("0003U") and legacy integer format.
         """
@@ -320,14 +316,12 @@ class MajorTOM(TortillaExtension):
             "majortom:code": "MajorTOM spherical grid cell identifier (e.g., 0100km_0003U_0005R) with ~dist_km spacing"
         }
 
-    def _compute(self, tortilla: "Tortilla") -> pa.Table:  # noqa: C901
-        """
-        Process Tortilla and return Arrow Table with MajorTOM codes.
+    def _compute(self, tortilla: "Tortilla") -> pa.Table:
+        """Process Tortilla and return Arrow Table with MajorTOM codes.
 
         New format: [DIST]km_[ROWID]_[COLID]
         Example: 0100km_0003U_0005R
         """
-
         if not HAS_NUMPY:
             raise ImportError("MajorTOM extension requires numpy.\nInstall with: pip install numpy")
 

@@ -1,5 +1,4 @@
-"""
-TACO Format Translation - Convert between ZIP and FOLDER formats.
+"""TACO Format Translation - Convert between ZIP and FOLDER formats.
 
 This module provides bidirectional conversion between TACO container formats:
 - ZIP -> FOLDER: Extract complete structure with metadata
@@ -34,8 +33,7 @@ def zip2folder(
     output: str | Path,
     limit: int = 100,
 ) -> Path:
-    """
-    Convert ZIP format TACO to FOLDER format.
+    """Convert ZIP format TACO to FOLDER format.
 
     This is a wrapper around ExportWriter that converts a complete
     ZIP container to FOLDER format without any filtering.
@@ -95,8 +93,7 @@ def folder2zip(
     temp_dir: str | Path | None = None,
     **kwargs,
 ) -> Path:
-    """
-    Convert FOLDER format TACO to ZIP format.
+    """Convert FOLDER format TACO to ZIP format.
 
     Reads existing metadata from FOLDER structure and reconstructs ZIP
     container with correct offsets. The __meta__ files are regenerated
@@ -186,8 +183,7 @@ def folder2zip(
 
 
 def _read_collection(folder_path: Path) -> dict:
-    """
-    Read COLLECTION.json from FOLDER.
+    """Read COLLECTION.json from FOLDER.
 
     Raises:
         TacoCreationError: If file not found, invalid JSON, or missing required fields
@@ -214,8 +210,7 @@ def _read_collection(folder_path: Path) -> dict:
 
 
 def _read_consolidated_metadata(folder_path: Path) -> list[pa.Table]:
-    """
-    Read consolidated metadata from METADATA/levelX.parquet files.
+    """Read consolidated metadata from METADATA/levelX.parquet files.
 
     Raises:
         TacoCreationError: If METADATA directory not found, no level files, or read fails
@@ -248,8 +243,7 @@ def _read_consolidated_metadata(folder_path: Path) -> list[pa.Table]:
 def _reconstruct_local_metadata_from_levels(
     levels: list[pa.Table],
 ) -> dict[str, pa.Table]:
-    """
-    Reconstruct local_metadata from consolidated levels.
+    """Reconstruct local_metadata from consolidated levels.
 
     The __meta__ files in FOLDER format do NOT contain offset/size columns
     (they're filesystem-based, not byte-offset based). When converting to ZIP,
@@ -308,8 +302,7 @@ def _reconstruct_local_metadata_from_levels(
 
 
 def _scan_data_files(folder_path: Path) -> tuple[list[str], list[str]]:
-    """
-    Scan DATA/ directory for physical files.
+    """Scan DATA/ directory for physical files.
 
     Builds parallel lists of source paths (absolute filesystem paths) and
     archive paths (paths within ZIP container). Excludes __meta__ files

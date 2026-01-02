@@ -284,12 +284,14 @@ class TestPrebuiltMetadataTable:
         samples = [make_sample(f"s{i}") for i in range(2)]
 
         # Build table with extra column (simulating extension)
-        prebuilt = pa.table({
-            "id": ["s0", "s1"],
-            "type": ["FILE", "FILE"],
-            "path": ["/fake/s0", "/fake/s1"],
-            "preserved_col": [100, 200],
-        })
+        prebuilt = pa.table(
+            {
+                "id": ["s0", "s1"],
+                "type": ["FILE", "FILE"],
+                "path": ["/fake/s0", "/fake/s1"],
+                "preserved_col": [100, 200],
+            }
+        )
 
         t = Tortilla(samples=samples, _metadata_table=prebuilt)
         assert "preserved_col" in t.metadata_table.schema.names
@@ -298,11 +300,13 @@ class TestPrebuiltMetadataTable:
     def test_prebuilt_table_row_mismatch_raises(self, make_sample):
         samples = [make_sample(f"s{i}") for i in range(3)]
 
-        wrong_rows = pa.table({
-            "id": ["s0", "s1"],
-            "type": ["FILE", "FILE"],
-            "path": ["/a", "/b"],
-        })
+        wrong_rows = pa.table(
+            {
+                "id": ["s0", "s1"],
+                "type": ["FILE", "FILE"],
+                "path": ["/a", "/b"],
+            }
+        )
 
         with pytest.raises(ValueError, match="2 rows but 3 samples"):
             Tortilla(samples=samples, _metadata_table=wrong_rows)

@@ -108,10 +108,7 @@ def make_nested_tortilla(make_sample):
         folder_samples = []
 
         for i in range(n_folders):
-            children = [
-                make_sample(f"folder_{i}_child_{j}")
-                for j in range(n_children)
-            ]
+            children = [make_sample(f"folder_{i}_child_{j}") for j in range(n_children)]
             inner_tortilla = Tortilla(samples=children)
 
             folder_sample = Sample(

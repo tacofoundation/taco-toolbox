@@ -1,5 +1,4 @@
-"""
-Split extension for dataset partitioning.
+"""Split extension for dataset partitioning.
 
 Provides simple split field to indicate dataset partition membership
 for training, evaluation, and validation workflows.
@@ -17,8 +16,7 @@ from tacotoolbox.sample.datamodel import SampleExtension
 
 
 class Split(SampleExtension):
-    """
-    Dataset partition identifier for ML workflows.
+    """Dataset partition identifier for ML workflows.
 
     Valid values:
     - train: Training partition
@@ -32,9 +30,11 @@ class Split(SampleExtension):
 
     def get_schema(self) -> pa.Schema:
         """Return the expected Arrow schema for this extension."""
-        return pa.schema([
-            pa.field("split", pa.string()),
-        ])
+        return pa.schema(
+            [
+                pa.field("split", pa.string()),
+            ]
+        )
 
     def get_field_descriptions(self) -> dict[str, str]:
         """Return field descriptions for each field."""

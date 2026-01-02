@@ -20,8 +20,7 @@ def _get_version() -> str:
 
 
 def verbose(level=True):
-    """
-    Enable/disable verbose logging for tacotoolbox operations.
+    """Enable/disable verbose logging for tacotoolbox operations.
 
     Args:
         level: Logging level to enable:

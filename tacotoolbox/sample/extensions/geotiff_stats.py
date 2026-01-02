@@ -1,5 +1,4 @@
-"""
-GeoTIFF statistics extension using GDAL.
+"""GeoTIFF statistics extension using GDAL.
 
 Extracts per-band statistics from GeoTIFF files with automatic scaling support.
 
@@ -21,13 +20,13 @@ from pydantic import Field
 from tacotoolbox.sample.datamodel import SampleExtension
 
 if TYPE_CHECKING:
-    from osgeo import gdal  # type: ignore[import-untyped]
+    from osgeo import gdal  # [import-untyped]
 
     from tacotoolbox.sample.datamodel import Sample
 
 # Soft dependency - only imported when GDAL operations are used
 try:
-    from osgeo import gdal  # type: ignore[import-untyped]
+    from osgeo import gdal  # [import-untyped]
 
     HAS_GDAL = True
 except ImportError:
@@ -35,8 +34,7 @@ except ImportError:
 
 
 class GeotiffStats(SampleExtension):
-    """
-    Extract statistics from GeoTIFF files using GDAL.
+    """Extract statistics from GeoTIFF files using GDAL.
 
     Returns Parquet-compatible list of lists structure:
     - Categorical: list[list[float32]] with probabilities for each class in class_values.
@@ -44,14 +42,14 @@ class GeotiffStats(SampleExtension):
 
     Automatically applies scaling transformation if scaling metadata exists in sample.
 
-    Returns
+    Returns:
     -------
     geotiff:stats : list[list[float32]]
         Per-band statistics. One list per band containing:
         - Categorical: [prob_class0, prob_class1, ...] (probabilities 0-1)
         - Continuous: [min, max, mean, std, valid%, p25, p50, p75, p95]
 
-    Notes
+    Notes:
     -----
     - Requires GDAL: conda install gdal
     - Automatically applies scaling:factor and scaling:offset if present
@@ -74,9 +72,11 @@ class GeotiffStats(SampleExtension):
 
     def get_schema(self) -> pa.Schema:
         """Return the expected Arrow schema for this extension."""
-        return pa.schema([
-            pa.field("geotiff:stats", pa.list_(pa.list_(pa.float32()))),
-        ])
+        return pa.schema(
+            [
+                pa.field("geotiff:stats", pa.list_(pa.list_(pa.float32()))),
+            ]
+        )
 
     def get_field_descriptions(self) -> dict[str, str]:
         """Return field descriptions for each field."""
@@ -257,7 +257,7 @@ class GeotiffStats(SampleExtension):
             for p in self._percentiles:
                 target = (p / 100.0) * total_pixels
                 bin_idx = np.searchsorted(cumulative, target)
-                bin_idx = min(bin_idx, self._histogram_buckets - 1)  # type: ignore[arg-type]
+                bin_idx = min(bin_idx, self._histogram_buckets - 1)  # [arg-type]
 
                 bin_width = (max_val - min_val) / self._histogram_buckets
                 pct_val = min_val + (bin_idx + 0.5) * bin_width
@@ -271,8 +271,7 @@ class GeotiffStats(SampleExtension):
     def _apply_scaling(
         self, stats: list[list[float]], scaling_factor: float, scaling_offset: float
     ) -> list[list[float]]:
-        """
-        Apply scaling transformation: real_value = packed_value * factor + offset.
+        """Apply scaling transformation: real_value = packed_value * factor + offset.
 
         Notes:
             - min, max, mean, percentiles: scaled with factor + offset

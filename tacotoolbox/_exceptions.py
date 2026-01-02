@@ -1,5 +1,4 @@
-"""
-Exception classes for tacotoolbox operations.
+"""Exception classes for tacotoolbox operations.
 
 All tacotoolbox exceptions inherit from TacoToolboxError for easy catching.
 Provides specific exception types for different failure modes: validation errors,
@@ -24,8 +23,7 @@ class TacoToolboxError(Exception):
 
 
 class TacoValidationError(TacoToolboxError):
-    """
-    Input validation failed before operation started.
+    """Input validation failed before operation started.
 
     Raised when:
     - Output path already exists
@@ -46,8 +44,7 @@ class TacoValidationError(TacoToolboxError):
 
 
 class TacoCreationError(TacoToolboxError):
-    """
-    Creation, translation, or export operation failed AFTER successful object construction.
+    """Creation, translation, or export operation failed AFTER successful object construction.
 
     NOTE: Input validation happens BEFORE this stage via Pydantic/ValueError.
     You cannot reach TacoCreationError with empty/malformed Taco objects.
@@ -76,8 +73,7 @@ class TacoCreationError(TacoToolboxError):
 
 
 class TacoConsolidationError(TacoToolboxError):
-    """
-    Dataset consolidation failed (TacoCat or TacoCollection).
+    """Dataset consolidation failed (TacoCat or TacoCollection).
 
     Raised when:
     - Input datasets cannot be read or are corrupted
@@ -101,8 +97,7 @@ class TacoConsolidationError(TacoToolboxError):
 
 
 class TacoSchemaError(TacoToolboxError):
-    """
-    Schema incompatibility detected during consolidation or alignment.
+    """Schema incompatibility detected during consolidation or alignment.
 
     Raised when:
     - PIT schemas differ (structure, types, hierarchy depth)
@@ -126,8 +121,7 @@ class TacoSchemaError(TacoToolboxError):
 
 
 class TacoIOError(TacoToolboxError):
-    """
-    File or network I/O operation failed.
+    """File or network I/O operation failed.
 
     Raised when:
     - File not found or not readable
@@ -154,8 +148,7 @@ class TacoIOError(TacoToolboxError):
 
 
 class TacoDocumentationError(TacoToolboxError):
-    """
-    Documentation generation failed.
+    """Documentation generation failed.
 
     Raised when:
     - Required dependencies missing (jinja2, markdown)

@@ -100,11 +100,13 @@ class TestResolveAdminNames:
         assert names == ["Afghanistan", "Ocean/Sea/Lakes"]
 
     def test_multiple_admin_levels(self):
-        table = pa.table({
-            "admin_countries": [0],
-            "admin_states": [0],
-            "admin_districts": [0],
-        })
+        table = pa.table(
+            {
+                "admin_countries": [0],
+                "admin_states": [0],
+                "admin_districts": [0],
+            }
+        )
         result = resolve_admin_names(
             table,
             ["admin_countries", "admin_states", "admin_districts"],
@@ -115,10 +117,12 @@ class TestResolveAdminNames:
         assert result.column("admin_districts")[0].as_py() == "Deh Bala"
 
     def test_preserves_other_columns(self):
-        table = pa.table({
-            "admin_countries": [0],
-            "other_col": ["keep_me"],
-        })
+        table = pa.table(
+            {
+                "admin_countries": [0],
+                "other_col": ["keep_me"],
+            }
+        )
         result = resolve_admin_names(table, ["admin_countries"])
 
         assert "other_col" in result.schema.names

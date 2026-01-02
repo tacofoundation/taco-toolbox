@@ -14,6 +14,7 @@ from osgeo import gdal
 
 # Base fixtures
 
+
 @pytest.fixture
 def tmp_file(tmp_path: pathlib.Path) -> pathlib.Path:
     """Single temp file with default content."""
@@ -79,10 +80,12 @@ def sample_with_extension(make_sample):
 @pytest.fixture
 def single_row_arrow_table() -> pa.Table:
     """Valid single-row Arrow Table for extend_with tests."""
-    return pa.Table.from_pydict({
-        "arrow_field": [123],
-        "arrow:namespaced": ["value"],
-    })
+    return pa.Table.from_pydict(
+        {
+            "arrow_field": [123],
+            "arrow:namespaced": ["value"],
+        }
+    )
 
 
 @pytest.fixture
@@ -93,23 +96,25 @@ def multi_row_arrow_table() -> pa.Table:
 
 class MockSampleExtension:
     """Mock SampleExtension for testing extend_with."""
-    
+
     def __init__(self, schema_only: bool = False):
         self.schema_only = schema_only
         self._called = False
-    
+
     def get_schema(self) -> pa.Schema:
-        return pa.schema([
-            pa.field("mock:value", pa.int64()),
-            pa.field("mock:name", pa.string()),
-        ])
-    
+        return pa.schema(
+            [
+                pa.field("mock:value", pa.int64()),
+                pa.field("mock:name", pa.string()),
+            ]
+        )
+
     def get_field_descriptions(self) -> dict[str, str]:
         return {"mock:value": "A mock integer", "mock:name": "A mock string"}
-    
+
     def model_dump(self):
         return {"value": 42, "name": "test"}
-    
+
     def __call__(self, sample) -> pa.Table:
         self._called = True
         if self.schema_only:
@@ -130,6 +135,7 @@ def mock_extension() -> MockSampleExtension:
 
 # Timestamps (microseconds since Unix epoch, UTC)
 
+
 @pytest.fixture
 def timestamp_2024() -> int:
     dt = datetime(2024, 1, 15, 12, 0, 0, tzinfo=timezone.utc)
@@ -143,6 +149,7 @@ def timestamp_2024_end() -> int:
 
 
 # STAC fixtures
+
 
 @pytest.fixture
 def utm_crs() -> str:
@@ -171,10 +178,12 @@ def tensor_shape_1d() -> tuple[int, ...]:
 
 # ISTAC fixtures
 
+
 @pytest.fixture
 def wkb_polygon_utm() -> bytes:
     from shapely.geometry import box
     from shapely.wkb import dumps
+
     return dumps(box(600000, 4499000, 601000, 4500000))
 
 
@@ -182,6 +191,7 @@ def wkb_polygon_utm() -> bytes:
 def wkb_point_wgs84() -> bytes:
     from shapely.geometry import Point
     from shapely.wkb import dumps
+
     return dumps(Point(-0.5, 39.5))
 
 
@@ -189,10 +199,12 @@ def wkb_point_wgs84() -> bytes:
 def wkb_empty_polygon() -> bytes:
     from shapely.geometry import Polygon
     from shapely.wkb import dumps
+
     return dumps(Polygon())
 
 
 # GeoTIFF fixtures
+
 
 @pytest.fixture
 def simple_geotiff(tmp_path) -> pathlib.Path:

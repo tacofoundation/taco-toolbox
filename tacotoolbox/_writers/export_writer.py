@@ -1,5 +1,4 @@
-"""
-Export Writer - Create FOLDER containers from filtered TacoDataset.
+"""Export Writer - Create FOLDER containers from filtered TacoDataset.
 
 This module handles the creation of FOLDER-format TACO containers from filtered
 TacoDataset instances (e.g., from .sql() queries) using concurrent downloads
@@ -17,7 +16,7 @@ import asyncio
 import json
 import pathlib
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import pyarrow as pa
@@ -54,8 +53,7 @@ def _get_available_levels(dataset: TacoDataset) -> list[str]:
 
 
 def _sanitize_sql_identifier(identifier: str) -> str:
-    """
-    Sanitize SQL table/view name to prevent injection.
+    """Sanitize SQL table/view name to prevent injection.
 
     Validates that identifier contains only alphanumeric characters and underscores.
     Used for level names (level0, level1, etc.) to satisfy S608 checks.
@@ -77,8 +75,7 @@ def _sanitize_sql_identifier(identifier: str) -> str:
 
 
 class ExportWriter:
-    """
-    Handle creation of FOLDER containers from filtered TacoDataset.
+    """Handle creation of FOLDER containers from filtered TacoDataset.
 
     This writer is specialized for exporting datasets that have been loaded
     and potentially filtered via TacoDataset operations. It uses concurrent
@@ -92,8 +89,7 @@ class ExportWriter:
         limit: int = 100,
         **kwargs,
     ) -> None:
-        """
-        Initialize export writer.
+        """Initialize export writer.
 
         Args:
             dataset: TacoDataset with applied filters (e.g., from .sql())
@@ -112,8 +108,7 @@ class ExportWriter:
         logger.debug(f"ExportWriter initialized: output={output}, limit={limit}")
 
     async def create_folder(self) -> pathlib.Path:
-        """
-        Create complete FOLDER TACO from filtered dataset.
+        """Create complete FOLDER TACO from filtered dataset.
 
         Orchestrates the entire export process:
         1. Validates dataset (no level1+ joins, not empty)
@@ -149,8 +144,7 @@ class ExportWriter:
             return self.output
 
     def _validate_dataset(self) -> None:
-        """
-        Validate dataset before export.
+        """Validate dataset before export.
 
         Checks that:
         - Dataset has no level1+ joins (only level0 filters supported)
@@ -179,8 +173,7 @@ class ExportWriter:
         logger.debug(f"Created {FOLDER_DATA_DIR}/ and {FOLDER_METADATA_DIR}/")
 
     async def _copy_all_bytes(self) -> None:
-        """
-        Copy all bytes from dataset to output/DATA/.
+        """Copy all bytes from dataset to output/DATA/.
 
         Uses concurrent downloads for FILEs with progress bar.
         FOLDER copying is recursive and processes children concurrently.
@@ -226,8 +219,7 @@ class ExportWriter:
             await progress_gather(*tasks, desc="Copying FOLDERs", unit="folder", colour="blue")
 
     async def _copy_single_file(self, vsi_path: str, dest_path: pathlib.Path, semaphore: asyncio.Semaphore) -> None:
-        """
-        Copy bytes from vsi_path to dest_path.
+        """Copy bytes from vsi_path to dest_path.
 
         Handles two types of source paths:
         - /vsisubfile/... paths (ZIP entries): Downloads bytes from offset/size
@@ -269,8 +261,7 @@ class ExportWriter:
         level: int,
         semaphore: asyncio.Semaphore,
     ) -> None:
-        """
-        Recursively copy a FOLDER and its children.
+        """Recursively copy a FOLDER and its children.
 
         For each FOLDER:
         1. Create the folder directory in DATA/
@@ -300,13 +291,13 @@ class ExportWriter:
         if folder_row.get("internal:source_file"):
             # TacoCat case: need to filter by both parent_id AND source_file
             children_table = self.dataset._duckdb.execute(
-                f'SELECT * FROM {safe_view_name} WHERE "{METADATA_PARENT_ID}" = ? AND "internal:source_file" = ?',  # noqa: S608
+                f'SELECT * FROM {safe_view_name} WHERE "{METADATA_PARENT_ID}" = ? AND "internal:source_file" = ?',
                 [parent_id, folder_row["internal:source_file"]],
             ).fetch_arrow_table()
         else:
             # Single TACO case: only filter by parent_id
             children_table = self.dataset._duckdb.execute(
-                f'SELECT * FROM {safe_view_name} WHERE "{METADATA_PARENT_ID}" = ?',  # noqa: S608
+                f'SELECT * FROM {safe_view_name} WHERE "{METADATA_PARENT_ID}" = ?',
                 [parent_id],
             ).fetch_arrow_table()
 
@@ -339,8 +330,7 @@ class ExportWriter:
         write_parquet_file(children_table, meta_path, **self.parquet_kwargs)
 
     def _generate_consolidated_metadata(self) -> None:
-        """
-        Generate consolidated metadata files (METADATA/levelX.parquet).
+        """Generate consolidated metadata files (METADATA/levelX.parquet).
 
         Filters existing consolidated metadata to selected samples and reindexes
         both internal:current_id and internal:parent_id to maintain relational
@@ -363,9 +353,7 @@ class ExportWriter:
             safe_level_name = _sanitize_sql_identifier(level_name)
 
             # Read from DuckDB
-            table = self.dataset._duckdb.execute(
-                f"SELECT * FROM {safe_level_name}"  # noqa: S608
-            ).fetch_arrow_table()
+            table = self.dataset._duckdb.execute(f"SELECT * FROM {safe_level_name}").fetch_arrow_table()
 
             if level_name == "level0":
                 # Filter to selected samples
@@ -432,8 +420,7 @@ class ExportWriter:
             logger.debug(f"{level_name}.parquet: {filtered_table.num_rows} samples")
 
     def _generate_collection_json(self) -> None:
-        """
-        Generate COLLECTION.json with updated counts and subset info.
+        """Generate COLLECTION.json with updated counts and subset info.
 
         Updates collection metadata to reflect the exported subset:
         - Updates sample count (taco:pit_schema.root.n)
@@ -450,7 +437,7 @@ class ExportWriter:
 
         # Add subset provenance
         collection["taco:subset_of"] = collection.get("id", "unknown")
-        collection["taco:subset_date"] = datetime.now(timezone.utc).isoformat()
+        collection["taco:subset_date"] = datetime.now(UTC).isoformat()
 
         # Write to file
         output_path = self.output / "COLLECTION.json"

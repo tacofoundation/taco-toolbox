@@ -1,5 +1,4 @@
-"""
-TACOTIFF header extraction extension.
+"""TACOTIFF header extraction extension.
 
 Extracts compact binary header from TACOTIFF files for fast reading.
 
@@ -16,8 +15,7 @@ from tacotoolbox.sample.datamodel import SampleExtension
 
 
 class Header(SampleExtension):
-    """
-    Extract TACOTIFF binary header metadata.
+    """Extract TACOTIFF binary header metadata.
 
     Stores complete binary header (TacoHeader format) in taco:header field.
     This header contains all metadata needed for ultra-fast TACOTIFF reading.
@@ -25,9 +23,11 @@ class Header(SampleExtension):
 
     def get_schema(self) -> pa.Schema:
         """Return the expected Arrow schema for this extension."""
-        return pa.schema([
-            pa.field("taco:header", pa.binary()),
-        ])
+        return pa.schema(
+            [
+                pa.field("taco:header", pa.binary()),
+            ]
+        )
 
     def get_field_descriptions(self) -> dict[str, str]:
         """Return field descriptions for each field."""

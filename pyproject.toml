@@ -1,36 +1,75 @@
+[project]
+name = "tacotoolbox"
+version = "0.24.1"
+description = "Creation toolkit for AI-ready datasets."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11,<3.14"
+authors = [{name = "Cesar Aybar", email = "cesar.aybar@uv.es"}]
+keywords = [
+    "earth-observation",
+    "geospatial",
+    "machine-learning",
+    "satellite-imagery",
+    "remote-sensing",
+    "ai-ready-datasets",
+    "data-pipeline",
+    "stac",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: GIS",
+    "Typing :: Typed",
+]
+dependencies = [
+    "pydantic>=2.10.3",
+    "pyarrow>=21.0.0",
+    "pyproj>=3.7.2",
+    "shapely>=2.1.1",
+    "tacozip>=0.11.4",
+    "tqdm>=4.67.1",
+    "tacoreader>=2.3.0",
+]
+
+[project.optional-dependencies]
+gdal = ["gdal>=3.0.0"]
+earthengine = ["earthengine-api>=0.1.0"]
+docs = ["markdown>=3.0.0", "jinja2>=3.0.0"]
+stats = ["numpy>=1.24"]
+all = ["gdal>=3.0.0", "earthengine-api>=0.1.0", "markdown>=3.0.0", "jinja2>=3.0.0", "numpy>=1.24"]
+
+[project.urls]
+Repository = "https://github.com/tacofoundation/taco-toolbox"
+Documentation = "https://tacofoundation.github.io/taco-toolbox"
+"Bug Tracker" = "https://github.com/tacofoundation/taco-toolbox/issues"
+Changelog = "https://github.com/tacofoundation/taco-toolbox/releases"
+
 [tool.poetry]
 name = "tacotoolbox"
 version = "0.24.1"
-description = "We make tacos 🔨"
+description = "Creation toolkit for AI-ready datasets."
 authors = ["Cesar Aybar <cesar.aybar@uv.es>"]
-repository = "https://github.com/taco-toolbox/tacotoolbox"
-documentation = "http://tacofoundation.github.io/taco-toolbox"
-readme = "README.md"
-packages = [
-  {include = "tacotoolbox"}
-]
-
+packages = [{include = "tacotoolbox"}]
 include = [
-    { path = "tacotoolbox/tortilla/data/admin/*.parquet", format = ["sdist", "wheel"] }
+    {path = "tacotoolbox/tortilla/data/admin/*.parquet", format = ["sdist", "wheel"]}
 ]
-
-[tool.poetry.dependencies]
-python = ">=3.11,<3.14"
-pydantic = ">=2.10.3"
-pyarrow = ">=21.0.0"
-pyproj = ">=3.7.2"
-shapely = ">=2.1.1"
-tacozip = ">=0.11.4"
-tqdm = ">=4.67.1"
-tacoreader = ">=2.3.0"
 
 [tool.poetry.group.dev.dependencies]
-pytest = "^7.2.0"
+pytest = "^7.3.0"
 pytest-cov = "^4.0.0"
 deptry = "^0.16.2"
 mypy = "^1.5.1"
 pre-commit = "^3.4.0"
 tox = "^4.11.1"
+ruff = ">=0.9"
 
 [tool.poetry.group.docs.dependencies]
 mkdocs = "^1.4.2"
@@ -41,38 +80,74 @@ mkdocstrings = {extras = ["python"], version = "^0.26.1"}
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
 
+[tool.mypy]
+files = ["tacotoolbox"]
+exclude = ["^tacotoolbox/_nest_asyncio.py", "^tests/"]
+ignore_missing_imports = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-v --tb=short -m 'not slow'"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "remote: marks tests requiring network access",
+]
+tmp_path_retention_count = 1
+tmp_path_retention_policy = "failed"
+filterwarnings = [
+    "ignore::DeprecationWarning:pyarrow.*",
+    "ignore:.*pydantic.*:DeprecationWarning",
+    "ignore::DeprecationWarning:shapely.*",
+    "ignore::FutureWarning:pyproj.*",
+]
+norecursedirs = [".git", ".tox", "dist", "build", "__pycache__", "tacotoolbox/v1"]
 
 [tool.ruff]
 target-version = "py311"
 line-length = 120
-exclude = [
-    "_nest_asyncio.py"    
-]
-
-[tool.ruff.lint]
-select = [
-    "YTT", "S", "B", "A", "C4", "T10", "SIM",
-    "I", "C90", "E", "W", "F", "PGH", "UP",
-    "RUF", "TRY",
-]
-ignore = ["E501", "E731", "TRY003", "F401", "F821", "S311", "UP017", "A001", "A002", "SIM103"]
-per-file-ignores = { "tests/*" = ["S101"],  "tacotoolbox/v1/*" = ["ALL"] }
+extend-exclude = ["tacotoolbox/_nest_asyncio.py"]
+force-exclude = true
+fix = true
 
 [tool.ruff.format]
-preview = true
+quote-style = "double"
 
-[tool.coverage.report]
-skip_empty = true
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP", "B", "C4", "SIM", "RUF", "S", "C90", "PGH", "TRY", "YTT", "T10", "A", "D"]
+ignore = ["E501", "E731", "TRY003", "S311", "A001", "A002", "A004", "S608", "RUF059", "D100", "D104", "D105", "D107", "D102", "SIM103", "D205"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*" = ["S101", "D"]
+"tacotoolbox/v1/*" = ["ALL"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["tacotoolbox"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15
 
 [tool.coverage.run]
 branch = true
 source = ["tacotoolbox"]
+omit = ["tacotoolbox/v1/*", "tests/*"]
 
-
-[tool.mypy]
-exclude = [
-    "^tacotoolbox/_nest_asyncio.py",
+[tool.coverage.report]
+skip_empty = true
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@abstractmethod",
+    "def __repr__",
+    "def _repr_html_",
+    "^\\s*\\.\\.\\.\\s*$",
+    "^\\s*pass\\s*$",
+    "except ImportError:",
 ]
-ignore_missing_imports = true
+exclude_also = ["@overload"]

@@ -1,5 +1,4 @@
-"""
-Split strategy extension for Taco datasets.
+"""Split strategy extension for Taco datasets.
 
 Documents how the dataset was partitioned into train/test/validation splits.
 

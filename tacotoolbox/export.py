@@ -1,5 +1,4 @@
-"""
-Export filtered TacoDataset to FOLDER or ZIP format with auto-detection.
+"""Export filtered TacoDataset to FOLDER or ZIP format with auto-detection.
 
 Auto-detects format from extension:
 - .zip/.tacozip -> ZIP format (via temp FOLDER)
@@ -36,8 +35,7 @@ def export(
     temp_dir: str | Path | None = None,
     **kwargs,
 ) -> Path:
-    """
-    Export filtered TacoDataset to FOLDER or ZIP.
+    """Export filtered TacoDataset to FOLDER or ZIP.
 
     Format auto-detected from extension (.zip/.tacozip -> ZIP, else -> FOLDER).
 
@@ -75,8 +73,7 @@ async def _export_async(
     temp_dir: str | Path | None = None,
     **kwargs,
 ) -> Path:
-    """
-    Internal async export implementation.
+    """Internal async export implementation.
 
     ZIP workflow: create temp FOLDER → convert to ZIP → cleanup temp.
     If temp_dir is None, uses output.parent / f".{output.stem}_temp"

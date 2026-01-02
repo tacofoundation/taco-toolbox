@@ -13,7 +13,6 @@ def landsat1mss_bands(bands: str | list[str] = "all") -> dict:
     Returns:
         dict: The bands of the Landsat 1 - MSS sensor.
     """
-
     landsat1_mss_bands = {
         "B04": {
             "index": 0,
@@ -57,10 +56,10 @@ def landsat2mss_bands(bands: str | list[str] = "all") -> dict:
     Args:
         bands (str | list[str], optional): The bands to be added.
             If "all", all bands are added. Defaults to "all".
+
     Returns:
         dict: The bands of the Landsat 2 - MSS sensor.
     """
-
     landsat2_mss_bands = {
         "B04": {
             "index": 0,
@@ -104,10 +103,10 @@ def landsat3mss_bands(bands: str | list[str] = "all") -> dict:
     Args:
         bands (str | list[str], optional): The bands to be added.
             If "all", all bands are added. Defaults to "all".
+
     Returns:
         dict: The bands of the Landsat 3 - MSS sensor.
     """
-
     landsat3_mss_bands = {
         "B04": {
             "index": 0,
@@ -149,13 +148,12 @@ def landsat4mss_bands(bands: str | list[str] = "all") -> dict:
     """Gets the bands of the Landsat 4 - MSS sensor.
 
     Args:
-
         bands (str | list[str], optional): The bands to be added.
             If "all", all bands are added. Defaults to "all".
+
     Returns:
         dict: The bands of the Landsat 4 - MSS sensor.
     """
-
     landsat4_mss_bands = {
         "B01": {
             "index": 0,
@@ -203,7 +201,6 @@ def landsat4tm_bands(bands: str | list[str] = "all") -> dict:
     Returns:
         dict: The bands of the Landsat 4 - TM sensor.
     """
-
     landsat4_tm_bands = {
         "B01": {
             "index": 0,
@@ -266,14 +263,12 @@ def landsat5mss_bands(bands: str | list[str] = "all") -> dict:
     """Gets the bands of the Landsat 5 - MSS sensor.
 
     Args:
-
         bands (str | list[str], optional): The bands to be added.
             If "all", all bands are added. Defaults to "all".
 
     Returns:
         dict: The bands of the Landsat 5 - MSS sensor.
     """
-
     landsat5_mss_bands = {
         "B01": {
             "index": 0,
@@ -315,14 +310,12 @@ def landsat5tm_bands(bands: str | list[str] = "all") -> dict:
     """Gets the bands of the Landsat 5 - TM sensor.
 
     Args:
-
         bands (str | list[str], optional): The bands to be added.
             If "all", all bands are added. Defaults to "all".
 
     Returns:
         dict: The bands of the Landsat 5 - TM sensor.
     """
-
     landsat5_tm_bands = {
         "B01": {
             "index": 0,
@@ -385,14 +378,12 @@ def landsat7etm_bands(bands: str | list[str] = "all") -> dict:
     """Gets the bands of the Landsat 7 - ETM+ sensor.
 
     Args:
-
         bands (str | list[str], optional): The bands to be added.
             If "all", all bands are added. Defaults to "all".
 
     Returns:
         dict: The bands of the Landsat 7 - ETM+ sensor.
     """
-
     landsat7_bands = {
         "B01": {
             "index": 0,
@@ -468,7 +459,6 @@ def landsat8oli_bands(bands: str | list[str] = "all") -> dict:
     Returns:
         dict: The bands of the Landsat 8 - OLI sensor.
     """
-
     landsat8_bands = {
         "B01": {
             "index": 0,
@@ -565,7 +555,6 @@ def landsat9oli_bands(bands: str | list[str] = "all") -> dict:
     Returns:
         dict: The bands of the Landsat 9 - OLI sensor.
     """
-
     landsat9_bands = {
         "B01": {
             "index": 0,
@@ -662,7 +651,6 @@ def sentinel2msi_bands(bands: str | list[str] = "all") -> dict:
     Returns:
         dict: The bands of the Sentinel 2 sensor.
     """
-
     sentinel2_bands = {
         "B01": {
             "index": 0,
@@ -772,7 +760,6 @@ def eo1ali_bands(bands: str | list[str] = "all") -> dict:
     Returns:
         dict: The bands of the EO1 - ALI sensor.
     """
-
     eo1_ali_bands = {
         "B01": {
             "index": 0,
@@ -860,7 +847,6 @@ def aster_bands(bands: str | list[str] = "all") -> dict:
     Returns:
         dict: The bands of the ASTER sensor.
     """
-
     # Define ASTER bands with their properties
     aster_bands = {
         "B01": {
@@ -985,7 +971,6 @@ def modis_bands(bands: str | list[str] = "all") -> dict:
     Returns:
         dict: The bands of the MODIS sensor.
     """
-
     # Define MODIS bands with their properties
     modis_bands = {
         "B01": {
@@ -1258,7 +1243,6 @@ def get_sensor_bands(sensor: str, bands: str | list[str] = "all") -> dict:
     Returns:
         dict: The bands of the sensor.
     """
-
     # Mapping of sensors to their corresponding band functions
     sensor_functions: dict[str, SensorFunc] = {
         "landsat1mss": landsat1mss_bands,

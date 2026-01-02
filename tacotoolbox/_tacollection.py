@@ -1,5 +1,4 @@
-"""
-TacoCollection - Merge multiple TACO datasets into global collection metadata.
+"""TacoCollection - Merge multiple TACO datasets into global collection metadata.
 
 Internal module for consolidating COLLECTION.json metadata from multiple TACO
 datasets. Can be used standalone or called by tacocat to generate metadata.
@@ -17,7 +16,7 @@ Main function:
 
 import json
 from collections.abc import Sequence
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -32,8 +31,7 @@ def create_tacollection(
     output: str | Path | None = None,
     validate_schema: bool = True,
 ) -> None:
-    """
-    Create global collection metadata from multiple TACO datasets.
+    """Create global collection metadata from multiple TACO datasets.
 
     Generates a consolidated metadata file.
 
@@ -117,8 +115,7 @@ def create_tacollection(
 
 
 def _read_collections(tacozips: Sequence[str | Path]) -> list[dict[str, Any]]:
-    """
-    Read COLLECTION.json from all tacozips.
+    """Read COLLECTION.json from all tacozips.
 
     COLLECTION.json is always the last entry in TACO_HEADER.
     """
@@ -202,8 +199,7 @@ def _validate_collection_fields(collection: dict[str, Any], path: Path) -> None:
 
 
 def _validate_pit_structure(collections: list[dict[str, Any]]) -> None:
-    """
-    Validate that all collections have identical taco:pit_schema structure.
+    """Validate that all collections have identical taco:pit_schema structure.
 
     Checks:
     - Root type must be identical
@@ -381,8 +377,7 @@ def _sum_pit_schemas(collections: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _merge_spatial_extents(collections: list[dict[str, Any]]) -> list[float]:
-    """
-    Merge spatial extents from all collections into global bounding box.
+    """Merge spatial extents from all collections into global bounding box.
 
     Computes the union of all spatial extents to create a global bbox that
     covers all partitions. If no extents found, defaults to global coverage.
@@ -413,8 +408,7 @@ def _merge_spatial_extents(collections: list[dict[str, Any]]) -> list[float]:
 
 
 def _merge_temporal_extents(collections: list[dict[str, Any]]) -> list[str] | None:
-    """
-    Merge temporal extents from all collections into global time range.
+    """Merge temporal extents from all collections into global time range.
 
     Finds the earliest start datetime and latest end datetime across all
     partitions to create a global temporal coverage.
@@ -454,9 +448,9 @@ def _merge_temporal_extents(collections: list[dict[str, Any]]) -> list[str] | No
 
         # Ensure UTC timezone for comparison
         if start_dt.tzinfo is None:
-            start_dt = start_dt.replace(tzinfo=timezone.utc)
+            start_dt = start_dt.replace(tzinfo=UTC)
         if end_dt.tzinfo is None:
-            end_dt = end_dt.replace(tzinfo=timezone.utc)
+            end_dt = end_dt.replace(tzinfo=UTC)
 
         starts.append(start_dt)
         ends.append(end_dt)
@@ -475,8 +469,7 @@ def _merge_temporal_extents(collections: list[dict[str, Any]]) -> list[str] | No
 def _collect_partition_extents(
     collections: list[dict[str, Any]], tacozips: Sequence[str | Path]
 ) -> list[dict[str, Any]]:
-    """
-    Collect individual spatial/temporal extents from each partition.
+    """Collect individual spatial/temporal extents from each partition.
 
     Stores each partition's coverage for query routing and visualization.
 

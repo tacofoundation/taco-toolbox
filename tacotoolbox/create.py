@@ -1,5 +1,4 @@
-"""
-TACO container creation with ZIP/FOLDER support and dataset splitting.
+"""TACO container creation with ZIP/FOLDER support and dataset splitting.
 
 Main workflow:
 1. Auto-detect format from extension (.zip/.tacozip → zip, else → folder)
@@ -56,8 +55,7 @@ def create(  # noqa: C901
     temp_dir: str | pathlib.Path | None = None,
     **kwargs: Any,
 ) -> list[pathlib.Path]:
-    """
-    Create TACO container from Taco object.
+    """Create TACO container from Taco object.
 
     Format auto-detection (output_format="auto"):
     - .zip/.tacozip → ZIP format
@@ -112,7 +110,7 @@ def create(  # noqa: C901
             final_format = "folder"
             logger.debug("Auto-detected format='folder' (no .zip/.tacozip extension)")
     else:
-        final_format = cast(Literal["zip", "folder"], output_format)
+        final_format = output_format
 
     # Adjust output path for folder format
     if final_format == "folder" and output_path.suffix.lower() in (".zip", ".tacozip"):
@@ -194,8 +192,7 @@ def _create_consolidated_tacocat(
     zip_paths: list[pathlib.Path],
     output_dir: pathlib.Path,
 ) -> None:
-    """
-    Create .tacocat/ folder from multiple ZIP files.
+    """Create .tacocat/ folder from multiple ZIP files.
 
     Automatically consolidates multiple ZIPs into a single queryable folder
     with unified parquet files and COLLECTION.json metadata.
@@ -273,8 +270,7 @@ def _validate_group_column(group_column: str, table_columns: list[str]) -> None:
 
 
 def _sanitize_filename(name: str) -> str:
-    r"""
-    Sanitize string for use in filename.
+    r"""Sanitize string for use in filename.
 
     Replaces problematic characters with underscores:
     - Forward/backward slashes (/, \)
@@ -300,8 +296,7 @@ def _sanitize_filename(name: str) -> str:
 
 
 def _group_samples_by_column(taco: Taco, group_by: str | list[str]) -> dict[str, list["Sample"]]:
-    """
-    Group samples by metadata column(s).
+    """Group samples by metadata column(s).
 
     Returns dict mapping group value(s) to list of samples.
     Converts integer values to strings with warning.
@@ -369,8 +364,7 @@ def _create_grouped_zips(
     temp_dir: pathlib.Path | None,
     **kwargs: Any,
 ) -> list[pathlib.Path]:
-    r"""
-    Create one ZIP file per group.
+    r"""Create one ZIP file per group.
 
     Each group becomes a single ZIP file regardless of size.
     split_size is ignored when using group_by.
@@ -428,8 +422,7 @@ def _create_grouped_zips(
 
 
 def _extract_files_with_ids(samples: list, path_prefix: str = "") -> dict[str, Any]:
-    """
-    Extract file paths with sample IDs as archive paths.
+    """Extract file paths with sample IDs as archive paths.
 
     Recursively builds parallel lists:
     - src_files: absolute filesystem paths
@@ -459,8 +452,7 @@ def _extract_files_with_ids(samples: list, path_prefix: str = "") -> dict[str, A
 
 
 def _group_samples_by_size(samples: list["Sample"], max_size: int) -> list[list]:
-    """
-    Group samples into chunks based on size limit. Greedy packing algorithm.
+    """Group samples into chunks based on size limit. Greedy packing algorithm.
 
     Individual samples larger than max_size will be placed alone in their chunk.
     """
@@ -559,8 +551,7 @@ def _create_with_splitting(
     temp_dir: pathlib.Path | None,
     **kwargs: Any,
 ) -> list[pathlib.Path]:
-    """
-    Create multiple ZIP containers by splitting samples.
+    """Create multiple ZIP containers by splitting samples.
 
     Chunk naming: base_part0001.tacozip, base_part0002.tacozip, etc.
     """
@@ -613,8 +604,7 @@ def _create_with_splitting(
 
 
 def _cleanup_tortilla_temp_files(tortilla: Tortilla) -> None:
-    """
-    Recursively cleanup temp files from all samples.
+    """Recursively cleanup temp files from all samples.
 
     Called automatically after successful create() to free disk space.
     Silent, recursive, safe (ignores errors).

@@ -1,5 +1,4 @@
-"""
-TACO Dataset Metadata Model.
+"""TACO Dataset Metadata Model.
 
 Provides the core TACO dataset descriptor with extensible metadata support.
 Combines Tortilla (hierarchical structure) with standardized dataset metadata
@@ -36,7 +35,7 @@ Positional-Invariance Tree (PIT):
 """
 
 from abc import ABC, abstractmethod
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Literal, cast
 
 import pyarrow as pa
@@ -98,8 +97,7 @@ TaskType = Literal[
 
 
 class Provider(pydantic.BaseModel):
-    """
-    Data provider information (STAC-compatible).
+    """Data provider information (STAC-compatible).
 
     Describes organizations or entities that provide, process, or host the data.
 
@@ -124,8 +122,7 @@ class Provider(pydantic.BaseModel):
 
 
 class Curator(pydantic.BaseModel):
-    """
-    Dataset curator/maintainer information.
+    """Dataset curator/maintainer information.
 
     Describes individuals responsible for creating and maintaining the dataset.
     At least one of 'name' or 'organization' is required.
@@ -157,8 +154,7 @@ class Curator(pydantic.BaseModel):
 
 
 class Extent(pydantic.BaseModel):
-    """
-    Spatial and temporal boundaries.
+    """Spatial and temporal boundaries.
 
     Spatial: [west, south, east, north] in WGS84 decimal degrees.
     When west > east, indicates antimeridian crossing (STAC convention).
@@ -226,8 +222,7 @@ class Extent(pydantic.BaseModel):
 
 
 class Taco(pydantic.BaseModel):
-    """
-    Core TACO dataset metadata container.
+    """Core TACO dataset metadata container.
 
     Combines:
     - Tortilla: Hierarchical sample structure
@@ -297,8 +292,7 @@ class Taco(pydantic.BaseModel):
         return self
 
     def _validate_pit_compliance(self) -> None:  # noqa: C901
-        """
-        Validate PIT constraint for root tortilla.
+        """Validate PIT constraint for root tortilla.
 
         This is the only place where PIT validation occurs because Taco knows
         its tortilla is the root of the dataset tree. Validates that all root
@@ -396,8 +390,7 @@ class Taco(pydantic.BaseModel):
                     pass
 
     def _auto_calculate_extent(self) -> None:
-        """
-        Calculate extent automatically from STAC/ISTAC metadata in samples.
+        """Calculate extent automatically from STAC/ISTAC metadata in samples.
 
         Searches incrementally through hierarchy levels (0, 1, 2...) until finding
         STAC or ISTAC columns. Uses that level's Table to compute spatial and
@@ -441,8 +434,7 @@ class Taco(pydantic.BaseModel):
         self.extent = Extent(spatial=[-180.0, -90.0, 180.0, 90.0], temporal=None)
 
     def extend_with(self, extension: Any) -> None:
-        """
-        Add extension data to dataset.
+        """Add extension data to dataset.
 
         Supports:
         - TacoExtension instances (computed)
@@ -502,8 +494,7 @@ class Taco(pydantic.BaseModel):
             setattr(self, key, value)
 
     def export_metadata(self) -> pa.Table:
-        """
-        Export complete metadata as single-row Table.
+        """Export complete metadata as single-row Table.
 
         Preserves nested structures (Provider, Curator, Extent) without flattening.
         Includes core fields, Tortilla reference, and all extensions.
@@ -527,8 +518,7 @@ class Taco(pydantic.BaseModel):
 
 
 def _calculate_spatial_extent(table: pa.Table, centroid_col: str) -> list[float]:
-    """
-    Calculate spatial bounding box from centroid geometries.
+    """Calculate spatial bounding box from centroid geometries.
 
     Handles antimeridian by splitting points into two groups (positive/negative
     longitude) and keeping only the group with larger longitudinal span.
@@ -576,8 +566,7 @@ def _calculate_temporal_extent(
     time_end_col: str | None,
     time_middle_col: str | None,
 ) -> list[str] | None:
-    """
-    Calculate temporal interval from Datetime columns.
+    """Calculate temporal interval from Datetime columns.
 
     Extracts datetime values, computes min/max in Python.
     Skips None values (padding samples).
@@ -608,9 +597,9 @@ def _calculate_temporal_extent(
 
             # Convert to UTC if not already (PyArrow timestamp without timezone is naive)
             if min_dt.tzinfo is None:
-                min_dt = min_dt.replace(tzinfo=timezone.utc)
+                min_dt = min_dt.replace(tzinfo=UTC)
             if max_dt.tzinfo is None:
-                max_dt = max_dt.replace(tzinfo=timezone.utc)
+                max_dt = max_dt.replace(tzinfo=UTC)
 
             # Convert to ISO 8601 strings with 'Z' suffix
             return [

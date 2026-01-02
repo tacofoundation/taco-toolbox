@@ -1,5 +1,4 @@
-"""
-Progress bar utilities for tacotoolbox.
+"""Progress bar utilities for tacotoolbox.
 
 Progress bars are automatically controlled by logging level:
 - INFO or DEBUG: Show progress bars
@@ -31,8 +30,7 @@ logger = get_logger(__name__)
 
 
 def _should_show_progress() -> bool:
-    """
-    Check if progress bars should be shown based on logging level.
+    """Check if progress bars should be shown based on logging level.
 
     Progress bars are shown when:
     - Logger level is INFO (20) or DEBUG (10)
@@ -52,8 +50,7 @@ def _should_show_progress() -> bool:
 
 
 def is_progress_suppressed() -> bool:
-    """
-    Check if progress bars are currently suppressed.
+    """Check if progress bars are currently suppressed.
 
     Returns:
         bool: True if progress bars are suppressed
@@ -70,8 +67,7 @@ def progress_bar(
     leave: bool = True,
     **kwargs: Any,
 ) -> tqdm:
-    """
-    Create progress bar with automatic suppression based on logging level.
+    """Create progress bar with automatic suppression based on logging level.
 
     If logging level is WARNING or higher, returns tqdm with disable=True.
     Otherwise, returns active tqdm progress bar.
@@ -113,8 +109,7 @@ async def progress_gather(
     colour: str | None = None,
     **kwargs: Any,
 ):
-    """
-    Async gather with progress bar (respects logging level).
+    """Async gather with progress bar (respects logging level).
 
     Returns tqdm.asyncio.gather with disable=True/False based on logging level.
 
@@ -145,8 +140,7 @@ def progress_scope(
     unit: str = "it",
     colour: str | None = None,
 ) -> Generator[tqdm, None, None]:
-    """
-    Context manager for manual progress bar updates (respects logging level).
+    """Context manager for manual progress bar updates (respects logging level).
 
     Returns tqdm with disable=True/False based on logging level.
 
@@ -180,8 +174,7 @@ async def progress_map_async(
     colour: str | None = None,
     concurrency: int = 100,
 ):
-    """
-    Map async function over items with progress bar and concurrency limit.
+    """Map async function over items with progress bar and concurrency limit.
 
     Respects logging level for progress bar visibility.
 

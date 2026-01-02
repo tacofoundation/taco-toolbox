@@ -1,5 +1,4 @@
-"""
-ISTAC extension for irregular spatiotemporal geometries.
+"""ISTAC extension for irregular spatiotemporal geometries.
 
 Provides Irregular SpatioTemporal Asset Catalog (ISTAC) metadata for
 non-regular geospatial data without affine geotransform.
@@ -36,7 +35,7 @@ except ImportError:
     HAS_ANTIMERIDIAN = False
 
 
-def geometry_centroid(  # noqa: C901
+def geometry_centroid(
     crs: str,
     geometry: bytes,
     check_antimeridian: bool = False,
@@ -94,8 +93,7 @@ def geometry_centroid(  # noqa: C901
 
 
 class ISTAC(SampleExtension):
-    """
-    Irregular SpatioTemporal Asset Catalog (ISTAC) metadata for non-regular geometries.
+    """Irregular SpatioTemporal Asset Catalog (ISTAC) metadata for non-regular geometries.
 
     Requirements:
     - Timestamps: int64 microseconds since Unix epoch (UTC)
@@ -141,14 +139,16 @@ class ISTAC(SampleExtension):
         return self
 
     def get_schema(self) -> pa.Schema:
-        return pa.schema([
-            pa.field("istac:crs", pa.string()),
-            pa.field("istac:geometry", pa.binary()),
-            pa.field("istac:time_start", pa.timestamp("us", tz=None)),
-            pa.field("istac:time_end", pa.timestamp("us", tz=None)),
-            pa.field("istac:time_middle", pa.timestamp("us", tz=None)),
-            pa.field("istac:centroid", pa.binary()),
-        ])
+        return pa.schema(
+            [
+                pa.field("istac:crs", pa.string()),
+                pa.field("istac:geometry", pa.binary()),
+                pa.field("istac:time_start", pa.timestamp("us", tz=None)),
+                pa.field("istac:time_end", pa.timestamp("us", tz=None)),
+                pa.field("istac:time_middle", pa.timestamp("us", tz=None)),
+                pa.field("istac:centroid", pa.binary()),
+            ]
+        )
 
     def get_field_descriptions(self) -> dict[str, str]:
         return {

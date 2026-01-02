@@ -175,9 +175,9 @@ class TestTortillaIntegration:
 
     def test_multiple_samples_get_codes(self, make_tortilla_with_stac):
         coords = [
-            (0.0, 0.0),      # Origin
-            (10.0, 45.0),    # Europe
-            (-74.0, 40.7),   # NYC
+            (0.0, 0.0),  # Origin
+            (10.0, 45.0),  # Europe
+            (-74.0, 40.7),  # NYC
         ]
         t = make_tortilla_with_stac(coords=coords)
         t.extend_with(MajorTOM(dist_km=100))
@@ -193,10 +193,12 @@ class TestTortillaIntegration:
 
         s = make_sample("no_centroid")
         # Add stac:centroid column with None value
-        s.extend_with(pa.table(
-            {"stac:centroid": [None]},
-            schema=pa.schema([pa.field("stac:centroid", pa.binary())]),
-        ))
+        s.extend_with(
+            pa.table(
+                {"stac:centroid": [None]},
+                schema=pa.schema([pa.field("stac:centroid", pa.binary())]),
+            )
+        )
 
         t = Tortilla(samples=[s])
         t.extend_with(MajorTOM())

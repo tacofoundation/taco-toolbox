@@ -15,7 +15,7 @@ class TestPublicationsCompute:
             ]
         )
         table = pubs._compute(None)
-        
+
         assert table.num_rows == 1
         pub_list = table["publications"][0].as_py()
         assert len(pub_list) == 1
@@ -30,7 +30,7 @@ class TestPublicationsCompute:
             ]
         )
         table = pubs._compute(None)
-        
+
         pub_list = table["publications"][0].as_py()
         assert len(pub_list) == 2
         assert {p["doi"] for p in pub_list} == {"10.1234/a", "10.1234/b"}
@@ -40,6 +40,6 @@ class TestPublicationsCompute:
             publications=[Publication(doi="10.1234/x", citation="Citation")]
         )
         table = pubs._compute(None)
-        
+
         pub_list = table["publications"][0].as_py()
         assert pub_list[0]["summary"] is None

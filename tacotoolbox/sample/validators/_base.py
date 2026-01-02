@@ -12,8 +12,7 @@ class ValidationError(Exception):
 
 
 class SampleValidator(ABC):
-    """
-    Abstract base class for Sample validators.
+    """Abstract base class for Sample validators.
 
     Validators enforce format-specific requirements on Sample objects.
     Applied using Sample.validate_with() method.
@@ -27,16 +26,14 @@ class SampleValidator(ABC):
 
     @abstractmethod
     def validate(self, sample: "Sample") -> None:
-        """
-        Validate sample against format-specific requirements.
+        """Validate sample against format-specific requirements.
 
         Must raise ValidationError if sample doesn't meet format requirements.
         """
         pass
 
     def get_supported_extensions(self) -> list[str]:
-        """
-        Get list of file extensions supported by this validator.
+        """Get list of file extensions supported by this validator.
 
         Used for auto-detection of appropriate validators based on file extensions.
         Returns empty list by default (no auto-detection).

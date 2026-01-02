@@ -1,5 +1,4 @@
-"""
-Spatial grouping extension for Tortilla using Z-order curve.
+"""Spatial grouping extension for Tortilla using Z-order curve.
 
 Groups samples by spatial proximity using space-filling curve algorithm
 for compact bounding box generation without external dependencies.
@@ -37,8 +36,7 @@ logger = logging.getLogger(__name__)
 
 
 def normalize_coords(lon: float, lat: float) -> tuple[float, float]:
-    """
-    Normalize lon/lat to [0, 1] range.
+    """Normalize lon/lat to [0, 1] range.
 
     lon: [-180, 180] → [0, 1]
     lat: [-90, 90] → [0, 1]
@@ -49,8 +47,7 @@ def normalize_coords(lon: float, lat: float) -> tuple[float, float]:
 
 
 def morton_encode(x: float, y: float) -> int:
-    """
-    Compute Morton code (Z-order) by interleaving bits.
+    """Compute Morton code (Z-order) by interleaving bits.
 
     Takes normalized coordinates [0, 1] and returns integer Z-order code.
     Higher precision = more bits = better spatial resolution.
@@ -69,8 +66,7 @@ def morton_encode(x: float, y: float) -> int:
 
 
 def compute_z_order(lon: float, lat: float) -> int:
-    """
-    Compute Z-order code for geographic coordinates.
+    """Compute Z-order code for geographic coordinates.
 
     Combines normalization and Morton encoding.
     """
@@ -79,8 +75,7 @@ def compute_z_order(lon: float, lat: float) -> int:
 
 
 class SpatialGrouping(TortillaExtension):
-    """
-    Spatial grouping extension for Tortilla using Z-order space-filling curve.
+    """Spatial grouping extension for Tortilla using Z-order space-filling curve.
 
     Groups samples by spatial proximity to create compact bounding boxes
     for split ZIP files. Uses Z-order curve to preserve locality without
@@ -161,7 +156,7 @@ class SpatialGrouping(TortillaExtension):
         """Return field descriptions for each field."""
         return {"spatialgroup:code": "Spatial group identifier using Z-order curve for compact bounding boxes."}
 
-    def _compute(self, tortilla) -> pa.Table:  # noqa: C901
+    def _compute(self, tortilla) -> pa.Table:
         """Process Tortilla and return Arrow Table with spatial group codes."""
         if not HAS_NUMPY:
             raise ImportError("SpatialGrouping requires numpy.\nInstall with: pip install numpy")

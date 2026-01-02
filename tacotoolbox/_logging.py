@@ -1,5 +1,4 @@
-"""
-Logging configuration for tacotoolbox.
+"""Logging configuration for tacotoolbox.
 
 Provides centralized logging setup with appropriate levels and formats.
 Users can configure logging behavior externally via standard logging config.
@@ -35,8 +34,7 @@ DEFAULT_FORMAT = "%(levelname)s [%(name)s] %(message)s"
 
 
 def get_logger(name: str) -> logging.Logger:
-    """
-    Get logger for tacotoolbox module.
+    """Get logger for tacotoolbox module.
 
     Creates logger with tacotoolbox namespace for easy filtering.
     By default, loggers inherit from root logger configuration.
@@ -60,8 +58,7 @@ def get_logger(name: str) -> logging.Logger:
 
 
 def setup_basic_logging(level: int = logging.INFO, fmt: str | None = None) -> None:
-    """
-    Setup basic logging configuration for tacotoolbox.
+    """Setup basic logging configuration for tacotoolbox.
 
     This is a convenience function for quick setup. Advanced users
     should configure logging directly via logging.basicConfig() or
@@ -100,8 +97,7 @@ def setup_basic_logging(level: int = logging.INFO, fmt: str | None = None) -> No
 
 
 def enable_debug_logging() -> None:
-    """
-    Enable debug logging for all tacotoolbox modules.
+    """Enable debug logging for all tacotoolbox modules.
 
     Convenience function equivalent to:
         logging.getLogger("tacotoolbox").setLevel(logging.DEBUG)
@@ -115,8 +111,7 @@ def enable_debug_logging() -> None:
 
 
 def disable_logging() -> None:
-    """
-    Disable all tacotoolbox logging.
+    """Disable all tacotoolbox logging.
 
     Sets level to CRITICAL+1, effectively silencing all logs.
 

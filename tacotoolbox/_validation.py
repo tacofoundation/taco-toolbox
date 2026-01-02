@@ -1,5 +1,4 @@
-"""
-Validation utilities for TACO container creation.
+"""Validation utilities for TACO container creation.
 
 This module provides validation functions used during TACO creation to ensure:
 - Output paths are valid and available
@@ -35,8 +34,7 @@ def is_padding_id(sample_id: str) -> bool:
 
 
 def validate_output_path(path: pathlib.Path, output_format: Literal["zip", "folder"]) -> None:
-    """
-    Validate that output path is available for creation.
+    """Validate that output path is available for creation.
 
     Checks that output path doesn't already exist to prevent accidental overwrite.
     Parent directories are created automatically if they don't exist.
@@ -58,8 +56,7 @@ def validate_output_path(path: pathlib.Path, output_format: Literal["zip", "fold
 def validate_common_directory(
     inputs: Sequence[str | pathlib.Path],
 ) -> pathlib.Path:
-    """
-    Validate that all input files are in the same directory.
+    """Validate that all input files are in the same directory.
 
     Returns the common parent directory for output auto-detection.
     Used by tacocat and tacollection when output directory is not specified.
@@ -89,8 +86,7 @@ def validate_common_directory(
 
 
 def validate_split_size(size_str: str) -> int:
-    """
-    Validate and parse split_size parameter to bytes.
+    """Validate and parse split_size parameter to bytes.
 
     Parses human-readable size strings (e.g., "4GB") and validates that:
     - Format is valid (parseable)
@@ -116,8 +112,7 @@ def validate_split_size(size_str: str) -> int:
 
 
 def validate_format_and_split(output_format: Literal["zip", "folder"], split_size: str | None) -> None:
-    """
-    Validate compatibility between format and split_size parameters.
+    """Validate compatibility between format and split_size parameters.
 
     Ensures that split_size is only used with ZIP format, as FOLDER
     format doesn't support splitting.
@@ -132,8 +127,7 @@ def validate_format_and_split(output_format: Literal["zip", "folder"], split_siz
 
 
 def validate_format_value(output_format: str) -> None:
-    """
-    Validate that format parameter has allowed value.
+    """Validate that format parameter has allowed value.
 
     Only "zip" and "folder" are valid TACO container formats.
 
@@ -145,8 +139,7 @@ def validate_format_value(output_format: str) -> None:
 
 
 def parse_size(size_str: str) -> int:
-    """
-    Parse human-readable size string to bytes.
+    """Parse human-readable size string to bytes.
 
     Supports common size formats with optional suffixes:
     - GB/G: Gigabytes (1024^3 bytes)

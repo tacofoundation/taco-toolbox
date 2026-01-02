@@ -1,5 +1,4 @@
-"""
-Metadata generation for TACO containers.
+"""Metadata generation for TACO containers.
 
 This module generates the dual metadata system used by both ZIP and FOLDER containers:
 
@@ -55,8 +54,7 @@ logger = get_logger(__name__)
 
 
 class MetadataPackage:
-    """
-    Complete metadata bundle for TACO containers.
+    """Complete metadata bundle for TACO containers.
 
     This package contains everything needed to create both ZIP and FOLDER containers:
     - Consolidated metadata for all levels (METADATA/)
@@ -228,8 +226,7 @@ class MetadataGenerator:
         return result_levels
 
     def _generate_folder_metadata(self, folder_sample: "Sample") -> pa.Table:
-        """
-        Generate local metadata for a single folder.
+        """Generate local metadata for a single folder.
 
         Critical: Children may have different extensions (e.g., cloudmask vs s2data vs thumbnail),
         resulting in different schema widths. Must align schemas before concatenation.
@@ -306,8 +303,7 @@ class MetadataGenerator:
 
 
 def _compute_real_mask(ids_column: pa.ChunkedArray) -> pa.ChunkedArray:
-    """
-    Compute boolean mask: True for real samples, False for padding.
+    """Compute boolean mask: True for real samples, False for padding.
 
     Uses pc.starts_with which executes in C++, avoiding Python iteration.
     PADDING_PREFIX is "__TACOPAD__" defined in _constants.py.
@@ -317,8 +313,7 @@ def _compute_real_mask(ids_column: pa.ChunkedArray) -> pa.ChunkedArray:
 
 
 def _count_real_in_slice(is_real_mask: pa.ChunkedArray, start: int, length: int) -> int:
-    """
-    Count real samples in a slice of the boolean mask.
+    """Count real samples in a slice of the boolean mask.
 
     Uses pc.sum on the slice - True counts as 1, False as 0.
     Avoids converting to Python list for counting.
@@ -332,8 +327,7 @@ def _find_best_group(
     group_size: int,
     num_groups: int,
 ) -> tuple[list[str], list[str], int]:
-    """
-    Find the group with the most real (non-padding) samples.
+    """Find the group with the most real (non-padding) samples.
 
     Iterates through groups tracking max real count. Early-exits if a
     "perfect" group (all real, no padding) is found.
@@ -371,8 +365,7 @@ def _process_level1(
     table: pa.Table,
     parent_table: pa.Table,
 ) -> dict[str, Any]:
-    """
-    Process level 1: direct children of root folders.
+    """Process level 1: direct children of root folders.
 
     Level 1 is simpler than level 2+ because all children share the same
     parent structure. Each parent folder has exactly children_per_parent
@@ -398,8 +391,7 @@ def _process_level_n(
     parent_pattern: list[str],
     depth: int,
 ) -> list[dict[str, Any]]:
-    """
-    Process level 2+: children of nested folders.
+    """Process level 2+: children of nested folders.
 
     Level 2+ is more complex because folders can appear at multiple positions
     within the parent pattern. For example, if parent_pattern is
@@ -446,11 +438,13 @@ def _process_level_n(
             f"Level {depth} position {pos_idx}: canonical at group {best_idx} with {samples_per_group} samples"
         )
 
-        all_patterns.append({
-            "n": num_groups * len(best_types),
-            "type": best_types,
-            "id": best_ids,
-        })
+        all_patterns.append(
+            {
+                "n": num_groups * len(best_types),
+                "type": best_types,
+                "id": best_ids,
+            }
+        )
 
     return all_patterns
 
@@ -458,8 +452,7 @@ def _process_level_n(
 def generate_pit_schema(
     tables: list[pa.Table],
 ) -> dict[str, Any]:
-    """
-    Generate PIT schema from metadata tables.
+    """Generate PIT schema from metadata tables.
 
     The PIT schema describes the hierarchical structure of a TACO container,
     enabling deterministic navigation without reading all metadata.
@@ -518,8 +511,7 @@ def generate_pit_schema(
 
 # Field schema & collection
 def generate_field_schema(levels: list[pa.Table], taco: "Taco") -> dict[str, Any]:
-    """
-    Generate field schema with descriptions from extensions.
+    """Generate field schema with descriptions from extensions.
 
     Collects field descriptions from all Sample and Tortilla extensions,
     then generates arrays of [name, type, description] for each field.

@@ -1,5 +1,4 @@
-"""
-TacoCat - Consolidate multiple TACO datasets into .tacocat/ folder.
+"""TacoCat - Consolidate multiple TACO datasets into .tacocat/ folder.
 
 Consolidates multiple .tacozip files into a single .tacocat/ folder with
 unified parquet files optimized for DuckDB queries plus COLLECTION.json metadata.
@@ -22,7 +21,6 @@ from tacotoolbox._constants import (
 from tacotoolbox._exceptions import (
     TacoConsolidationError,
     TacoSchemaError,
-    TacoValidationError,
 )
 from tacotoolbox._logging import get_logger
 from tacotoolbox._tacollection import create_tacollection
@@ -32,8 +30,7 @@ logger = get_logger(__name__)
 
 
 def _estimate_row_group_size(num_rows: int, num_cols: int) -> int:
-    """
-    Estimate optimal row_group_size for Parquet files.
+    """Estimate optimal row_group_size for Parquet files.
 
     Target: ~128MB uncompressed row groups for optimal DuckDB performance.
     Assumes ~1KB average row size (conservative estimate).
@@ -55,8 +52,7 @@ def create_tacocat(
     parquet_kwargs: dict[str, Any] | None = None,
     validate_schema: bool = True,
 ) -> None:
-    """
-    Create .tacocat/ folder from multiple TACO datasets.
+    """Create .tacocat/ folder from multiple TACO datasets.
 
     Consolidates multiple .tacozip files into a single .tacocat/ folder
     with unified parquet files optimized for DuckDB queries plus consolidated
@@ -123,8 +119,7 @@ class TacoCatWriter:
         output_path: str | Path,
         parquet_kwargs: dict[str, Any] | None = None,
     ):
-        """
-        Initialize TacoCat writer.
+        """Initialize TacoCat writer.
 
         Args:
             output_path: Path to .tacocat/ folder
@@ -139,8 +134,7 @@ class TacoCatWriter:
             self.parquet_config.update(parquet_kwargs)
 
     def add_dataset(self, tacozip_path: str | Path) -> None:
-        """
-        Add a TACO dataset to be consolidated.
+        """Add a TACO dataset to be consolidated.
 
         Raises:
             TacoConsolidationError: If dataset is invalid or cannot be read
@@ -164,8 +158,7 @@ class TacoCatWriter:
         self.datasets.append(path)
 
     def write(self, validate_schema: bool = True) -> None:
-        """
-        Write consolidated .tacocat/ folder with parquets + COLLECTION.json.
+        """Write consolidated .tacocat/ folder with parquets + COLLECTION.json.
 
         Raises:
             TacoConsolidationError: If no datasets added or writing fails
@@ -192,8 +185,7 @@ class TacoCatWriter:
         logger.info(f"   Total size: {folder_size_gb:.2f} GB")
 
     def _consolidate_parquet_files(self, validate_schema: bool) -> dict[int, pa.Table]:
-        """
-        Consolidate Parquet files from all datasets by level.
+        """Consolidate Parquet files from all datasets by level.
         Adds internal:source_file column to track original tacozip.
         """
         levels_data: dict[int, list[pa.Table]] = {}
@@ -213,8 +205,7 @@ class TacoCatWriter:
         reference_schemas: dict[int, pa.Schema],
         validate_schema: bool,
     ) -> None:
-        """
-        Process a single dataset and add its Tables to levels_data.
+        """Process a single dataset and add its Tables to levels_data.
 
         Raises:
             TacoConsolidationError: If dataset cannot be read
@@ -262,8 +253,7 @@ class TacoCatWriter:
         dataset_path: Path,
         reference_schemas: dict[int, pa.Schema],
     ) -> None:
-        """
-        Validate Table schema against reference schema for level.
+        """Validate Table schema against reference schema for level.
 
         Raises:
             TacoSchemaError: If schemas don't match

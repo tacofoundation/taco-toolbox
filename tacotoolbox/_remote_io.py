@@ -1,5 +1,4 @@
-"""
-Remote I/O operations for TACO creation.
+"""Remote I/O operations for TACO creation.
 
 Centralized remote file ops (HTTP, S3, GCS, Azure).
 Uses obstore backend but designed for easy replacement.
@@ -17,8 +16,7 @@ from tacotoolbox._constants import PROTOCOL_MAPPINGS
 
 
 def _create_store(url: str):
-    """
-    Create obstore ObjectStore from URL.
+    """Create obstore ObjectStore from URL.
 
     Supports all protocols defined in PROTOCOL_MAPPINGS:
     - s3:// → S3Store
@@ -39,7 +37,7 @@ def _create_store(url: str):
     # Find matching protocol
     for protocol, store_class in protocol_handlers.items():
         if url.startswith(protocol):
-            return store_class.from_url(url)  # type: ignore[union-attr, attr-defined]
+            return store_class.from_url(url)  # type: ignore[union-attr]
 
     # Build error message with all supported protocols
     supported = sorted({PROTOCOL_MAPPINGS[p]["standard"] for p in PROTOCOL_MAPPINGS})
@@ -47,8 +45,7 @@ def _create_store(url: str):
 
 
 def download_range(url: str, offset: int, size: int, subpath: str = "") -> bytes:
-    """
-    Download byte range from remote file.
+    """Download byte range from remote file.
 
     Efficient for reading portions of large files without full download.
     Uses HTTP Range requests or cloud storage equivalent.
