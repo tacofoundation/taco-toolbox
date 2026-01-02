@@ -89,6 +89,7 @@ warn_unused_ignores = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"
 addopts = "-v --tb=short -m 'not slow'"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
@@ -134,7 +135,7 @@ max-complexity = 15
 [tool.coverage.run]
 branch = true
 source = ["tacotoolbox"]
-omit = ["tacotoolbox/v1/*", "tests/*"]
+omit = ["tacotoolbox/v1/*", "tests/*", "tacotoolbox/_nest_asyncio.py", "_remote_io.py", "tacotoolbox/sample/extensions/tacotiff.py", "tacotoolbox/tortilla/extensions/geoenrich.py", "tacotoolbox/sample/validators/*"]
 
 [tool.coverage.report]
 skip_empty = true
