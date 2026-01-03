@@ -1,6 +1,6 @@
 [project]
 name = "tacotoolbox"
-version = "0.25.0"
+version = "0.26.0"
 description = "Creation toolkit for AI-ready datasets."
 readme = "README.md"
 license = "MIT"
@@ -35,8 +35,7 @@ dependencies = [
     "pyproj>=3.7.2",
     "shapely>=2.1.1",
     "tacozip>=0.11.4",
-    "tqdm>=4.67.1",
-    "tacoreader>=2.3.0",
+    "tqdm>=4.67.1"
 ]
 
 [project.optional-dependencies]
