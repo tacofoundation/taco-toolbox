@@ -25,7 +25,7 @@ from tacotoolbox._exceptions import TacoDocumentationError
 from tacotoolbox._logging import get_logger
 
 try:
-    import markdown  # type: ignore[import-untyped]
+    import markdown
     from jinja2 import Environment, FileSystemLoader
 
     DOCS_AVAILABLE = True
@@ -332,7 +332,7 @@ def _description_to_html(description: str) -> str:
     description = description.strip()
 
     try:
-        return markdown.markdown(description, extensions=["extra"], output_format="html5")
+        return markdown.markdown(description, extensions=["extra"], output_format="html")
     except Exception as e:
         logger.warning(f"Markdown rendering failed, using fallback: {e}")
         return _simple_markdown_to_html(description)

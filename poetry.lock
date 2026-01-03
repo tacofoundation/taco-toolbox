@@ -2396,6 +2396,18 @@ slack = ["slack-sdk"]
 telegram = ["requests"]
 
 [[package]]
+name = "types-markdown"
+version = "3.10.0.20251106"
+description = "Typing stubs for Markdown"
+optional = false
+python-versions = ">=3.9"
+groups = ["dev"]
+files = [
+    {file = "types_markdown-3.10.0.20251106-py3-none-any.whl", hash = "sha256:2c39512a573899b59efae07e247ba088a75b70e3415e81277692718f430afd7e"},
+    {file = "types_markdown-3.10.0.20251106.tar.gz", hash = "sha256:12836f7fcbd7221db8baeb0d3a2f820b95050d0824bfa9665c67b4d144a1afa1"},
+]
+
+[[package]]
 name = "typing-extensions"
 version = "4.15.0"
 description = "Backported and Experimental Type Hints for Python 3.9+"
@@ -2528,4 +2540,4 @@ stats = ["numpy"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.11,<3.14"
-content-hash = "dfc3baee267e9044378c2c78146312fc28a7619a63fc20a683976bbcfa1a239f"
+content-hash = "23c3c79f8ccc8817b5f150a3ee1bfffb5d9fc4df6a30037ff3c300ea89068f39"

@@ -133,7 +133,6 @@ def make_nested_tortilla(tmp_file):
         for i in range(n_folders):
             children = []
             for j in range(n_children):
-                # Same child ID across all folders (PIT requirement)
                 path = tmp_file(f"folder_{i}_child_{j}.bin", b"x" * 100)
                 children.append(Sample(id=f"child_{j}", path=path))
             inner_tortilla = Tortilla(samples=children)
@@ -172,6 +171,54 @@ def make_nested_taco(make_nested_tortilla, make_taco):
 
     def _make(n_folders: int = 2, n_children: int = 2, **kwargs) -> Taco:
         tortilla = make_nested_tortilla(n_folders, n_children)
+        return make_taco(tortilla=tortilla, **kwargs)
+
+    return _make
+
+
+@pytest.fixture
+def make_deep_nested_tortilla(tmp_file):
+    """Factory for 3-level hierarchy: FOLDER -> FOLDER -> FILE.
+    
+    Structure:
+        folder_0/
+            subfolder_0/
+                leaf_0, leaf_1
+            subfolder_1/
+                leaf_0, leaf_1
+        folder_1/
+            subfolder_0/
+                leaf_0, leaf_1
+            subfolder_1/
+                leaf_0, leaf_1
+    
+    PIT-compliant: same child IDs at same positions across all branches.
+    """
+
+    def _make(n_folders: int = 2, n_subfolders: int = 2, n_leaves: int = 2) -> Tortilla:
+        folders_l0 = []
+        for i in range(n_folders):
+            folders_l1 = []
+            for j in range(n_subfolders):
+                leaves = [
+                    Sample(id=f"leaf_{k}", path=tmp_file(f"f{i}_sf{j}_leaf{k}.bin", b"x" * 50))
+                    for k in range(n_leaves)
+                ]
+                subfolder = Sample(id=f"subfolder_{j}", path=Tortilla(samples=leaves))
+                folders_l1.append(subfolder)
+            folder = Sample(id=f"folder_{i}", path=Tortilla(samples=folders_l1))
+            folders_l0.append(folder)
+        return Tortilla(samples=folders_l0)
+
+    return _make
+
+
+@pytest.fixture
+def make_deep_nested_taco(make_deep_nested_tortilla, make_taco):
+    """Factory for Taco with 3-level FOLDER hierarchy."""
+
+    def _make(n_folders: int = 2, n_subfolders: int = 2, n_leaves: int = 2, **kwargs) -> Taco:
+        tortilla = make_deep_nested_tortilla(n_folders, n_subfolders, n_leaves)
         return make_taco(tortilla=tortilla, **kwargs)
 
     return _make

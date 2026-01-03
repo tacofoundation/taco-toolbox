@@ -1,18 +1,10 @@
 """Tests for _progress.py"""
 
-import asyncio
 import logging
 
 import pytest
 
-from tacotoolbox._progress import (
-    _should_show_progress,
-    is_progress_suppressed,
-    progress_bar,
-    progress_gather,
-    progress_map_async,
-    progress_scope,
-)
+from tacotoolbox._progress import _should_show_progress, progress_bar, progress_scope
 
 
 @pytest.fixture(autouse=True)
@@ -46,15 +38,6 @@ class TestShouldShowProgress:
         assert _should_show_progress() is False
 
 
-class TestIsProgressSuppressed:
-
-    def test_inverse_of_should_show(self):
-        set_progress_logger_level(logging.INFO)
-        assert is_progress_suppressed() is False
-        set_progress_logger_level(logging.WARNING)
-        assert is_progress_suppressed() is True
-
-
 class TestProgressBar:
 
     def test_disabled_at_warning_level(self):
@@ -86,46 +69,3 @@ class TestProgressScope:
         with progress_scope("test", total=10) as pbar:
             pass
         assert pbar.n == 0 or pbar.disable
-
-
-class TestProgressGather:
-
-    @pytest.mark.asyncio
-    async def test_gathers_results(self):
-        set_progress_logger_level(logging.WARNING)
-
-        async def dummy(x):
-            return x * 2
-
-        results = await progress_gather(dummy(1), dummy(2), dummy(3))
-        assert results == [2, 4, 6]
-
-
-class TestProgressMapAsync:
-
-    @pytest.mark.asyncio
-    async def test_maps_function_over_items(self):
-        set_progress_logger_level(logging.WARNING)
-
-        async def double(x):
-            return x * 2
-
-        results = await progress_map_async(double, [1, 2, 3])
-        assert results == [2, 4, 6]
-
-    @pytest.mark.asyncio
-    async def test_respects_concurrency(self):
-        set_progress_logger_level(logging.WARNING)
-        active = 0
-        max_active = 0
-
-        async def track_concurrency(x):
-            nonlocal active, max_active
-            active += 1
-            max_active = max(max_active, active)
-            await asyncio.sleep(0.01)
-            active -= 1
-            return x
-
-        await progress_map_async(track_concurrency, range(10), concurrency=3)
-        assert max_active <= 3

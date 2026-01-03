@@ -1,6 +1,6 @@
 [project]
 name = "tacotoolbox"
-version = "0.24.1"
+version = "0.25.0"
 description = "Creation toolkit for AI-ready datasets."
 readme = "README.md"
 license = "MIT"
@@ -70,6 +70,7 @@ mypy = "^1.5.1"
 pre-commit = "^3.4.0"
 tox = "^4.11.1"
 ruff = ">=0.9"
+types-Markdown = ">=3.7"
 
 [tool.poetry.group.docs.dependencies]
 mkdocs = "^1.4.2"
