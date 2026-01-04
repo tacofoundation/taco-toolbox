@@ -43,7 +43,7 @@ def _check_dependencies() -> None:
         )
 
 
-def _get_template_env() -> Environment:
+def _get_template_env() -> "Environment":
     """Initialize Jinja2 environment for template rendering."""
     templates_dir = Path(__file__).parent / "templates"
 
